@@ -191,9 +191,21 @@ frp-check:
 
 # names: the article before the name, which a rename leaves behind. The name begins with a vowel
 # sound, so it takes "an", in prose, in comments and in the refusals a caller reads; bare, or behind
-# a mark or the X- prefix. The pattern is hdtp-identity's gate's.
+# a mark or the X- prefix. The pattern is hdtp-identity's gate's, byte for byte, and gives the
+# verdicts of hdtp-spec's stated.mjs (TestTheArticleRuleIsOneRuleInEveryRepository). The self-test
+# runs first, through the same git grep: planted lines, spelt here through printf so that this file
+# is not one of them, five refused and four kept. A guard that refuses nothing passes every tree.
+NAMES_ARTICLE := (^|[^[:alnum:]_])[Aa] [`*_"(]*(X-)?(HDTP|hdtp)
 names:
-	@if git grep -n -I -E '(^|[^[:alnum:]_])[Aa] [`*_"(]*(X-)?(HDTP|hdtp)' -- .; then \
+	@planted=$$(mktemp -d); trap 'rm -rf "$$planted"' EXIT; \
+	printf 'a %s node\nA %s:// address\na `%s` card\na X-%s-VERSION line\n(a **%s** card)\n' HDTP hdtp HDTP HDTP hdtp > "$$planted/hits"; \
+	printf 'an %s node\ndata %s\nbanana %s\n_a %s\n' HDTP hdtp HDTP HDTP > "$$planted/misses"; \
+	refused=$$(cd "$$planted" && env -u GIT_DIR -u GIT_WORK_TREE git grep --no-index -h -I -E '$(NAMES_ARTICLE)' -- hits | wc -l | tr -d ' '); \
+	kept=$$(cd "$$planted" && env -u GIT_DIR -u GIT_WORK_TREE git grep --no-index -h -I -E '$(NAMES_ARTICLE)' -- misses | wc -l | tr -d ' '); \
+	if [ "$$refused" != 5 ] || [ "$$kept" != 0 ]; then \
+		echo "names: the self-test refused $$refused of the 5 planted lines it must refuse and $$kept of the 4 it must keep: the guard is broken"; exit 1; \
+	fi
+	@if git grep -n -I -E '$(NAMES_ARTICLE)' -- .; then \
 		echo 'names: the lines above write "a" before the name; it takes "an"'; exit 1; \
 	fi
 
