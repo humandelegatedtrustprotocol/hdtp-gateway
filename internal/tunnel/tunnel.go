@@ -25,7 +25,7 @@ type Info struct {
 	// public TLS session (edge mode), false when the caller's TLS reaches the node (direct mode).
 	TerminatesAtEdge bool
 	// Listener, when non-nil, is the raw stream the adapter delivers callers on
-	// (tailscale, ngrok, ngrok-https; frp and direct return none): the node runs its OWN TLS on it, so client
+	// (tailscale, ngrok; direct, cloudflare, edge and frp return none): the node runs its OWN TLS on it, so client
 	// certificates stay visible end to end (SPEC §10.2). Direct leaves it nil —
 	// the node's own bind is the public endpoint.
 	Listener net.Listener

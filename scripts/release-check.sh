@@ -9,6 +9,9 @@
 #   scripts/release-check.sh binaries VERSION FILE...
 #       Every binary's build info (`go version -m`) records vcs.modified=false and vcs.revision
 #       equal to the commit vVERSION names. A binary with no VCS stamp is refused.
+#       It is for the node's Go binaries: `make dist` passes it dist/hdtp-gateway_* only. The limits
+#       sidecar's binaries (dist/hdtp-limitd_*, scripts/limitd-dist.sh) are Rust and carry no Go
+#       build info; nothing stamps them with the commit.
 #
 # Run in the checkout being built. scripts/release-check-test.sh holds both to fixtures.
 set -euo pipefail

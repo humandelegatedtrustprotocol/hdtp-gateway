@@ -83,9 +83,13 @@ services:
     image: alpine/socat:latest@sha256:82ad20f6f6e29b91ff33b6662d24063522b1378f08fd8569cd3ab412cac13f50
     restart: unless-stopped
     network_mode: "service:hdtp-gateway"
+    # restart: Compose restarts the forwarder whenever Compose restarts the node: it shares the
+    # node's network, and after `docker compose restart hdtp-gateway` it answered nothing until it
+    # was restarted too (#169).
     depends_on:
       hdtp-gateway:
         condition: service_started
+        restart: true
     command: ["TCP-LISTEN:8081,fork,reuseaddr", "TCP:127.0.0.1:8080"]
 
   postgres:
@@ -110,8 +114,8 @@ services:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}  # REQUIRED when running the cloudflared profile
 
   # ngrok's agent, forwarding NGROK_URL (an ngrok domain, https://…) to the node's public listener on
-  # this network. ngrok terminates TLS: the node runs in edge mode, set in its environment
-  # (docs/quickstart.md § 4). The agent verifies the node's certificate only with
+  # this network. ngrok terminates TLS: the node runs on the `edge` tunnel adapter, chosen in the
+  # portal (docs/quickstart.md § 4). The agent verifies the node's certificate only with
   # --upstream-tls-verify, so the node's own chain needs no flag. Pinned by digest, the tag kept for
   # the reader: `ngrok/ngrok:latest` as resolved on 2026-10-13 (the multi-platform manifest list).
   ngrok:

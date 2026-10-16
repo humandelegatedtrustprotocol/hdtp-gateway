@@ -101,16 +101,20 @@ func (s *SetupTokens) ValidRecovery(tok string) bool {
 	return ok && t.recovery && time.Now().Before(t.expires)
 }
 
+// HealthDown is /healthz's whole answer while the limits sidecar does not answer.
+const HealthDown = "not serving: the limits sidecar is not answering, so every sealed call is refused unavailable\n"
+
 // Health answers /healthz, which the container HEALTHCHECK probes (`hdtp-gateway healthcheck`): 200
-// and `ok` when what the node serves through answers, 503 naming what does not. What it asks is
-// `check`: today the limits sidecar, without which every sealed call is refused `unavailable`
-// (SPEC §5.7). It needs no session: it says nothing about any account.
+// and `ok` when check, the limits sidecar's probe, answers, else 503 and HealthDown, without which
+// every sealed call is refused `unavailable` (SPEC §5.7). It needs no session, so it says nothing
+// about any account and nothing check's error carries (the socket path, the dial's error): `doctor`
+// and the serve banner name those to the operator.
 func Health(check func(ctx context.Context) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		if err := check(r.Context()); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = fmt.Fprintf(w, "not serving: %v\n", err)
+			_, _ = w.Write([]byte(HealthDown))
 			return
 		}
 		_, _ = w.Write([]byte("ok\n"))

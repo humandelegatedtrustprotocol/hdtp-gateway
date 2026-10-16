@@ -69,10 +69,7 @@ func TestRejections(t *testing.T) {
 		{"non-loopback internal with auth but no tls", `{"internal_bind": "0.0.0.0:8080", "internal_auth_enabled": true}`, nil, RuleInternalBindAuth},
 		{"empty-host internal bind is non-loopback", `{"internal_bind": ":8080"}`, nil, RuleInternalBindAuth},
 		{"postgres without dsn", `{"store_engine": "postgres"}`, nil, RulePostgresDSN},
-		{"edge with seal optional", `{"mode": "edge", "seal": "optional"}`, nil, RuleEdgeSeal},
-		{"edge with client_cert preferred", `{"mode": "edge", "client_cert": "preferred"}`, nil, RuleEdgeClientCert},
 		{"bad seal enum", `{"seal": "sometimes"}`, nil, RuleEnum},
-		{"bad mode enum", `{"mode": "hybrid"}`, nil, RuleEnum},
 		{"bad client_cert enum via env", ``, map[string]string{"HDTP_CLIENT_CERT": "maybe"}, RuleEnum},
 	}
 	for _, tc := range cases {
@@ -115,18 +112,34 @@ func TestNonLoopbackInternalNeedsAHost(t *testing.T) {
 	}
 }
 
-func TestEdgeModeValidWhenForcedKnobsMatch(t *testing.T) {
-	c, err := load(t, `{"mode": "edge", "seal": "required", "client_cert": "off"}`, nil)
-	if err != nil {
-		t.Fatal(err)
+// SPEC §10.1: the mode is derived, never declared. Neither the file nor the environment can name
+// it: a file that tries is refused as an unknown field, and a node whose environment sets HDTP_MODE
+// (to any value) refuses to start, rather than boot in the mode its adapter gives while the
+// operator believes it is in another.
+func TestTheModeIsNeverDeclared(t *testing.T) {
+	if _, err := load(t, `{"mode": "edge"}`, nil); err == nil || !strings.Contains(err.Error(), `unknown field "mode"`) {
+		t.Fatalf("a file that declares the mode was accepted: %v", err)
 	}
-	if c.LANConnections { // edge mode default: off (SPEC §2.5/§10.1)
-		t.Fatal("edge-mode LAN flag should default off")
+	const want = RuleEnum + ": HDTP_MODE is not read: the mode is derived from the tunnel adapter; set HDTP_TUNNEL=edge (or the portal's tunnel setting)"
+	for _, env := range []map[string]string{
+		{"HDTP_MODE": "edge", "HDTP_CLIENT_CERT": "off"},
+		{"HDTP_MODE": "direct"},
+		{"HDTP_MODE": ""},
+		{"HDTP_MODE": "edge", "HDTP_TUNNEL": "edge"},
+	} {
+		c, err := load(t, "", env)
+		if err == nil {
+			t.Fatalf("%v booted (mode %s, client_cert %s, lan %v)", env, c.Mode, c.ClientCert, c.LANConnections)
+		}
+		if err.Error() != want {
+			t.Fatalf("%v: %v", env, err)
+		}
 	}
 }
 
 func TestLANFlagExplicitOverride(t *testing.T) {
-	c, err := load(t, `{"mode": "edge", "seal": "required", "client_cert": "off", "lan_connections": true}`, nil)
+	RegisterTunnel("fake-edge", true)
+	c, err := load(t, `{"tunnel": "fake-edge", "lan_connections": true}`, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,10 +162,9 @@ func TestLoopbackVariants(t *testing.T) {
 func TestTunnelAdapterDerivesModeAndForcesEdgeKnobs(t *testing.T) {
 	RegisterTunnel("fake-edge", true)
 	RegisterTunnel("fake-direct", false)
-	// edge adapter: owner asked for direct + relaxed knobs; derivation overrides
+	// edge adapter: owner asked for relaxed knobs; derivation overrides
 	c, err := load(t, "", map[string]string{
-		"HDTP_TUNNEL": "fake-edge",
-		"HDTP_MODE":   "direct", "HDTP_SEAL": "optional", "HDTP_CLIENT_CERT": "preferred",
+		"HDTP_TUNNEL": "fake-edge", "HDTP_SEAL": "optional", "HDTP_CLIENT_CERT": "preferred",
 	})
 	if err != nil {
 		t.Fatal(err)

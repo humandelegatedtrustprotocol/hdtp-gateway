@@ -12,6 +12,15 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Added
 
+- The `edge` tunnel adapter, for a sidecar that terminates TLS and that the node does not run
+  itself (ngrok's agent in the `ngrok` compose profile, a quick tunnel, any terminating proxy): the
+  node starts nothing, runs in edge mode, and trusts no forwarded header, so its per-source limits
+  see the sidecar's address. The portal lists it with the other adapters (#171).
+- The limits sidecar as a release asset: `make dist` builds `hdtp-limitd_<version>_<os>_<arch>`
+  for the four platforms beside the node's binaries, from the vendored crates (Linux in the
+  Dockerfile's `rust:1.92-alpine` image, statically linked; macOS natively with the same Rust's
+  darwin targets), and `SHA256SUMS` covers both. A release is two binaries per platform, the node
+  and its sidecar, or one Docker image built from the checkout.
 - `hdtp-gateway ingress unpair -subdomain <s>` forgets one pairing in the running ingress, over its
   admin socket, and closes the node's open data-plane sessions for it: the name routes nowhere until
   it is paired again, and its data-plane secret no longer logs in.
@@ -19,14 +28,60 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Changed
 
+- `/healthz` answers a stopped limits sidecar with one fixed sentence, `not serving: the limits
+  sidecar is not answering, so every sealed call is refused unavailable`. It carried the probe's
+  error, the socket's path and the dial's error text, to a caller that needs no session (#127);
+  `doctor`, the `serve` banner and `healthcheck --limits` still name the socket and why.
 - The ingress's `POST /pair` answers every refusal with a JSON body holding the code alone
   (`{"code":"conflict"}`), served as `application/json`. A subdomain paired to another node is
   `409 conflict`; a pairing the registry could not record (the file registry's write failed) is
   `503 unavailable`, where it was a 409 whose body carried the error's text inside a JSON string
   and was not valid JSON when that text held a quote (a subdomain's name always did).
 
+### Removed
+
+- The `ngrok-https` tunnel adapter. It wrapped the decrypted HTTP ngrok handed it in the node's own
+  TLS, so it served nothing (#167). A node whose settings or environment still name it refuses to
+  start with `tunnel "ngrok-https" is not a registered adapter`; choose `edge` with the `ngrok`
+  compose profile instead. A node whose portal saved it stops before the portal serves, so the
+  portal cannot change it: set `HDTP_TUNNEL=edge` in the environment, which wins over the stored
+  selection, and the node starts.
+- `HDTP_MODE` and the config file's `mode` key: the deployment mode is derived from the tunnel
+  adapter and was never meant to be declared (SPEC.md §10.1). A node whose environment sets
+  `HDTP_MODE`, to any value, refuses to start (`invalid_enum_value: HDTP_MODE is not read: the mode
+  is derived from the tunnel adapter; set HDTP_TUNNEL=edge (or the portal's tunnel setting)`), and a
+  config file with a `mode` key is refused (`unknown field "mode"`). A node that set
+  `HDTP_MODE=edge` beside a sidecar selects the `edge` adapter instead (#171). The refusals
+  `edge_mode_forces_seal_required` and `edge_mode_forces_client_cert_off` went with it: nothing can
+  put a node in edge mode without forcing both knobs.
+
 ### Fixed
 
+- `THIRD_PARTY_NOTICES` covers every platform a release ships. It was made from one `go list
+  -deps` for the host (macOS), so it lacked the eight modules only the Linux binaries link
+  (`github.com/vishvananda/netlink`, `vishvananda/netns`, `mdlayher/netlink`, `mdlayher/socket`,
+  `jsimonetti/rtnetlink`, `safchain/ethtool`, `prometheus/procfs`, `godbus/dbus/v5`), and listed
+  `github.com/tailscale/certstore`, which only a cgo build on macOS links and no release binary
+  does. It is now the union of one run per entry of the Makefile's `PLATFORMS` with
+  `CGO_ENABLED=0`, as `make dist` builds, and `make notices-check` refuses a file made for another
+  list (#140). The files attached to v0.1.5 and earlier releases were incomplete in the same way;
+  they are left as published.
+- `doctor`'s `FAIL probe` line gives the dialer's, resolver's or TLS stack's reason after the
+  node's own phrase again (`unreachable: the endpoint did not answer the probe: …`); since #126 it
+  gave the phrase alone. The portal's probe still shows the phrase only (#129).
+- A restart no longer signs the owner out of the portal after a public URL was saved in Settings
+  or allocated by the tunnel adapter. The cookie names carry the node's tag, which was computed
+  after the store's settings and the adapter had set the public URL, so a URL saved in the portal
+  renamed the cookies at the next start and the session was not found; the tag is now taken from
+  the configuration file and the environment alone. A node whose public URL came from the portal
+  or its adapter gets new cookie names once, at its first start on this release, and its owner
+  signs in once more. `compose.yaml`'s portal forwarder now has `restart: true` under its
+  `depends_on`, so Compose restarts it whenever Compose restarts the node, where after
+  `docker compose restart hdtp-gateway` it answered nothing until restarted by hand (#169).
+- The `cloudflare` tunnel adapter with `tunnel.cloudflare.sidecar=true` starts without a tunnel
+  token: the token is the connector's, and the compose sidecar holds its own. The node refused to
+  start without one, so a node following the quickstart restarted in a loop (#168). Spawning
+  `cloudflared` as a child still needs it.
 - The ingress's file registry writes a pairing to disk before it routes it. It changed the book in
   memory first, so a pairing whose write failed was routed until the next start forgot it.
 - A pairing from the portal stores its ten rows (the adapter's eight, the tunnel selection and the
@@ -109,6 +164,16 @@ changelog can be and is not summarized into a fictional release history.
   exceeded` and no failing input (#180); a count sets no deadline. Each count is 30 s at the
   lowest of five measured rates: `FuzzVCardParse` 700,000, `FuzzSealedEnvelope` 400,000,
   `FuzzInviteOffer` 250,000, `FuzzRedact` 2,000,000. Ten runs passed, in 136 to 160 s each.
+
+### Docs
+
+- `docs/deploy.md`'s upgrade of a VM runs what the first boot runs, the vendor step for the limits
+  sidecar's crates included, which it left out; `make deploy-check` holds the lines to
+  `deploy/cloud-init.yaml`'s (#141).
+- `docs/operations.md` lists a Cloudflare quick tunnel (no account) with the `edge` adapter, and
+  says localtunnel is not supported, with what was measured (#172, #173). The two-users demo no
+  longer names a scenario count its battery has outgrown, and the quickstart says what the pairing
+  run of 2026-10-13 measured where it said the pairing was not run (#172).
 
 ## [0.1.5] — 2026-10-12
 

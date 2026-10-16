@@ -16,8 +16,10 @@ package core
 //
 // The tag goes in the cookie NAME, so each node keeps its own entry. It is
 // derived, not stored, so it needs no migration and no state: any two nodes that
-// differ in where their data lives, what they serve, or where they bind get
-// different tags.
+// differ in where their data lives, where their portal binds, or the public URL
+// their configuration file or environment gives get different tags. A public URL
+// saved in the portal or brought by the tunnel adapter is not an input: serve
+// takes the tag before either is applied, so the names survive a restart.
 
 import (
 	"crypto/sha256"
@@ -29,8 +31,10 @@ import (
 // It is NOT a secret and must never become one: it is visible in a cookie name.
 // The inputs are chosen so that two nodes a person is likely to run side by side
 // differ in at least one — separate data directories (two local nodes), or
-// separate public URLs (two containers with an identical layout, which is the
-// demo pair).
+// separate public URLs in the environment (two containers with an identical
+// layout, which is the demo pair: it sets HDTP_PUBLIC_URL). Two nodes with the
+// same data path and portal bind whose public URLs come only from the portal
+// share their cookie names.
 func NodeTag(dataDir, publicURL, internalBind string) string {
 	sum := sha256.Sum256([]byte(dataDir + "\x00" + publicURL + "\x00" + internalBind))
 	return hex.EncodeToString(sum[:4])

@@ -2,7 +2,9 @@ package tunnel
 
 import (
 	"context"
+	"encoding/json"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,8 +29,8 @@ func TestTheProbesDetailIsTheNodesWords(t *testing.T) {
 		`^the chain served there is not one a peer would accept \(for \S+ at \S+: rule \d+\)$`).MatchString(r.Detail) {
 		t.Errorf("another root: %q", r.Detail)
 	}
-	if r := Probe(ctx, a.base, opts()); r.Detail != "the certificate served there does not verify for this address" {
-		t.Errorf("webpki: %q", r.Detail)
+	if r := Probe(ctx, a.base, opts()); r.Detail != "the certificate served there does not verify for this address" || r.Cause == nil {
+		t.Errorf("webpki: %q, cause %v", r.Detail, r.Cause)
 	}
 	wrong := opts(a.identity)
 	wrong.InstanceID = "node-B"
@@ -36,7 +38,15 @@ func TestTheProbesDetailIsTheNodesWords(t *testing.T) {
 		t.Errorf("another instance: %q", r.Detail)
 	}
 	a.srv.Close()
-	if r := Probe(ctx, a.base, opts(a.identity)); r.Detail != "the endpoint did not answer the probe" {
+	r := Probe(ctx, a.base, opts(a.identity))
+	if r.Detail != "the endpoint did not answer the probe" {
 		t.Errorf("nothing listens: %q", r.Detail)
+	}
+	// The dialer's reason is kept for doctor, as Cause, and never encoded (#129).
+	if r.Cause == nil || !strings.Contains(r.Cause.Error(), "connection refused") {
+		t.Errorf("nothing listens: the cause is %v, want the dialer's connection refused", r.Cause)
+	}
+	if b, err := json.Marshal(r); err != nil || strings.Contains(string(b), "refused") {
+		t.Errorf("the cause reached the encoded result: %s %v", b, err)
 	}
 }

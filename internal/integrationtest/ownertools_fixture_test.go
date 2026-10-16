@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 // The cloud holds itself to this node's owner MCP: every tool here is exactly one action there
@@ -26,11 +28,8 @@ import (
 // of them are registered with `Name:` on its own line, which is how a pattern missed them once.
 func TestTheCloudsCopyOfTheOwnerToolsIsCurrent(t *testing.T) {
 	root := repoRoot(t)
-	fixture := filepath.Join(root, "..", "batondeck", "gateway", "test", "fixtures", "go-owner-tools.json")
-	raw, err := os.ReadFile(fixture)
-	if err != nil {
-		t.Skipf("SKIPPED, and so the cloud's copy is unchecked: no batondeck beside this repo (%v)", err)
-	}
+	const fixture = "gateway/test/fixtures/go-owner-tools.json"
+	raw := testid.SiblingFile(t, "batondeck", fixture, "the cloud's copy is unchecked")
 	var doc struct {
 		Tools []string `json:"tools"`
 	}
