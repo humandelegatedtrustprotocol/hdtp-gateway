@@ -139,19 +139,19 @@ func TestASendThisNodeDidNotLetOutSaysWhy(t *testing.T) {
 	if delivered == 0 {
 		t.Fatal("the control: no send was delivered")
 	}
-	if code, detail := refusal.Of(refused); code != "unavailable" || detail != "recorded, not delivered: "+WhyRateLimited ||
+	if code, detail := refusal.Of(refused); code != "unavailable" || detail != "recorded, not delivered: "+outbound.UnsentRateLimited ||
 		!strings.Contains(refused.Error(), "this identity has sent as many calls as its budget allows") {
 		t.Errorf("after %d delivered, a send this node's budget refused: %s %q (%v)", delivered, code, detail, refused)
 	}
 
 	bharat.limits.Stop()
 	err := send("down")
-	if code, detail := refusal.Of(err); code != "unavailable" || detail != "recorded, not delivered: "+WhyLimitsUnavailable {
+	if code, detail := refusal.Of(err); code != "unavailable" || detail != "recorded, not delivered: "+outbound.UnsentLimitsUnavailable {
 		t.Errorf("a send with the sidecar down: %s %q (%v)", code, detail, err)
 	}
 	_, err = bharat.n.SendMedia(ctx, bharat.acct.ID, alina.rootFpr(),
 		messaging.Input{MsgID: "media-down", Origin: messaging.OriginMCP}, "a.txt", "text/plain", []byte("x"))
-	if why, _ := refusal.Why(err); why != WhyLimitsUnavailable {
+	if why, _ := refusal.Why(err); why != outbound.UnsentLimitsUnavailable {
 		t.Errorf("media with the sidecar down: why %q (%v)", why, err)
 	}
 	var undelivered []string

@@ -3,13 +3,13 @@ package integrationtest
 // SECURITY.md's "Current hardening status" is the public record of where the node stands, each row
 // measured against the code on the day it was written. A row that nothing holds goes stale the day
 // after. The rows that can be derived from the tree are held to it here: the fuzz targets and their
-// time, the analysers and their pinned versions, the form of every gosec waiver, the versions of the
-// libraries the table names, the floor under the scenario count and its tiers, the authorization
-// call sites, the release-build checks `make dist` runs, what the pre-push hook runs, the absence of
-// Dependabot and CI, and that every test the table cites exists. A change to any of those changes
-// the record in the same commit, or fails the build. Exact values are held only where they are
-// deliberate configuration; a count that moves with ordinary work, such as adding a scenario, is a
-// floor.
+// execution counts, the analysers and their pinned versions, the form of every gosec waiver, the
+// versions of the libraries the table names, the floor under the scenario count and its tiers, the
+// authorization call sites, the release-build checks `make dist` runs, what the pre-push hook runs,
+// the absence of Dependabot and CI, and that every test the table cites exists. A change to any of
+// those changes the record in the same commit, or fails the build. Exact values are held only where
+// they are deliberate configuration; a count that moves with ordinary work, such as adding a
+// scenario, is a floor.
 
 import (
 	"fmt"

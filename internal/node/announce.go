@@ -134,13 +134,13 @@ func codeOr(code string) string {
 
 // refusalCodeOf reads the plaintext code of a wrapper-level refusal.
 func refusalCodeOf(res *mcp.CallToolResult) (string, bool) {
-	code, _, ok := refusalOf(res)
+	code, _, ok := peerRefusalOf(res)
 	return code, ok
 }
 
-// refusalOf reads a wrapper-level refusal: its plaintext code, and the whole seconds its
+// peerRefusalOf reads a wrapper-level refusal: its plaintext code, and the whole seconds its
 // `retry_after` names when that is a positive number (0 otherwise, which leaves the code readable).
-func refusalOf(res *mcp.CallToolResult) (code string, retryAfter int, ok bool) {
+func peerRefusalOf(res *mcp.CallToolResult) (code string, retryAfter int, ok bool) {
 	if res == nil || len(res.Content) == 0 {
 		return "", 0, false
 	}

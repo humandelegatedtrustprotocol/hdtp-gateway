@@ -32,9 +32,11 @@ changelog can be and is not summarized into a fictional release history.
   the link it split, trimmed. The split trimmed it and the fetch was given it raw, so the request
   could not be built and the owner was told `internal` (#181).
 - A call out that never left because this node's own budget refused it, or because the limits
-  sidecar did not answer, is told and audited as that, wherever the node tells it (#179). A send
-  is "recorded, not delivered: rate_limited" or "…: limits_unavailable", where it was
-  "…: unreachable". `add_contact` with the sidecar down is `unavailable` "this node's limits
+  sidecar did not answer, is told and audited as that by a send (text and media), by `add_contact`
+  (both paths: redeeming an invite link and asking by card) and by the notice to an asker (#179).
+  `refresh_contact` and `call_contact` do not: they still read it as an unreachable peer and an
+  unavailable call (#182). A send is "recorded, not delivered: rate_limited" or
+  "…: limits_unavailable", where it was "…: unreachable". `add_contact` with the sidecar down is `unavailable` "this node's limits
   sidecar is not answering, so nothing is sent", audited `limits_unavailable`, where it said the
   peer could not be reached and audited `unreachable`. The notice to an asker (`contact_accepted`,
   `contact_rejected`) is audited `rate_limited` or `limits_unavailable`, where it was audited

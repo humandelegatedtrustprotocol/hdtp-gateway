@@ -281,10 +281,8 @@ func (n *Node) deliverWithExpiry(ctx context.Context, accountID string, c store.
 // refused the call, no budget could be asked (the limits sidecar did not answer), or the contact
 // could not be reached from here.
 const (
-	WhyEndpointRefused   = "endpoint_refused"
-	WhyRateLimited       = outbound.UnsentRateLimited
-	WhyLimitsUnavailable = outbound.UnsentLimitsUnavailable
-	WhyUnreachable       = "unreachable"
+	WhyEndpointRefused = "endpoint_refused"
+	WhyUnreachable     = "unreachable"
 	// WhyRefused is a peer's refusal that carried no §12 code.
 	WhyRefused = core.PeerRefused
 )
@@ -307,7 +305,7 @@ func peerRefusal(res *mcp.CallToolResult) error {
 	if res == nil || !res.IsError {
 		return nil
 	}
-	code, retryAfter, ok := refusalOf(res)
+	code, retryAfter, ok := peerRefusalOf(res)
 	if !ok || code == WhyRefused {
 		return refusal.Undelivered(WhyRefused, errors.New("send: the contact's node refused"))
 	}
