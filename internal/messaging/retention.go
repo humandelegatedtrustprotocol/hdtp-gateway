@@ -69,14 +69,15 @@ type Sweeper struct {
 	Audit func(action, resource, outcome string)
 
 	mu sync.Mutex
-	// unreadableSeen holds the unreadable media bodies already audited (by their SHA-256), so a body
-	// that will never parse is reported once by this process, not on every hourly pass.
+	// unreadableSeen holds the unreadable media bodies already audited (by the SHA-256 of the account
+	// and the body), so a body that will never parse is reported once per account by this process,
+	// not on every hourly pass.
 	unreadableSeen map[string]bool
 }
 
-// unreadableNew reports whether any of these unreadable bodies has not been audited yet, and marks
-// them all as audited.
-func (s *Sweeper) unreadableNew(bodies []string) bool {
+// unreadableNew reports whether any of the account's unreadable bodies has not been audited yet,
+// and marks them all as audited.
+func (s *Sweeper) unreadableNew(accountID string, bodies []string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.unreadableSeen == nil {
@@ -84,7 +85,7 @@ func (s *Sweeper) unreadableNew(bodies []string) bool {
 	}
 	fresh := false
 	for _, b := range bodies {
-		sum := sha256.Sum256([]byte(b))
+		sum := sha256.Sum256([]byte(accountID + "\x00" + b))
 		k := hex.EncodeToString(sum[:])
 		if !s.unreadableSeen[k] {
 			s.unreadableSeen[k] = true
@@ -92,6 +93,26 @@ func (s *Sweeper) unreadableNew(bodies []string) bool {
 		}
 	}
 	return fresh
+}
+
+// record writes the one retention_sweep row a pass owes: always when it deleted anything (ok,
+// blobs_skipped_unreadable_media when the files waited for a body that does not parse, or error when
+// a later step failed), and when it deleted nothing only for an unreadable body not yet reported.
+func (s *Sweeper) record(accountID string, res SweepResult, unreadable []string, err error) {
+	fresh := len(unreadable) > 0 && s.unreadableNew(accountID, unreadable)
+	deleted := res.Messages > 0 || res.Threads > 0 || res.Blobs > 0
+	if !deleted && (err != nil || !fresh) {
+		return
+	}
+	outcome := "ok"
+	switch {
+	case err != nil:
+		outcome = "error"
+	case len(unreadable) > 0:
+		outcome = "blobs_skipped_unreadable_media"
+	}
+	s.audit("retention_sweep", fmt.Sprintf("account:%s messages:%d threads:%d blobs:%d",
+		accountID, res.Messages, res.Threads, res.Blobs), outcome)
 }
 
 // SweepResult reports one account's sweep.
@@ -116,51 +137,38 @@ func (s *Sweeper) audit(action, resource, outcome string) {
 
 // Sweep deletes everything for one account older than `window`. A zero or
 // negative window means unlimited retention and deletes nothing — that is the
-// default, and the safe reading of an unset value.
-func (s *Sweeper) Sweep(ctx context.Context, accountID string, window time.Duration) (SweepResult, error) {
+// default, and the safe reading of an unset value. Once it has deleted anything, it writes exactly
+// one retention_sweep row whatever happens after (record).
+func (s *Sweeper) Sweep(ctx context.Context, accountID string, window time.Duration) (res SweepResult, err error) {
 	if window <= 0 {
 		return SweepResult{}, nil
 	}
 	cutoff := s.now().Add(-window).Unix()
+	var unreadable []string
+	defer func() { s.record(accountID, res, unreadable, err) }()
 
-	msgs, err := s.Store.DeleteMessagesBefore(ctx, accountID, cutoff)
-	if err != nil {
-		return SweepResult{}, err
+	if res.Messages, err = s.Store.DeleteMessagesBefore(ctx, accountID, cutoff); err != nil {
+		return res, err
 	}
-	threads, err := s.Store.DeleteEmptyThreads(ctx, accountID)
-	if err != nil {
-		return SweepResult{}, err
+	if res.Threads, err = s.Store.DeleteEmptyThreads(ctx, accountID); err != nil {
+		return res, err
 	}
 
 	// The window's files: those older than it that no retained message names. Files judges both
 	// under the file's lock, and spares whatever a retained message still names, whatever its age.
 	blobs, err := s.Store.ListBlobs(ctx, accountID)
 	if err != nil {
-		return SweepResult{}, err
+		return res, err
 	}
 	hashes := make([]string, 0, len(blobs))
 	for _, b := range blobs {
 		hashes = append(hashes, b.Hash)
 	}
-	removed, unreadable, err := Files{Store: s.Store, Blobs: s.Blobs}.Collect(ctx, accountID, hashes, cutoff)
-	if err != nil {
-		return SweepResult{}, err
-	}
-	if len(unreadable) > 0 {
-		// A media message whose body will not parse means the set of live
-		// hashes is unknown, and deleting on an unknown set destroys data that
-		// cannot come back. Messages were still pruned; blobs wait for a sweep
-		// that can see all of them. Audited once per body, not on every pass.
-		if s.unreadableNew(unreadable) {
-			s.audit("retention_sweep", "account:"+accountID, "blobs_skipped_unreadable_media")
-		}
-		return SweepResult{Messages: msgs, Threads: threads}, nil
-	}
-	if msgs > 0 || removed > 0 {
-		s.audit("retention_sweep",
-			fmt.Sprintf("account:%s messages:%d threads:%d blobs:%d", accountID, msgs, threads, removed), "ok")
-	}
-	return SweepResult{Messages: msgs, Threads: threads, Blobs: removed}, nil
+	// A media message whose body will not parse means the set of live hashes is unknown, and
+	// deleting on an unknown set destroys data that cannot come back: Collect then deletes no file,
+	// and the files wait for a sweep that can see every name. Messages were still pruned.
+	res.Blobs, unreadable, err = Files{Store: s.Store, Blobs: s.Blobs}.Collect(ctx, accountID, hashes, cutoff)
+	return res, err
 }
 
 // CollectOrphans deletes the account's files that no message names and whose record is older than
@@ -168,7 +176,7 @@ func (s *Sweeper) Sweep(ctx context.Context, accountID string, window time.Durat
 // not take (a store failure, an unreadable media body). A record written before migration 0003 is
 // kept (OrphanSweepSince): an earlier version of the node stored a fetched link's file without
 // recording it on the message, and that file is the owner's content, which nothing in its record
-// can name. It returns how many records went, and audits them as a retention_sweep.
+// can name. It returns how many records went, and audits them as a retention_sweep (record).
 func (s *Sweeper) CollectOrphans(ctx context.Context, accountID string) (int64, error) {
 	since, err := s.Store.OrphanSweepSince(ctx)
 	if err != nil {
@@ -187,19 +195,8 @@ func (s *Sweeper) CollectOrphans(ctx context.Context, accountID string) (int64, 
 		}
 	}
 	removed, unreadable, err := Files{Store: s.Store, Blobs: s.Blobs}.Collect(ctx, accountID, hashes, s.now().Add(-FileGrace).Unix())
-	if err != nil {
-		return removed, err
-	}
-	if len(unreadable) > 0 {
-		if s.unreadableNew(unreadable) {
-			s.audit("retention_sweep", "account:"+accountID, "blobs_skipped_unreadable_media")
-		}
-		return 0, nil
-	}
-	if removed > 0 {
-		s.audit("retention_sweep", fmt.Sprintf("account:%s blobs:%d", accountID, removed), "ok")
-	}
-	return removed, nil
+	s.record(accountID, SweepResult{Blobs: removed}, unreadable, err)
+	return removed, err
 }
 
 // Files collects the media files nothing names any more: one implementation for the retention

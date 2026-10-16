@@ -3,9 +3,11 @@ package messaging
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -269,5 +271,91 @@ func TestSweepNeverDeletesBlobsInsideTheWindow(t *testing.T) {
 	}
 	if res.Blobs != 1 {
 		t.Fatalf("an orphaned blob past the window was kept: %+v", res)
+	}
+}
+
+// Every pass that deletes messages writes one retention_sweep row naming what went, also while an
+// unreadable media body holds the files back: such a pass deleted the messages and wrote no row
+// once the body had been reported, so the only record of a destructive, local-only deletion was
+// missing from the second pass on. And an unreadable body is reported once per account, not once
+// per node: the same body in another account was taken as already reported.
+func TestEveryPassThatDeletesWritesARowAndUnreadableBodiesAreReportedPerAccount(t *testing.T) {
+	ctx := context.Background()
+	e := newSweepEnv(t)
+	other, err := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "other", DisplayName: "Other", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	accounts := []string{e.acct, other.ID}
+	text := func(account, id string) {
+		t.Helper()
+		if _, err := e.svc.Record(ctx, account, "sha256:peer", DirIn,
+			Input{Origin: OriginPeer, MsgID: id, Text: "hello " + id, Sender: SenderHuman}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, a := range accounts {
+		text(a, "old-0")
+		threads, err := e.st.ListThreadsByAccount(ctx, a)
+		if err != nil || len(threads) == 0 {
+			t.Fatalf("no thread: %v", err)
+		}
+		// The same unreadable body in both accounts, retained: dated a year ahead.
+		if err := e.st.InsertMessage(ctx, store.Message{
+			ID: a + "-broken", AccountID: a, ContactFpr: "sha256:peer", MsgID: "broken",
+			ThreadID: threads[0].ID, Direction: "in", Sender: "human", Kind: "media",
+			Body: "{not json", Status: "delivered", CreatedAt: e.clock.Add(365 * 24 * time.Hour).Unix(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var rows []string
+	sw := e.sweeper()
+	sw.Audit = func(action, resource, outcome string) {
+		if action == "retention_sweep" {
+			rows = append(rows, resource+" "+outcome)
+		}
+	}
+	for pass := range 2 {
+		if pass > 0 {
+			for _, a := range accounts {
+				text(a, fmt.Sprintf("old-%d", pass))
+			}
+		}
+		e.clock = e.clock.Add(48 * time.Hour)
+		for _, a := range accounts {
+			if _, err := sw.Sweep(ctx, a, 24*time.Hour); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// The second pass's text opened a thread of its own (the first was a year from idle), which the
+	// pass empties and deletes.
+	var want []string
+	for pass := range 2 {
+		for _, a := range accounts {
+			want = append(want, fmt.Sprintf("account:%s messages:1 threads:%d blobs:0 blobs_skipped_unreadable_media", a, pass))
+		}
+	}
+	if !slices.Equal(rows, want) {
+		t.Errorf("rows:\n%s\nwant:\n%s", strings.Join(rows, "\n"), strings.Join(want, "\n"))
+	}
+	// A pass that deletes nothing reports an unreadable body it has not reported, once per account.
+	fresh := &Sweeper{Store: e.st, Blobs: e.blobs, Now: func() time.Time { return e.clock }}
+	rows = nil
+	fresh.Audit = sw.Audit
+	for range 2 {
+		for _, a := range accounts {
+			if _, err := fresh.CollectOrphans(ctx, a); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	want = nil
+	for _, a := range accounts {
+		want = append(want, "account:"+a+" messages:0 threads:0 blobs:0 blobs_skipped_unreadable_media")
+	}
+	if !slices.Equal(rows, want) {
+		t.Errorf("orphan rows:\n%s\nwant:\n%s", strings.Join(rows, "\n"), strings.Join(want, "\n"))
 	}
 }

@@ -93,8 +93,12 @@ private (the refusal is audited as `media_fetch_refused`), and any redirect.
   cannot change the target between check and connect; it times out at 30 s and follows no redirect.
 - Retention deletes locally only. A blob row goes only when past the window and referenced by no
   retained message; its file goes only when no account references the hash. If any media body fails to
-  parse, no blob is deleted in that sweep (audited as `blobs_skipped_unreadable_media`). A window of 0 or
-  less deletes nothing.
+  parse, no blob is deleted in that sweep. A window of 0 or less deletes nothing.
+- A sweep (`Sweep`, `CollectOrphans`) that deletes anything writes exactly one `retention_sweep` row,
+  `account:<id> messages:<n> threads:<n> blobs:<n>`, on every way out: `ok`,
+  `blobs_skipped_unreadable_media` when a media body that does not parse held the files back, or `error`
+  when a later step failed. One that deletes nothing writes a row only for an unreadable body of that
+  account this process has not reported yet (`blobs_skipped_unreadable_media`), once per account and body.
 
 ## Held by
 
@@ -108,6 +112,7 @@ private (the refusal is audited as `media_fetch_refused`), and any redirect.
   `TestQuotaIsReadPerCallNotCapturedAtBuildTime`; blobpath_test.go: `TestBlobPathRefusesAnythingThatIsNotAHash`.
 - retention_test.go: `TestUnlimitedRetentionDeletesNothing`, `TestRetentionDeletesPastTheWindowAndKeepsLiveBlobs`,
   `TestSharedBlobBytesSurviveUntilTheLastReferenceGoes`, `TestUnreadableMediaBodyStopsBlobDeletion`,
+  `TestEveryPassThatDeletesWritesARowAndUnreadableBodiesAreReportedPerAccount`,
   `TestSweepNeverDeletesBlobsInsideTheWindow`.
 - bus_test.go: `TestAnEventCrossesToAnotherProcessOnTheStore` (SQLite and Postgres),
   `TestAProcessDoesNotHearItsOwnEventTwice`, `TestPostgresWakesAnotherProcessAtCommit`,

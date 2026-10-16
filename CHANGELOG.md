@@ -31,6 +31,11 @@ changelog can be and is not summarized into a fictional release history.
 - A pairing from the portal stores its ten rows (the adapter's eight, the tunnel selection and the
   public URL) in one transaction. They were written one at a time, so a re-pair that failed part-way
   left the new ingress's rows beside the previous pairing's, still selected.
+- Every retention pass that deletes messages, threads or files writes one `retention_sweep` row
+  naming what went (`ok`, `blobs_skipped_unreadable_media`, or `error` when a later step failed).
+  While a media body that does not parse held the files back, a pass deleted the messages and,
+  after the first, wrote no row; and an unreadable body reported in one account silenced the same
+  body in another. The orphan sweep's row names its counts in the same shape.
 - A retention pass that cannot list the accounts prints `retention: accounts: <error>`. It ended
   there without a word, so no account was swept and nothing said so.
 - The contacts limit (`limit.contacts`) saved in the portal is applied at the next start. The boot
