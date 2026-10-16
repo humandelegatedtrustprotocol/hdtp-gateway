@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,13 +18,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
-var siblingRepos = []string{"batondeck", "hdtp-identity", "hdtp-spec"}
-
-var siblingVars = map[string]string{
-	"batondeck":     "HDTP_BATONDECK_DIR",
-	"hdtp-identity": "HDTP_IDENTITY_DIR",
-	"hdtp-spec":     "HDTP_SPEC_DIR",
-}
+var siblingRepos = slices.Sorted(maps.Keys(testid.SiblingEnv))
 
 const dependentsLine = "Makefile dependents: the cloud's conformance battery is not compiled or seal-tested against this change"
 
@@ -262,7 +257,7 @@ func TestThePrePushHookOnMissingSiblings(t *testing.T) {
 			}
 		}
 		env := gitless(os.Environ())
-		for _, v := range []string{"HDTP_BATONDECK_DIR", "HDTP_IDENTITY_DIR", "HDTP_SPEC_DIR", "HDTP_REQUIRE_SIBLINGS", "HDTP_PREPUSH_LIVE", "HDTP_TEST_POSTGRES_DSN"} {
+		for _, v := range append(slices.Collect(maps.Values(testid.SiblingEnv)), "HDTP_REQUIRE_SIBLINGS", "HDTP_PREPUSH_LIVE", "HDTP_TEST_POSTGRES_DSN") {
 			env = append(env, v+"=")
 		}
 		env = append(env, "HDTP_ALLOW_MISSING_SIBLINGS="+optOut, "STUB_MAKE_LOG="+log, "PATH="+bin+":"+os.Getenv("PATH"))
@@ -328,8 +323,8 @@ func TestThePrePushHookOnMissingSiblings(t *testing.T) {
 			t.Errorf("the hook ran make %q before refusing", makes)
 		}
 		for _, repo := range siblingRepos {
-			if !strings.Contains(out, "no "+repo+" checkout was found") || !strings.Contains(out, siblingVars[repo]) {
-				t.Errorf("the refusal does not name %s and %s:\n%s", repo, siblingVars[repo], out)
+			if !strings.Contains(out, "no "+repo+" checkout was found") || !strings.Contains(out, testid.SiblingEnv[repo]) {
+				t.Errorf("the refusal does not name %s and %s:\n%s", repo, testid.SiblingEnv[repo], out)
 			}
 		}
 		if !strings.Contains(out, "HDTP_ALLOW_MISSING_SIBLINGS=1") {

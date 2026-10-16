@@ -1,16 +1,18 @@
 package testid
 
 import (
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
 // The sibling checkouts are found by two copies of one rule: SiblingDir for the Go guards and
 // scripts/sibling.sh for the Makefile's `dependents`. Both are run here on the same layouts, built in
-// a temporary directory with real git, and must give the same answer, the expected one: a variable,
+// a temporary directory with real git, and must give the same answer, the expected one: each of SiblingEnv's variables,
 // the directory beside, a worktree finding the main checkout's sibling, a checkout whose git
 // directory is one of an umbrella's modules finding the umbrella's, and nothing.
 func TestTheTwoSiblingLocatorsAgree(t *testing.T) {
@@ -44,13 +46,16 @@ func TestTheTwoSiblingLocatorsAgree(t *testing.T) {
 	cases := []struct {
 		name, root, repo, override, want string
 	}{
-		{"the variable", at("lone/node"), "hdtp-spec", at("env/spec"), at("env/spec")},
 		{"the directory beside", at("beside/node"), "batondeck", "", at("beside/batondeck")},
 		{"a worktree finds its main checkout's sibling", at("else/wt"), "batondeck", "", at("ws/batondeck")},
 		{"an umbrella's module finds the umbrella's", at("other/node"), "batondeck", "", at("umb/batondeck")},
 		{"the variable wins over the directory beside", at("beside/node"), "batondeck", at("env/spec"), at("env/spec")},
 		{"a variable naming nothing falls through", at("beside/node"), "batondeck", at("env/none"), at("beside/batondeck")},
 		{"nothing", at("lone/node"), "batondeck", "", ""},
+	}
+	for _, repo := range slices.Sorted(maps.Keys(SiblingEnv)) {
+		cases = append(cases, struct{ name, root, repo, override, want string }{
+			SiblingEnv[repo] + " finds " + repo, at("lone/node"), repo, at("env/spec"), at("env/spec")})
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
