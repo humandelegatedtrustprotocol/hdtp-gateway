@@ -280,10 +280,15 @@ func (c *Client) attempt(ctx context.Context, peer *Peer, method string, params 
 	}
 	wire := map[string]any{"protected": env.Protected, "enc": env.Enc, "ct": env.Ct, "sig": env.Sig}
 	res, err := c.callTool(ctx, *peer, core.ToolSealedCall, wire)
-	if err != nil {
+	var refused *handshakeRefused
+	switch {
+	case errors.As(err, &refused):
+		// The handshake was refused: the envelope never reached the peer, so it has not seen our
+		// chain. The refusal is read as any plaintext one is, below.
+		res = refused.res
+	case err != nil:
 		return nil, nil, err
-	}
-	if form == "chain" && c.OnChainSent != nil {
+	case form == "chain" && c.OnChainSent != nil:
 		// The peer has now seen our current leaf, whatever it answered: an
 		// envelope that carried the chain is never answered chain_required.
 		c.OnChainSent(*peer)

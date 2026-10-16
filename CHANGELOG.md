@@ -233,6 +233,12 @@ changelog can be and is not summarized into a fictional release history.
   looked the node up by fingerprint alone and compared the secret of whichever pairing it met
   first, so such a node was refused with its own credential most of the time (349 of 400 lookups
   measured).
+- A peer that refuses the MCP handshake itself with an HDTP §12 code in the JSON-RPC error's
+  `data` — BatonDeck's edge, once a source's budget is spent — is read as that peer refusing the
+  call, with its `retry_after`: a send is "recorded, not delivered: rate_limited" and keeps the
+  wait (#135). It was the error text `calling "initialize": rate_limited`, a peer that could not
+  be reached, and the wait was lost. A sealed call refused there no longer records that the peer
+  has seen this identity's chain.
 - `add_contact` with a card tells a failure of this node before the request leaves — its card or
   its client could not be read — as `internal`, audited `error` (#131). It was told as a peer that
   could not be reached (`unavailable`) and audited `unreachable`.
