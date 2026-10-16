@@ -26,12 +26,13 @@ interface, and nothing else: it does not know which engine it is judging.
 |---|---|
 | migrations (`conformance_migrations.go`) | `MigrateUpDownUp`; `MigrateDownAndUpWithDataPresent`, because a down that drops tables in the wrong order works on empty tables and refuses populated ones |
 | owners and accounts (`conformance_accounts.go`) | `OwnerCRUD`, `AccountCRUDAndConstraints`, `AccountKeyBindsOnce` |
-| contacts (`conformance_contacts.go`) | the lifecycle; `EverActive` set by every activation and cleared by none; the guarded writes that move only from the status read; `RedeemOverPendingContact`; the expiry of pending requests and its clock; `RevokeInvite` scoped to its account; the permissions a contact granted us |
+| contacts (`conformance_contacts.go`) | the lifecycle; `EverActive` set by every activation and cleared by none; the guarded writes that move only from the status read; `RedeemOverPendingContact`; the expiry of pending requests and its clock; `RevokeInvite` scoped to its account; the permissions a contact granted us; `ADeletedContactLeavesItsNamesOnItsThreads`; `KeptWasContactCases`; `ARequestThatLeavesKeepsTheNamesTheOwnerGave` |
 | owner under a chosen id (`conformance_ownerid.go`) | `AnOwnerCanBeCreatedUnderAChosenID` |
 | petnames (`conformance_petname.go`) | `PetnameIsLocalAndSurvivesAMove` |
 | import and move (`conformance_import.go`) | `AtomicallyLandsEverythingOrNothing`; `MoveFanoutIsOneRowPerContactAndResumable`; `ImportContactWritesWhatAnExportCarries` |
 | identity state (`conformance_identity_state.go`) | `IdentityStateRoundTrips` (root, leaf ledger, pins, tombstones, former and pending addresses); `OnePendingRequestAndReplacingItIsOneStep` |
 | retention (`conformance_retention.go`) | `RetentionPrimitives`; `ClosedWindowsLeave` (idempotency records and sessions past their window go) |
+| conversation deletion (`conformance_delete.go`) | `DeleteOneThread` (the primitives `messaging.Service.DeleteThread` runs, each reaching this thread of this account only); `AFileIsLockedUntilTheTransactionEnds`; `RecordAFetchedFileOnItsMessage` |
 | thread-id wipe (`conformance_wipe.go`) | `ThreadIDWipe`: `ListStoredThreadIDs` answers each (account, thread) once across thread rows, messages no thread row names and change rows, never a change row's empty id; `ThreadIDWipePending` true after migrating and false after `EndThreadIDWipe`; `OrphanSweepSince` set by migrating |
 | settings (`conformance_settings.go`) | `SettingsUpsertAndSecretFlag` |
 | credentials (`conformance_credentials.go`) | `CredentialsInsertAndCount`; `RemoveCredentialIfNotLastKeepsTheLastOne` |
@@ -66,8 +67,9 @@ skips when the variable is unset.
 
 It refuses nothing; it reports. A subtest fails with `t.Fatal` or `t.Fatalf` naming the behaviour that
 differed. The behaviours that matter across engines are the ones it asserts with `errors.Is`:
-`store.ErrNotFound` from `ClearContactHandshake`, from a `RevokeInvite` of another account's invite, and
-from `GetSession` of a session the sweep removed.
+`store.ErrNotFound` from `GetContact` of a removed contact, from `ClearContactHandshake`, from a
+`RevokeInvite` of another account's invite, from `GetAccountIntegration` and `GetAccountPendingRequest` of
+another account's row or a missing one, and from `GetSession` of a session the sweep removed.
 
 ## Invariants
 
@@ -89,7 +91,8 @@ beyond the fact that two real engines pass it.
 ## What it does not do
 
 - It does not cover the whole interface. It does not call `AppendAuditEvent`, `ArchiveAuditRows`,
-  `SetAuditAnchor`, the change log, leases, owner presence, `Scrub` or `SchemaCurrent`. Those are held by
+  `SetAuditAnchor`, the change log beyond `AppendChange`, `AccountChangesAfter` and `DeleteChangesByThread`
+  (the conversation-deletion and thread-id wipe areas call those), leases, owner presence, `Scrub` or `SchemaCurrent`. Those are held by
   tests in `internal/core/store` (`leases_test.go`, `sharedfile_test.go`, `leave_test.go`) and
   `internal/core/audit` (`writer_test.go`, `departed_test.go`), which run on SQLite and, where they
   reach for it, on Postgres.

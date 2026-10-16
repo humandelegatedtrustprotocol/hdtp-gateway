@@ -45,7 +45,8 @@ own:
 The row types are `Owner`, `Account`, `Leaf`, `Tombstone`, `FormerEndpoint`, `PendingAddress`,
 `MoveFanout`, `Setting`, `Membership`, `Credential`, `Contact`, `ExpiredContact`, `Invite`, `Thread`,
 `Blob`, `Message`, `Integration`, `Catalog`, `Exposure`, `PendingRequest`, `Token`, `AuditRow`,
-`AuditAnchorRow`, `AuditArchiveRow`, `AuditPage`, `Change` and `CreateAccountParams`. `Message.Deadline`
+`AuditAnchorRow`, `AuditArchiveRow`, `AuditPage`, `Change`, `StoredThreadID`, `KeptNames` and
+`CreateAccountParams`. `Message.Deadline`
 and `Account.HasRoot` are the two methods on them. `DefaultMessageExpiry` and
 `UndatedIdempotencyWindow` are the two durations the contract names.
 
@@ -81,6 +82,7 @@ written as a set of paired files, one per area of the schema (`contacts_sqlite.g
 | `LockAccount` | nothing to do: every transaction already runs alone | `SELECT ... FOR UPDATE` on the account row |
 | `AppendAuditEvent` | relies on the write lock taken at BEGIN | takes an advisory lock (`LockAuditChain`) before reading the head |
 | `AppendChange` | one writer at a time | takes an advisory lock (`LockChanges`), inserts, then sends a notification at commit |
+| `LockFile` | nothing to do: every transaction already runs alone | a transaction-scoped advisory lock on the file's hash (`LockFileHash`), so storing a file and collecting it take turns |
 | `WatchChanges` | returns at once: the poll is the only way to learn of another process's change | holds a connection `LISTEN`ing, calls `wake` on each notification |
 | `Scrub` | checkpoints and truncates the WAL, and fails if the log is not empty afterwards | does nothing (SPEC §3.9 names the divergence) |
 | Sharing | many processes on one host, one data dir | many processes on many hosts |
@@ -186,8 +188,9 @@ sets it, and so runs them; by hand, `compose.test.yaml` starts one.
 - It does not destroy deleted bytes on Postgres: `Scrub` is a no-op there, and a deleted row's bytes stay
   in dead tuples, the write-ahead log and any backup until the engine reclaims them.
 - The conformance suite does not cover everything on the interface. It does not call `AppendAuditEvent`,
-  `ArchiveAuditRows`, the change log, leases, presence, `Scrub` or `SchemaCurrent`; those are held by the
-  tests above and by `core/audit`.
+  `ArchiveAuditRows`, the change log beyond `AppendChange`, `AccountChangesAfter` and
+  `DeleteChangesByThread` (the conversation-deletion and thread-id wipe areas call those), leases, presence, `Scrub` or
+  `SchemaCurrent`; those are held by the tests above and by `core/audit`.
 - A `Contact`'s `Permissions` are stored as JSON text; text that is not valid JSON reads back as an empty
   list rather than an error.
 - The generated packages are not edited: a statement changes in `queries/`, the schema in `migrations/`,
