@@ -58,8 +58,8 @@ own keys.
   own domain. With no inbound path at all you need one of those tunnels — or a host:
   there is no store-and-forward relay, because one would see every sender, recipient
   and timestamp for its trouble (HDTP §9).
-- **One binary, SQLite by default.** No cluster, no broker, no queue. Postgres
-  when you want it.
+- **Two static binaries — the node and its limits sidecar — or one Docker image, SQLite by
+  default.** No cluster, no broker, no queue. Postgres when you want it.
 
 ## What a contact actually is
 

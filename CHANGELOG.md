@@ -16,6 +16,11 @@ changelog can be and is not summarized into a fictional release history.
   itself (ngrok's agent in the `ngrok` compose profile, a quick tunnel, any terminating proxy): the
   node starts nothing, runs in edge mode, and trusts no forwarded header, so its per-source limits
   see the sidecar's address. The portal lists it with the other adapters (#171).
+- The limits sidecar as a release asset: `make dist` builds `hdtp-limitd_<version>_<os>_<arch>`
+  for the four platforms beside the node's binaries, from the vendored crates (Linux in the
+  Dockerfile's `rust:1.92-alpine` image, statically linked; macOS natively with the same Rust's
+  darwin targets), and `SHA256SUMS` covers both. A release is two binaries per platform, the node
+  and its sidecar, or one Docker image built from the checkout.
 
 ### Changed
 

@@ -93,6 +93,21 @@ layers were already cached and the whole command took six seconds, ending:
 measured against GitHub: the repository was not yet public when the guide was written (it has been
 since 2026-10-09), so the measuring clone was made from a local copy of the same commit.
 
+**Without Docker.** From v0.2.0 each release carries two binaries per platform (Linux and macOS,
+amd64 and arm64; the Linux ones static), the node `hdtp-gateway_<version>_<os>_<arch>` and its limits sidecar
+`hdtp-limitd_<version>_<os>_<arch>`, with `SHA256SUMS` over both ([RELEASING.md](../RELEASING.md)
+says how to check them). Start the sidecar first, from a copy of
+[`deploy/limitd/limits.json`](../deploy/limitd/limits.json) whose `socket` is
+`<your data directory>/limits.sock`, the node's default `limits_socket`, then the node:
+
+```
+hdtp-limitd -config limits.json &
+hdtp-gateway serve
+```
+
+The rest of this guide runs every command inside the container (`docker compose exec hdtp-gateway
+hdtp-gateway …`); without Docker it is `hdtp-gateway …` on the host.
+
 ## 2. Read the setup link out of the log
 
 ```

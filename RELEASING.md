@@ -26,11 +26,21 @@ rebuild a tag and compare.
    make sbom VERSION=1.2.3
    ```
 
+   `make dist` builds the node (`dist/hdtp-gateway_*`) and its limits sidecar
+   (`dist/hdtp-limitd_*`) for the four platforms, and `SHA256SUMS` over both. The sidecar is Rust,
+   built from the crates `make limitd-vendor` lays out (fetched over the network, into the ignored
+   `.build/`) by `scripts/limitd-dist.sh`: the Linux ones in the Dockerfile's Rust image
+   (`rust:1.92-alpine`) under `docker run --platform`, so it needs Docker, and the macOS ones on
+   the host, so it needs that Rust version and both darwin targets
+   (`rustup target add x86_64-apple-darwin aarch64-apple-darwin`). A missing darwin target or
+   another host Rust is refused, naming it, before any sidecar is built.
+
    `make dist` refuses to build unless `git status --porcelain` is empty and HEAD is the commit
    `v1.2.3` names. Untracked files count: the go command stamps a binary built beside any of them
    `vcs.modified=true`, and that stamp changes the checksum. After building, it refuses unless every
    binary's build info (`go version -m`) records `vcs.modified=false` and that commit as
-   `vcs.revision`. A working checkout usually holds something untracked, which is why the build is
+   `vcs.revision`; that check reads Go build info, so it is the node's binaries alone. A working
+   checkout usually holds something untracked, which is why the build is
    done in a fresh clone. `make sbom` holds to the same tree check. `make release-check`, part of `make check`, runs `dist` against fixture
    repositories and shows each refusal and the clean build that passes.
 
@@ -43,7 +53,7 @@ rebuild a tag and compare.
 
    ```
    gh release create v1.2.3 --title v1.2.3 --notes-file <notes> \
-     dist/hdtp-gateway_* dist/SHA256SUMS dist/sbom.cdx.json THIRD_PARTY_NOTICES
+     dist/hdtp-gateway_* dist/hdtp-limitd_* dist/SHA256SUMS dist/sbom.cdx.json THIRD_PARTY_NOTICES
    ```
 
    `THIRD_PARTY_NOTICES` is the licence text of everything the binaries and the portal

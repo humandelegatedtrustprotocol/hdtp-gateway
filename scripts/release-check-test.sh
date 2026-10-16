@@ -3,7 +3,10 @@
 # published: refused on a dirty tree (untracked file, modified file), on an untagged HEAD and on a
 # HEAD tagged with another version; passing on a clean checkout of the tag, with binaries that
 # record vcs.modified=false. Then the binary check alone: a build from a modified tree, a build
-# with no VCS stamp and a build of another commit are each refused. Run by `make check`.
+# with no VCS stamp and a build of another commit are each refused. The limits sidecar's part of
+# dist (limitd-vendor, scripts/limitd-dist.sh) runs against stubs of cargo, docker, rustup and
+# rustc, which record what they were asked: the assets it writes and SHA256SUMS lists, and its
+# refusals of a darwin target that is not installed and of another Rust. Run by `make check`.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -27,15 +30,54 @@ goline=$(go env GOVERSION | sed -E 's/^go([0-9]+\.[0-9]+).*/\1/')
 
 fixture() {
   local dir=$tmp/$1
-  mkdir -p "$dir/cmd/hdtp-gateway"
+  mkdir -p "$dir/cmd/hdtp-gateway" "$dir/cmd/hdtp-limitd"
   printf 'module example.invalid/fixture\n\ngo %s\n' "$goline" > "$dir/go.mod"
   printf 'package main\n\nvar version string\n\nfunc main() { println(version) }\n' > "$dir/cmd/hdtp-gateway/main.go"
-  printf '/dist/\n' > "$dir/.gitignore"
+  printf '[package]\nname = "hdtp-limitd"\n' > "$dir/cmd/hdtp-limitd/Cargo.toml"
+  printf 'FROM rust:1.92-alpine AS limitd\n' > "$dir/Dockerfile"
+  printf '/dist/\n/.build/\n' > "$dir/.gitignore"
   (cd "$dir" && g init -q && g add -A && g commit -q -m fixture && g tag -a v9.9.9 -m v9.9.9)
   echo "$dir"
 }
 
-dist() { make -s -C "$1" -f "$makefile" dist VERSION=9.9.9 PLATFORMS=linux/amd64 >"$tmp/out" 2>&1; }
+# The sidecar's toolchain, stubbed: each records its arguments in $tmp/stub.log.
+mkdir -p "$tmp/stub"
+cat > "$tmp/stub/cargo" <<'STUB'
+#!/bin/sh
+echo "cargo $* RUSTFLAGS=$RUSTFLAGS" >> "$STUB_LOG"
+case $1 in
+vendor) printf '[source.vendored-sources]\ndirectory = ".build/limitd-vendor/crates"\n' ;;
+build)
+  t= m=
+  while [ $# -gt 0 ]; do case $1 in --target) t=$2; shift ;; --manifest-path) m=$2; shift ;; esac; shift; done
+  mkdir -p "$(dirname "$m")/target/$t/release" && echo "stub $t" > "$(dirname "$m")/target/$t/release/hdtp-limitd" ;;
+esac
+STUB
+cat > "$tmp/stub/docker" <<'STUB'
+#!/bin/sh
+echo "docker $*" >> "$STUB_LOG"
+out= prev=
+for a in "$@"; do [ "$prev" = -v ] && case $a in *:/out) out=${a%:/out} ;; esac; prev=$a; done
+eval "script=\${$#}"
+name=$(printf '%s\n' "$script" | sed -n 's#.*cp target/release/hdtp-limitd /out/\([^ ]*\).*#\1#p')
+echo "stub linux" > "$out/$name"
+STUB
+printf '#!/bin/sh\nprintf "%%s\\n" $STUB_TARGETS\n' > "$tmp/stub/rustup"
+cat > "$tmp/stub/rustc" <<'STUB'
+#!/bin/sh
+case $1 in
+--version) echo "rustc $STUB_RUSTC (stub)" ;;
+--print) echo /stub/sysroot ;;
+-vV) echo "commit-hash: stubhash" ;;
+esac
+STUB
+chmod +x "$tmp/stub/"*
+export STUB_LOG=$tmp/stub.log STUB_TARGETS="aarch64-apple-darwin x86_64-apple-darwin" STUB_RUSTC=1.92.0
+
+dist() {
+  : > "$STUB_LOG"
+  PATH=$tmp/stub:$PATH make -s -C "$1" -f "$makefile" dist VERSION=9.9.9 PLATFORMS="${2:-linux/amd64}" >"$tmp/out" 2>&1
+}
 
 expect_refused() {
   local name=$1 dir=$2 why=$3
@@ -59,8 +101,46 @@ if dist "$d"; then
   else
     bad "clean tagged tree: built, but the binary or SHA256SUMS is wrong"
   fi
+  # The sidecar beside it: vendored, built in the Dockerfile's Rust image for that platform, and in
+  # SHA256SUMS.
+  if [ -s "$d/dist/hdtp-limitd_9.9.9_linux_amd64" ] && grep -q hdtp-limitd_9.9.9_linux_amd64 "$d/dist/SHA256SUMS" &&
+    grep -q '^cargo vendor --locked --manifest-path cmd/hdtp-limitd/Cargo.toml' "$STUB_LOG" &&
+    grep -q '^docker run --rm --platform linux/amd64 .* rust:1.92-alpine ' "$STUB_LOG"; then
+    pass "clean tagged tree: the linux sidecar built in the image's Rust and summed"
+  else
+    bad "clean tagged tree: the sidecar asset, its sum or its build is wrong:"; cat "$STUB_LOG" "$d/dist/SHA256SUMS" >&2
+  fi
 else
   bad "clean tagged tree: refused:"; cat "$tmp/out" >&2
+fi
+
+# darwin: natively, for the target, offline over the vendored crates, the checkout's path remapped.
+d=$(fixture darwin)
+if dist "$d" darwin/arm64; then
+  if [ -s "$d/dist/hdtp-limitd_9.9.9_darwin_arm64" ] && grep -q hdtp-limitd_9.9.9_darwin_arm64 "$d/dist/SHA256SUMS" &&
+    grep -q "^cargo build --release --locked --offline --config .* --target aarch64-apple-darwin .*RUSTFLAGS=--remap-path-prefix=[^ ]*/darwin=/hdtp-gateway --remap-path-prefix=/stub/sysroot/lib/rustlib/src/rust=/rustc/stubhash$" "$STUB_LOG"; then
+    pass "darwin sidecar: built for its target with the checkout's and the standard library's paths remapped, and summed"
+  else
+    bad "darwin sidecar: the asset, its sum or its build is wrong:"; cat "$STUB_LOG" >&2
+  fi
+else
+  bad "darwin sidecar: refused:"; cat "$tmp/out" >&2
+fi
+d=$(fixture notarget)
+if STUB_TARGETS=aarch64-apple-darwin dist "$d" darwin/amd64; then
+  bad "darwin target not installed: dist built"
+elif ! grep -q "rustup target add x86_64-apple-darwin" "$tmp/out"; then
+  bad "darwin target not installed: refused, but not naming the rustup command:"; cat "$tmp/out" >&2
+else
+  pass "darwin target not installed: refused, naming rustup target add"
+fi
+d=$(fixture otherrust)
+if STUB_RUSTC=1.91.1 dist "$d" darwin/arm64; then
+  bad "another host Rust: dist built"
+elif ! grep -q "not 1.92, the Dockerfile's rust:1.92-alpine" "$tmp/out"; then
+  bad "another host Rust: refused, but not for the version:"; cat "$tmp/out" >&2
+else
+  pass "another host Rust: refused"
 fi
 
 d=$(fixture untracked); touch "$d/stray"

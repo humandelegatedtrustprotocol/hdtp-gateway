@@ -3,7 +3,9 @@ VERSION ?= 0.1.0-dev
 
 # Absolute, so `make -f <this file>` from another directory (scripts/release-check-test.sh runs
 # dist in a fixture repository) still finds it.
-RELEASE_CHECK := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))scripts/release-check.sh
+SELF := $(abspath $(lastword $(MAKEFILE_LIST)))
+RELEASE_CHECK := $(dir $(SELF))scripts/release-check.sh
+LIMITD_DIST := $(dir $(SELF))scripts/limitd-dist.sh
 
 .PHONY: release-check names notices notices-check deploy-check frp-check limitd limitd-check limitd-vendor harness-hdtp-cli scale identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
 
@@ -119,12 +121,14 @@ build:
 # what lets a third party rebuild a tag and compare checksums.
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
-# dist builds every platform and writes SHA256SUMS. A release is cut locally from
-# this exact target (RELEASING.md), so what ships is what anyone can rebuild from the tag.
-# It refuses unless the tree is clean (untracked files included) and HEAD is tag v$(VERSION),
-# and refuses the binaries unless each records vcs.modified=false and that tag's commit
-# (scripts/release-check.sh): a build from a modified tree stamps vcs.modified=true, which no
-# rebuild from the tag reproduces.
+# dist builds every platform, the node and its limits sidecar, and writes SHA256SUMS over both. A
+# release is cut locally from this exact target (RELEASING.md), so what ships is what anyone can
+# rebuild from the tag. It refuses unless the tree is clean (untracked files included) and HEAD is
+# tag v$(VERSION), and refuses the node's binaries unless each records vcs.modified=false and that
+# tag's commit (scripts/release-check.sh): a build from a modified tree stamps vcs.modified=true,
+# which no rebuild from the tag reproduces. The sidecar (dist/hdtp-limitd_*) is built from the
+# vendored crates (limitd-vendor, which writes only the ignored .build/) by scripts/limitd-dist.sh:
+# linux in the Dockerfile's Rust image, darwin natively with that Rust's darwin targets.
 dist:
 	@$(RELEASE_CHECK) tree $(VERSION)
 	@rm -rf dist && mkdir -p dist
@@ -135,6 +139,8 @@ dist:
 			-ldflags "-s -w -X main.version=$(VERSION)" -o $$out ./cmd/hdtp-gateway || exit 1; \
 	done
 	@$(RELEASE_CHECK) binaries $(VERSION) dist/$(BINARY)_$(VERSION)_*
+	@$(MAKE) -s -f $(SELF) limitd-vendor
+	@$(LIMITD_DIST) $(VERSION) dist $(PLATFORMS)
 	@cd dist && shasum -a 256 * > SHA256SUMS && cat SHA256SUMS
 
 # release-check runs dist against fixture repositories: refused on a dirty or untagged tree,
