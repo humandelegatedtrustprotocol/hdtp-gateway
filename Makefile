@@ -418,17 +418,17 @@ harness-image: limitd-vendor
 # tier: hdtp-identity's intrusion battery through its `hdtp` CLI (S18), the cloud's Go conformance
 # battery (S19), and the cloud's local cloud with the real wallet page (S20; it also needs the WorkOS
 # test pair in the environment, which this Makefile does not read from any file). Each is a Need (harness/registry); the tier promises it when the
-# sibling is found (the cloud's as `dependents` finds it; hdtp-identity beside this repository), and
+# sibling is found (each as scripts/sibling.sh finds it, as `dependents` finds the cloud's), and
 # says NOT PROMISED, with how to provide it, when it is not. Override either with HDTP_CLI or
 # HDTP_CLOUD_BATTERY in the environment.
-HDTP_IDENTITY ?= $(CURDIR)/../hdtp-identity
-HDTP_CLI_BIN := $(HDTP_IDENTITY)/target/release/hdtp
+HDTP_IDENTITY := $(shell "$(dir $(SELF))scripts/sibling.sh" "$(CURDIR)" hdtp-identity)
+HDTP_CLI_BIN := $(if $(HDTP_IDENTITY),$(HDTP_IDENTITY)/target/release/hdtp)
 harness-hdtp-cli:
 	@if [ -n "$$HDTP_CLI" ]; then echo "harness-hdtp-cli: HDTP_CLI=$$HDTP_CLI"; \
-	elif [ -f "$(HDTP_IDENTITY)/Cargo.toml" ]; then \
+	elif [ -n "$(HDTP_IDENTITY)" ] && [ -f "$(HDTP_IDENTITY)/Cargo.toml" ]; then \
 		cargo build --release -q -p hdtp --manifest-path "$(HDTP_IDENTITY)/Cargo.toml" || exit 1; \
 		echo "harness-hdtp-cli: $(HDTP_CLI_BIN)"; \
-	else echo "!! harness-hdtp-cli: no hdtp-identity checkout at $(HDTP_IDENTITY): S18 will be NOT PROMISED"; fi
+	else echo "!! harness-hdtp-cli: no hdtp-identity checkout was found (scripts/sibling.sh; set HDTP_IDENTITY_DIR): S18 will be NOT PROMISED"; fi
 # The environment a live tier runs under: the two siblings' paths when they are on disk.
 LIVE_ENV = HDTP_CLI="$${HDTP_CLI:-$$(test -x '$(HDTP_CLI_BIN)' && echo '$(HDTP_CLI_BIN)')}" \
 	HDTP_CLOUD_BATTERY="$${HDTP_CLOUD_BATTERY:-$$(test -f '$(abspath $(CLOUD_BATTERY))/go.mod' && echo '$(abspath $(CLOUD_BATTERY))')}" \

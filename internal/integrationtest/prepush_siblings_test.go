@@ -138,6 +138,18 @@ func TestTheSiblingGuardsListIsTheCode(t *testing.T) {
 	if !strings.Contains(mk, "CLOUD_BATTERY := $(if $(BATONDECK)") {
 		t.Error("the Makefile's dependents no longer reads the batondeck checkout; scripts/sibling-guards.sh says it does")
 	}
+	// One rule finds a sibling: the Makefile asks scripts/sibling.sh for the two it reads, and
+	// names no path of its own for any.
+	for _, repo := range []string{"batondeck", "hdtp-identity"} {
+		if !strings.Contains(mk, `scripts/sibling.sh" "$(CURDIR)" `+repo+")") {
+			t.Errorf("the Makefile does not find %s through scripts/sibling.sh", repo)
+		}
+	}
+	for _, repo := range siblingRepos {
+		if strings.Contains(mk, "$(CURDIR)/../"+repo) {
+			t.Errorf("the Makefile looks for %s at $(CURDIR)/../%s, a locator of its own beside scripts/sibling.sh", repo, repo)
+		}
+	}
 }
 
 // The parser skips dot-directories and node_modules; so must the grep. A checkout with a worktree
