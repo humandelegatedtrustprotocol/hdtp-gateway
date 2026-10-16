@@ -31,6 +31,9 @@ changelog can be and is not summarized into a fictional release history.
 - A pairing from the portal stores its ten rows (the adapter's eight, the tunnel selection and the
   public URL) in one transaction. They were written one at a time, so a re-pair that failed part-way
   left the new ingress's rows beside the previous pairing's, still selected.
+- The contacts limit (`limit.contacts`) saved in the portal is applied at the next start. The boot
+  read skipped every dotted key, so the node started on the default while the page showed the
+  saved value as pending.
 - The ingress's data plane knows a node paired on two subdomains by the secret it presents. It
   looked the node up by fingerprint alone and compared the secret of whichever pairing it met
   first, so such a node was refused with its own credential most of the time (349 of 400 lookups

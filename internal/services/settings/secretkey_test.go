@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 )
 
 // Overlay reads the owner-settable knobs without the keyring, which is right only while none of
@@ -83,5 +84,62 @@ func TestUppercaseCredentialsAreSealedAtRest(t *testing.T) {
 	if vals["integration.cal.env.CALDAV_PASSWORD"] != secret {
 		t.Errorf("a sealed credential did not read back: %q",
 			vals["integration.cal.env.CALDAV_PASSWORD"])
+	}
+}
+
+// Every owner-settable knob saved in the store is applied at the next boot (Overlay). Overlay
+// read through a reader that skipped every dotted key, so `limit.contacts` saved in the portal was
+// dropped at boot: the node ran on the default while the page showed the saved value pending.
+func TestEveryOwnerSettableKnobStoredIsAppliedByOverlay(t *testing.T) {
+	stored := map[string]string{
+		"public_url":      "https://overlay.example",
+		"tunnel":          "frp",
+		"seal":            "required",
+		"client_cert":     "required",
+		"lan_connections": "false",
+		"limit.contacts":  "7",
+	}
+	ctx := context.Background()
+	dir := t.TempDir()
+	st := openStoreAt(t, dir)
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range core.OwnerSettableKeys() {
+		v, ok := stored[k]
+		if !ok {
+			t.Fatalf("%s is owner-settable and this test stores no value for it", k)
+		}
+		if err := st.PutSetting(ctx, store.Setting{Key: k, Value: v}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.PutSetting(ctx, store.Setting{Key: StorageKeyQuota("acct"), Value: "1024"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := core.Load("", func(k string) (string, bool) {
+		v, ok := map[string]string{"HDTP_DATA_DIR": dir}[k]
+		return v, ok
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := New(st, openKeyringAt(t, dir), cfg, func(string, string, string) {})
+	if err := svc.Overlay(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var got []core.Effective
+	svc.readCfg(func(c *core.Config) { got = c.EffectiveSettings() })
+	for _, e := range got {
+		if want := stored[e.Key]; e.Value != want {
+			t.Errorf("%s: %q after Overlay, want the stored %q", e.Key, e.Value, want)
+		}
+	}
+	pending, err := svc.Deps().Pending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != len(stored) || pending["limit.contacts"] != "7" {
+		t.Errorf("Pending read %v, want the %d owner knobs and nothing else", pending, len(stored))
 	}
 }

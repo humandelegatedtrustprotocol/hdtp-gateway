@@ -5,8 +5,8 @@ The owner-set configuration layer (SPEC §8.2, §12.2): settings rows are read f
 ## What it holds
 
 - `Service` (`New(st, kr, cfg, audit)`): `AttachNode`, `AttachBus`, `SealPolicy`, `Follow`, `Values`, `Overlay`, `Deps`, `ContactCap`, `RequestExpiryFor`, `StorageFor`.
-  - `Values` returns every stored setting with secrets decrypted; it is the startup path and the only decrypting read. The render path (`plainValues`) skips secret rows and every dotted key.
-  - `Overlay` layers the owner-settable knobs the store holds under the environment and the file (`core.Config.ApplyStoreSettings`). It reads through `plainValues`, which is enough because no such knob is a secret row (`TestNoOwnerSettableKnobIsASecretRow`), so `doctor` runs it without a keyring and reads the public URL `serve` serves.
+  - `Values` returns every stored setting with secrets decrypted; it is the startup path and the only decrypting read. The render path (`ownerValues`, also the settings page's `Pending`) reads only the keys `core.OwnerSettableKeys` names, dotted ones (`limit.contacts`) included, and never a secret row.
+  - `Overlay` layers the owner-settable knobs the store holds under the environment and the file (`core.Config.ApplyStoreSettings`). It reads through `ownerValues`, which is enough because no such knob is a secret row (`TestNoOwnerSettableKnobIsASecretRow`), so `doctor` runs it without a keyring and reads the public URL `serve` serves.
   - `save` validates with `core.ValidateSetting`, seals the value when `isSecretKey` says so (the last dotted segment, lower-cased, contains `token`, `key`, `secret`, `password`, `auth`, `credential`, `passwd`, `apikey` or `pat`), stores it, applies it, and publishes a settings event on the bus.
   - `apply` pushes into the running node only `limit.contacts`, `seal`, `lan_connections` and `public_url` (`settings.go:324-395`); every other knob waits for a restart. With no node attached, a save is stored only.
   - `Follow` applies, until `ctx` ends, the settings other processes on the store saved (events with `Local` false), as the saving process applied them, without re-auditing and without re-sealing accounts.

@@ -192,12 +192,12 @@ func (s *Service) Values(ctx context.Context) (map[string]string, error) {
 }
 
 // Overlay layers the owner-set knobs the store holds under the environment and the file and
-// re-derives (core.Config.ApplyStoreSettings, SPEC §12.2). Those knobs are top-level keys and
-// never secret rows (TestNoOwnerSettableKnobIsASecretRow), so it reads without the keyring:
-// serve calls it at startup, and doctor, which opens no keyring, reads the same values the
-// same way.
+// re-derives (core.Config.ApplyStoreSettings, SPEC §12.2). Those knobs are the keys
+// core.OwnerSettableKeys names, dotted ones (limit.contacts) included, and never secret rows
+// (TestNoOwnerSettableKnobIsASecretRow), so it reads without the keyring: serve calls it at
+// startup, and doctor, which opens no keyring, reads the same values the same way.
 func (s *Service) Overlay(ctx context.Context) error {
-	values, err := s.plainValues(ctx)
+	values, err := s.ownerValues(ctx)
 	if err != nil {
 		return err
 	}
@@ -206,16 +206,21 @@ func (s *Service) Overlay(ctx context.Context) error {
 	return applied
 }
 
-// plainValues returns the stored NON-secret settings. It is the render path:
-// it never decrypts, so a secret cannot reach a template through it.
-func (s *Service) plainValues(ctx context.Context) (map[string]string, error) {
+// ownerValues returns the stored owner-settable knobs (core.OwnerSettableKeys), never a secret
+// row. It is the boot path and the render path: it never decrypts, so a secret cannot reach a
+// template through it.
+func (s *Service) ownerValues(ctx context.Context) (map[string]string, error) {
 	rows, err := s.store.ListSettings(ctx)
 	if err != nil {
 		return nil, err
 	}
+	knobs := map[string]bool{}
+	for _, k := range core.OwnerSettableKeys() {
+		knobs[k] = true
+	}
 	out := map[string]string{}
 	for _, r := range rows {
-		if r.Secret || strings.Contains(r.Key, ".") {
+		if r.Secret || !knobs[r.Key] {
 			continue
 		}
 		out[r.Key] = r.Value
@@ -228,8 +233,8 @@ func (s *Service) plainValues(ctx context.Context) (map[string]string, error) {
 const MaxRetentionDays = 36500
 
 // StorageKeyQuota is the settings key of one account's storage quota in bytes
-// ("storage.quota.<accountID>"). `core.Config` has no account dimension, and dotted keys are
-// ignored by ApplyStoreSettings by design — the same seam adapter settings use.
+// ("storage.quota.<accountID>"). `core.Config` has no account dimension, so it is not an owner
+// knob: Overlay never hands it to ApplyStoreSettings — the same seam adapter settings use.
 func StorageKeyQuota(accountID string) string { return "storage.quota." + accountID }
 
 // StorageKeyRetention is the settings key of one account's message-retention window in days
@@ -480,15 +485,9 @@ func (s *Service) Deps() internalui.SettingsDeps {
 			return s.saveRaw(ctx, ContactsKeyRequestExpiry(accountID), strconv.Itoa(requestExpiryDays))
 		},
 		Paired: s.pairedAdapters,
-		Pending: func(ctx context.Context) (map[string]string, error) {
-			// Only non-secret owner knobs; adapter credentials are never read
-			// back for rendering.
-			all, err := s.plainValues(ctx)
-			if err != nil {
-				return nil, err
-			}
-			return all, nil
-		},
+		// Only the owner knobs, never a secret row; adapter credentials are never read back for
+		// rendering.
+		Pending:  s.ownerValues,
 		Adapters: tunnel.Names(),
 		Probe: func(ctx context.Context) (string, string) {
 			var publicURL string
