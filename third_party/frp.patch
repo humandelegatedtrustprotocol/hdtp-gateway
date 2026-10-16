@@ -172,3 +172,29 @@
  	}
  	return nil
  }
+@@ -886,6 +905,25 @@
+ 		return err
+ 	}
+ 	return svr.ctlManager.RegisterWorkConn(ctl, proxy.NewWorkConn(workConn))
++}
++
++// CloseControls closes every client session whose login revoked reports true for, and returns
++// once each has closed its proxies, so the names they held route nowhere. It returns how many
++// it closed.
++func (svr *Service) CloseControls(revoked func(plugin.UserInfo) bool) int {
++	svr.ctlManager.mu.RLock()
++	var ctls []*Control
++	for _, entry := range svr.ctlManager.ctlsByRunID {
++		if revoked(entry.ctl.loginUserInfo()) {
++			ctls = append(ctls, entry.ctl)
++		}
++	}
++	svr.ctlManager.mu.RUnlock()
++	for _, ctl := range ctls {
++		_ = ctl.Close()
++		ctl.WaitClosed()
++	}
++	return len(ctls)
+ }
+ 
+ func (svr *Service) RegisterVisitorConn(visitorConn net.Conn, newMsg *msg.NewVisitorConn, wireProtocol string) error {

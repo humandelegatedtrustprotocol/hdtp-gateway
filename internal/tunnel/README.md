@@ -35,7 +35,7 @@ Probe (SPEC.md §10.4): `ProbePath`, `ProbeHandler`, `Probe`, `ProbeOptions`, `S
 - The edge adapters force `seal: required` and `client_cert: off` through config resolution, whatever the owner configured, and default the LAN flag to off; an explicit LAN setting wins (core/config.go; SPEC.md §5.1, §10.1 say "default off"). `TestEdgeAdaptersDeriveEdgeMode` holds the forced two and the default, not the explicit-setting case.
 - The probe judges a node the way a peer does: by the chain and the address dialled, not by a key fingerprint. A leaf naming another address fails with the rule number in `Detail`.
 - A tunnel token is never written into the compose snippet; `ComposeSidecar` shows `${TUNNEL_TOKEN}`.
-- The frp client is stopped before its context is released, so `Stop` returns only after `Run` has.
+- `frp.Stop` stops the client before it releases the context, and waits for `Run` to return for at most 5 seconds; past that it cancels the context and returns without waiting.
 
 ## Held by
 

@@ -46,7 +46,7 @@ const ChangeLogKept = 7 * 24 * time.Hour
 // message. Before the window, every account's files that no message names and that are older than
 // messaging.FileGrace go (Sweeper.CollectOrphans).
 // A failed step is printed to stderr as "retention: ..." unless ctx has ended, and the
-// pass goes on to the next step; a failed account listing ends the pass silently.
+// pass goes on to the next step; a failed account listing is printed too, and ends the pass.
 //
 // The same tick retires expired leaves (`retireLeaves`, the node's own pass): a leaf's key is
 // destroyed when the leaf runs out, and "when" has to mean within the hour on a node that is up,
@@ -102,6 +102,7 @@ func Run(ctx context.Context, settings Windows, st store.Store,
 		report("change log", err)
 		accounts, err := st.ListAccounts(ctx)
 		if err != nil {
+			report("accounts", err) // no account's requests, files or messages are swept this pass
 			return
 		}
 		for _, a := range accounts {

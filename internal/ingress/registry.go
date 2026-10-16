@@ -8,7 +8,9 @@ package ingress
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -52,12 +54,18 @@ type Registry interface {
 	ConsumeToken(token string) bool
 	// Put records a pairing. It refuses a subdomain that is not one DNS label (ValidSubdomain), a
 	// mode other than passthrough or terminate, and a subdomain already paired to a different
-	// fingerprint; the same fingerprint on the same subdomain replaces the row.
+	// fingerprint (ErrSubdomainTaken); the same fingerprint on the same subdomain replaces the row.
 	Put(n Node) error
 	// BySubdomain is how the front door, terminator and data plane learn a name's mode and pinned key.
 	BySubdomain(sub string) (Node, bool)
-	// ByFingerprint returns the pairing whose node has the given identity fingerprint.
-	ByFingerprint(fpr string) (Node, bool)
+	// ByCredential returns the pairing whose node has the given identity fingerprint and whose
+	// data-plane secret is the given one (compared in constant time); an empty secret matches none.
+	// The secret is minted per pairing, so a node paired on two subdomains logs in as the one whose
+	// secret it presents.
+	ByCredential(fpr, secret string) (Node, bool)
+	// Remove forgets the pairing of a subdomain: the node's credentials stop logging in, and the
+	// name routes nowhere. It returns ErrNotPaired for a subdomain with no pairing.
+	Remove(sub string) error
 	// All returns a copy of every pairing, in no particular order.
 	All() []Node
 }
@@ -77,6 +85,12 @@ func NewMemoryRegistry(now func() time.Time) Registry {
 	}
 	return &memRegistry{tokens: map[string]time.Time{}, nodes: map[string]Node{}, now: now}
 }
+
+// ErrNotPaired is Remove's answer for a subdomain with no pairing.
+var ErrNotPaired = errors.New("ingress: no pairing holds that subdomain")
+
+// ErrSubdomainTaken is Put's refusal of a subdomain already paired to another fingerprint.
+var ErrSubdomainTaken = errors.New("ingress: the subdomain is already paired to another node")
 
 func (r *memRegistry) MintToken(ttl time.Duration) (string, error) {
 	b := make([]byte, 16)
@@ -121,19 +135,39 @@ func ValidSubdomain(s string) bool {
 }
 
 func (r *memRegistry) Put(n Node) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.refusal(n); err != nil {
+		return err
+	}
+	r.nodes[n.Subdomain] = n
+	return nil
+}
+
+// refusal is why Put would refuse n, or nil; the caller holds r.mu.
+func (r *memRegistry) refusal(n Node) error {
 	if !ValidSubdomain(n.Subdomain) {
 		return fmt.Errorf("ingress: subdomain %q is not a valid DNS label", n.Subdomain)
 	}
 	if n.Mode != ModePassthrough && n.Mode != ModeTerminate {
 		return fmt.Errorf("ingress: mode %q (want passthrough|terminate)", n.Mode)
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	if existing, ok := r.nodes[n.Subdomain]; ok && existing.Fingerprint != n.Fingerprint {
-		return fmt.Errorf("ingress: subdomain %q is already paired to another node", n.Subdomain)
+		return fmt.Errorf("%w: %q", ErrSubdomainTaken, n.Subdomain)
 	}
-	r.nodes[n.Subdomain] = n
 	return nil
+}
+
+// with returns the book as it would be after Put(n): n replaces the row of its subdomain. The
+// caller holds r.mu.
+func (r *memRegistry) with(n Node) []Node {
+	out := make([]Node, 0, len(r.nodes)+1)
+	for sub, held := range r.nodes {
+		if sub != n.Subdomain {
+			out = append(out, held)
+		}
+	}
+	return append(out, n)
 }
 
 func (r *memRegistry) BySubdomain(sub string) (Node, bool) {
@@ -143,15 +177,39 @@ func (r *memRegistry) BySubdomain(sub string) (Node, bool) {
 	return n, ok
 }
 
-func (r *memRegistry) ByFingerprint(fpr string) (Node, bool) {
+func (r *memRegistry) ByCredential(fpr, secret string) (Node, bool) {
+	if secret == "" {
+		return Node{}, false
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, n := range r.nodes {
-		if n.Fingerprint == fpr {
+		if n.Fingerprint == fpr && subtle.ConstantTimeCompare([]byte(n.Secret), []byte(secret)) == 1 {
 			return n, true
 		}
 	}
 	return Node{}, false
+}
+
+func (r *memRegistry) Remove(sub string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.nodes[sub]; !ok {
+		return ErrNotPaired
+	}
+	delete(r.nodes, sub)
+	return nil
+}
+
+// without returns the book as it would be after Remove(sub); the caller holds r.mu.
+func (r *memRegistry) without(sub string) ([]Node, bool) {
+	out := make([]Node, 0, len(r.nodes))
+	for s, held := range r.nodes {
+		if s != sub {
+			out = append(out, held)
+		}
+	}
+	return out, len(out) != len(r.nodes)
 }
 
 func (r *memRegistry) All() []Node {

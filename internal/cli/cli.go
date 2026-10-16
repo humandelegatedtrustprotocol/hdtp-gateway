@@ -80,7 +80,7 @@ func usage(w io.Writer) {
 
 commands:
   serve     run the node
-  ingress   serve|token — the ingress role (own-domain front door for paired nodes)
+  ingress   serve|token|unpair — the ingress role (own-domain front door for paired nodes)
   migrate   run store migrations (node must be stopped)
   doctor    diagnose configuration, data dir, store, lock
   healthcheck  probe the internal /healthz (container HEALTHCHECK)

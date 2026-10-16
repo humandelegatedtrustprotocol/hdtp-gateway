@@ -21,7 +21,7 @@ which asks the internal listener's `/healthz`, and `ingress serve`, which is the
 opens no store):
 
 - Admin-socket clients, which act on a node that is running: `account`, `passkey`, `token`,
-  `ingress token`. Each sends one named call over the unix socket under the data directory
+  `ingress token` and `ingress unpair` (these two on a running ingress). Each sends one named call over the unix socket under the data directory
   (`core.AdminCall`: 5 seconds to dial, 30 to finish) and `serve` answers from handlers it
   registered (`serve_admin.go`). With no node listening the call fails with
   `admin socket: ... (is the node running?)`.
@@ -55,7 +55,7 @@ Unexported, by file:
 | `auditcmd.go` | `audit` |
 | `portablecmd.go` | `export` and `import` |
 | `checkcmd.go`, `doctor.go`, `healthcheck.go`, `migrate.go` | the commands of those names |
-| `ingresscmd.go` | `ingress serve` and `ingress token` |
+| `ingresscmd.go` | `ingress serve`, `ingress token` and `ingress unpair` |
 | `capabilities.go` | `capabilityBinder`: which provider serves an account's core capabilities now (mapped mode, SPEC §6.6), resolved per call and cached until an exposure changes |
 | `integrations.go`, `integrationsurface.go` | bringing configured integrations back up at start; rebuilding what one integration serves, each tool with the upstream's four hints normalised (`servedAnnotations`: MCP's default for a hint the upstream did not state as a boolean, `openWorldHint` true always, the worst case for an agent-answered exposure) |
 | `contactinit.go` | the owner-initiated half of contact establishment (add by card, redeem an invite, request a contact, tell an asker how the owner answered) |
@@ -68,7 +68,7 @@ Unexported, by file:
 The flag `-config PATH` (default `$HDTP_CONFIG`) is accepted by every command except `version`,
 `ingress` and `__child`. Go's `flag` accepts `-flag` and `--flag`. Where a command has a flag set
 of its own (`serve`, `migrate`, `doctor`, `healthcheck`, `export`, `import`, `ingress serve`,
-`ingress token`, `check store`, and each `account`, `passkey`, `token` and `audit` subcommand),
+`ingress token`, `ingress unpair`, `check store`, and each `account`, `passkey`, `token` and `audit` subcommand),
 `-h` after it prints the flags to the stderr `Run` was given and exits 2. The dispatchers do not
 have one: `account -h`, `passkey -h` and `token -h` print only their one-line usage (exit 2),
 `ingress -h` and `check -h` answer `unknown subcommand` (exit 2), and `audit -h` reads `-h` as the
@@ -82,6 +82,7 @@ an unknown command and exits 2.
 | `serve` | `-config` | the startup banner (below), then blocks until SIGINT or SIGTERM; exit 0 on a clean stop | config that does not load; `internal_host` that cannot be a passkey relying party (`core.RuleInternalHostIsRPID`); TLS files that do not load; the data-dir lock (waits up to `core.ServeLockWait` for an exclusive holder, then fails); a schema that is not this binary's while another process serves the same data dir; any stage failing: `serve: <err>`, exit 1 |
 | `ingress serve` | `-domain` (required), `-token` or `$HDTP_INGRESS_TOKEN` (required), `-data-dir` (`$HDTP_DATA_DIR`, else `./data`), `-dns` (`cloudflare`), `-cloudflare-token` (`$CF_TOKEN`), `-pair-bind` (`127.0.0.1:8444`), `-data-plane-addr` (the domain), `-data-plane-port` (7000), `-vhost-port` (443), `-internal-vhost-port` (7443), `-key`, `-terminate`, `-acme-email`, `-acme-dir` (`./acme`), `-acme-ca`, `-acme-ca-root` | the domain and key fingerprint, the pairing URL, the data plane address; one `action resource outcome` line per audit event | a missing `-domain` or token: exit 2; an unreadable or certificate-less `-acme-ca-root` with `-terminate`: exit 2; key, data plane, DNS, ACME or listener failures: exit 1 |
 | `ingress token` | `-data-dir` | a single-use pairing token, minted by the running ingress (valid 10 minutes) | no ingress listening: exit 1 |
+| `ingress unpair` | `-subdomain` (required), `-data-dir` | `unpaired <subdomain>`; the running ingress forgets that pairing, writing its book first, and closes the node's open data-plane sessions for it, and audits `ingress_unpair subdomain:<s>` `ok`, `not_found` or `error` | no `-subdomain`, or one that is not one DNS label (`ingress.ValidSubdomain`): exit 2; no pairing holds it, the book could not be written, or no ingress listening: exit 1 |
 | `migrate` | `-config` | `migrations applied` | creates the data dir; fails while any process holds the lock |
 | `doctor` | `-config` | one line per check, `ok`, `warn` or `FAIL`: config, data-dir, lock (held means a node appears to be running, then the admin socket is pinged), store-open, settings (a `FAIL` line only: the portal's knobs layered under the environment and the file, as `serve` layers them), each account's leaf (validity, renewal due, address drift, owed handshakes), tunnel, limits sidecar, public_url guard and reachability probe, the URL as the node resolves it (environment, file, then the portal's setting) | exit 1 if any line is `FAIL`; a config that does not load stops it there; warnings do not fail it |
 | `healthcheck` | `-config`, `-limits` | nothing on success; one stderr line on failure | exit 0 only if `/healthz` on the internal bind answers 200 within 3 s (https, and only the configured `internal_tls_cert`, when internal TLS is configured); with `-limits`, only if the limits sidecar at the configured socket answers its rules within 3 s, the portal not asked (the sidecar's own container, `compose.yaml`'s `limitd`, serves none) |
@@ -217,6 +218,4 @@ All in this directory unless named.
 - `account`, `passkey` and `token` subcommands are checked after the configuration loads, and
   `audit` after it has taken the lock and opened the store, so an unknown subcommand with a bad
   config reports the config error (exit 1), not the usage (exit 2).
-- `ingress serve`'s `-key` help text says "default: <domain>.key in the working directory"; the
-  code defaults to `ingress.key` in `-data-dir`.
 - No daemon supervision, no config writing: the operator's config file is read, never written.

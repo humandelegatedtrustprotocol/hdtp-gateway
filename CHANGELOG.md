@@ -10,12 +10,60 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+### Added
+
+- `hdtp-gateway ingress unpair -subdomain <s>` forgets one pairing in the running ingress, over its
+  admin socket, and closes the node's open data-plane sessions for it: the name routes nowhere until
+  it is paired again, and its data-plane secret no longer logs in.
+  The ingress audits it `ingress_unpair subdomain:<s>`. Nothing could remove a pairing before.
+
+### Changed
+
+- The ingress's `POST /pair` answers every refusal with a JSON body holding the code alone
+  (`{"code":"conflict"}`), served as `application/json`. A subdomain paired to another node is
+  `409 conflict`; a pairing the registry could not record (the file registry's write failed) is
+  `503 unavailable`, where it was a 409 whose body carried the error's text inside a JSON string
+  and was not valid JSON when that text held a quote (a subdomain's name always did).
+
 ### Fixed
 
+- The ingress's file registry writes a pairing to disk before it routes it. It changed the book in
+  memory first, so a pairing whose write failed was routed until the next start forgot it.
+- A pairing from the portal stores its ten rows (the adapter's eight, the tunnel selection and the
+  public URL) in one transaction. They were written one at a time, so a re-pair that failed part-way
+  left the new ingress's rows beside the previous pairing's, still selected.
+- An import that cannot read whether a contact is held fails and writes nothing. A failed read was
+  taken for "not held": the file's contact was imported over whatever the store held, and a
+  removed thread's root was labelled not a contact here.
+- Deleting a conversation wakes a portal showing it (one `message` event naming the thread), where
+  it published nothing. `wait_for_updates` does not report a deletion, as before.
+- Deleting a conversation while another media body of the account does not parse says that its
+  files were left, and why; the comments beside it promised the orphan sweep would collect them,
+  which it cannot while that body stays.
+- Every retention pass that deletes messages, threads or files writes one `retention_sweep` row
+  naming what went (`ok`, `blobs_skipped_unreadable_media`, or `error` when a later step failed).
+  While a media body that does not parse held the files back, a pass deleted the messages and,
+  after the first, wrote no row; and an unreadable body reported in one account silenced the same
+  body in another. The orphan sweep's row names its counts in the same shape.
+- A retention pass that cannot list the accounts prints `retention: accounts: <error>`. It ended
+  there without a word, so no account was swept and nothing said so.
+- The contacts limit (`limit.contacts`) saved in the portal is applied at the next start. The boot
+  read skipped every dotted key, so the node started on the default while the page showed the
+  saved value as pending.
+- The ingress's data plane knows a node paired on two subdomains by the secret it presents. It
+  looked the node up by fingerprint alone and compared the secret of whichever pairing it met
+  first, so such a node was refused with its own credential most of the time (349 of 400 lookups
+  measured).
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were
-  `bad_request`. `POST /settings/pair` and `POST /settings/unpair` answer a refusal with the status
-  its code reads (404, 409, 400, or 500 for a failure of the node) beside the page's state, where
+  `bad_request`. A pairing the ingress refused is told by the ingress's code (a spent token, a
+  subdomain paired to another node as `conflict`, a malformed subdomain, a node certificate it did
+  not accept, an ingress that could not record it as `unavailable`), a pin the ingress did not
+  match and an ingress not reached (`unavailable`) as themselves, where every one was
+  `bad_request` "the ingress did not pair this node". Unpairing an adapter whose stored selection
+  could not be read is a failure of the node and deletes nothing, where the failed read was taken
+  for "not selected" and the pairing the next start would boot with was deleted. `POST /settings/pair` and `POST /settings/unpair` answer a refusal with the status
+  its code reads (404, 409, 400, 502 for an ingress not reached, or 500 for a failure of the node) beside the page's state, where
   every refusal was a 200 with `error` set (a pairing form missing a field still is).
 - `add_contact` tells this identity's own outbound budget refusing the call as `rate_limited`, with
   the wait ("this identity has sent as many calls as its budget allows for now; try again in N s"),

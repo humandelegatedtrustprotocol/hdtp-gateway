@@ -48,6 +48,7 @@ const VIA_VARIABLE = {
   blocked_or_unknown: "internal/public/servers.go",
   blocked_silent: "internal/public/tools.go",
   limits_unavailable: "internal/outbound/client.go",
+  blobs_skipped_unreadable_media: "internal/messaging/retention.go",
 };
 
 function goFiles(dir, out = []) {

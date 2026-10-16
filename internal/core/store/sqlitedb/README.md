@@ -74,6 +74,7 @@ conformance suite, which exercises these statements through the `SQLite` store.
   and `store/rows.go` do.
 - It does not open a database, migrate it or manage transactions: `store.OpenSQLite`, `Migrate` and
   `Atomically` do, and hand it a `*sql.Tx` through `WithTx`.
-- It does not contain the Postgres statements. `pgdb` holds those, and it has five that this package has
-  not: `ListenChanges`, `LockAccountRow`, `LockAuditChain`, `LockChanges` and `NotifyChanges`, which exist
-  because SQLite takes the write lock at BEGIN and has nothing to listen on.
+- It does not contain the Postgres statements. `pgdb` holds those, and it has statements this package has
+  not (`ListenChanges`, `LockAccountRow`, `LockAuditChain`, `LockChanges`, `LockFileHash` and
+  `NotifyChanges`; `pgdb/README.md` tables them), which exist because SQLite takes the write lock at BEGIN
+  and has nothing to listen on.

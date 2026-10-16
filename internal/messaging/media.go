@@ -278,9 +278,6 @@ func (m *MediaService) FetchMessage(ctx context.Context, accountID, messageID st
 	if err != nil {
 		return "", err
 	}
-	if gone {
-		return "", fmt.Errorf("%w: the message went while its file was fetched", store.ErrNotFound)
-	}
 	return hash, nil
 }
 

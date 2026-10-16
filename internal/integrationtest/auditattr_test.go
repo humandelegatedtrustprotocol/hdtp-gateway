@@ -43,7 +43,7 @@ var nodeLevelActions = map[string]string{
 	"settings_save":            "the node's own settings; per-account storage is settings_storage",
 	"settings_probe":           "a probe of the node's own configuration",
 	"ingress_pair":             "pairing the node's own inbound adapter",
-	"ingress_unpair":           "unpairing the node's own inbound adapter",
+	"ingress_unpair":           "unpairing the node's own inbound adapter, or a subdomain's pairing on the ingress, which holds no accounts",
 	"settings_unreadable":      "a node settings row the keyring cannot open",
 	"account_create":           "a failed create names no account because none exists yet; the success path names the one it made, and the slug-misuse rule still guards it",
 }
