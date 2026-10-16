@@ -169,7 +169,7 @@ func refuse(w http.ResponseWriter, status int, code string) {
 //
 // It returns the response and the ingress fingerprint it saw, which is set even when pairing
 // fails. A fingerprint other than expectIngressFpr aborts the handshake before the request is
-// sent. A non-200 answer is a *PairError. The certificate chain is never validated; the pin is
+// sent (ErrIngressPin, through the client's error). A non-200 answer is a *PairError. The certificate chain is never validated; the pin is
 // the only check. Pair replaces the Transport of the client it is given, so pass nil (a client
 // with a 15 second timeout is made) unless that is wanted.
 func Pair(ctx_ *http.Client, pairURL string, nodeCert tls.Certificate, expectIngressFpr string, req PairRequest) (PairResponse, string, error) {
@@ -191,7 +191,7 @@ func Pair(ctx_ *http.Client, pairURL string, nodeCert tls.Certificate, expectIng
 			}
 			seenFpr = f
 			if expectIngressFpr != "" && f != expectIngressFpr {
-				return errIngressPin
+				return ErrIngressPin
 			}
 			return nil
 		},
@@ -225,9 +225,10 @@ type PairError struct {
 // Error returns "ingress: pairing refused: " and the body.
 func (e *PairError) Error() string { return "ingress: pairing refused: " + e.Body }
 
-var (
-	errIngressNoCert = errors.New("ingress: served no certificate")
-	errIngressPin    = errors.New("ingress: served certificate does not match the pinned ingress fingerprint")
-)
+var errIngressNoCert = errors.New("ingress: served no certificate")
+
+// ErrIngressPin is Pair's failure when the ingress serves a certificate whose fingerprint is not the
+// expected one; the handshake is aborted before the request is sent.
+var ErrIngressPin = errors.New("ingress: served certificate does not match the pinned ingress fingerprint")
 
 func bytesReader(b []byte) io.Reader { return bytes.NewReader(b) }

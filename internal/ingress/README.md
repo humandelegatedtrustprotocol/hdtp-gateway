@@ -7,7 +7,7 @@ The ingress role (SPEC.md §10.6): a public front door that holds DNS and certif
 Registry and pairing:
 - `Mode` (`ModePassthrough`, `ModeTerminate`), `Node`, `Registry`, `NewMemoryRegistry`, `NewFileRegistry`: the book of paired nodes and single-use pairing tokens; the file registry persists nodes (never tokens) as JSON.
 - `ValidSubdomain`, `InternalName`: one DNS label; and `<sub>.internal.<domain>`, the name a terminate-mode node's reverse tunnel registers.
-- `PairingServer` (`Handler`, `OnPaired`), `PairRequest`, `PairResponse`, `Pair`, `PairError`: the pairing endpoint and its node-side client.
+- `PairingServer` (`Handler`, `OnPaired`), `PairRequest`, `PairResponse`, `Pair`, `PairError`, `ErrIngressPin`: the pairing endpoint and its node-side client; `ErrSubdomainTaken`, `Put`'s refusal of a subdomain paired to another fingerprint.
 
 Routing:
 - `FrontDoor`: accepts on the public port, reads one ClientHello, routes by SNI to passthrough (a splice to the data plane) or terminate (a `ConnSink`).

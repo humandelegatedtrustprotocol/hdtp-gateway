@@ -22,11 +22,16 @@ changelog can be and is not summarized into a fictional release history.
 
 - The ingress's file registry writes a pairing to disk before it routes it. It changed the book in
   memory first, so a pairing whose write failed was routed until the next start forgot it.
-
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a
   node not serving yet or unpairing the selected tunnel as `conflict`, where all three were
-  `bad_request`. `POST /settings/pair` and `POST /settings/unpair` answer a refusal with the status
-  its code reads (404, 409, 400, or 500 for a failure of the node) beside the page's state, where
+  `bad_request`. A pairing the ingress refused is told by the ingress's code (a spent token, a
+  subdomain paired to another node as `conflict`, a malformed subdomain, a node certificate it did
+  not accept, an ingress that could not record it as `unavailable`), a pin the ingress did not
+  match and an ingress not reached (`unavailable`) as themselves, where every one was
+  `bad_request` "the ingress did not pair this node". Unpairing an adapter whose stored selection
+  could not be read is a failure of the node and deletes nothing, where the failed read was taken
+  for "not selected" and the pairing the next start would boot with was deleted. `POST /settings/pair` and `POST /settings/unpair` answer a refusal with the status
+  its code reads (404, 409, 400, 502 for an ingress not reached, or 500 for a failure of the node) beside the page's state, where
   every refusal was a 200 with `error` set (a pairing form missing a field still is).
 - `add_contact` tells this identity's own outbound budget refusing the call as `rate_limited`, with
   the wait ("this identity has sent as many calls as its budget allows for now; try again in N s"),

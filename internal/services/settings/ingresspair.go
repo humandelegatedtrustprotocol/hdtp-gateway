@@ -15,6 +15,8 @@ package settings
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -89,8 +91,7 @@ func (s *Service) pair(ctx context.Context, accountID string, in internalui.Pair
 		ingress.PairRequest{Token: in.Token, Subdomain: in.Subdomain, Mode: mode})
 	if err != nil {
 		s.audit("ingress_pair", "url:"+in.PairURL, "refused")
-		// The ingress's answer or the dial's error is behind the sentence, never in front of it.
-		return internalui.PairResult{Fingerprint: seen}, refusal.BadRequest("the ingress did not pair this node", err)
+		return internalui.PairResult{Fingerprint: seen}, pairRefusal(err)
 	}
 
 	adapter := adapterFor(mode)
@@ -103,6 +104,38 @@ func (s *Service) pair(ctx context.Context, accountID string, in internalui.Pair
 		Fingerprint: res.IngressFingerprint,
 		Adapter:     adapter,
 	}, nil
+}
+
+// pairRefusal is the refusal a failed ingress.Pair answers the owner with: the code the ingress
+// answered (SPEC §10.6; ingress.PairingServer.Handler), a served certificate that is not the one
+// the owner pinned, or an ingress not reached. The ingress's answer and the dial's error are behind
+// the sentence, never in it.
+func pairRefusal(err error) error {
+	var pe *ingress.PairError
+	if errors.As(err, &pe) {
+		var body struct {
+			Code string `json:"code"`
+		}
+		_ = json.Unmarshal([]byte(pe.Body), &body)
+		switch body.Code {
+		case "invite_invalid":
+			return refusal.BadRequest("the pairing token is unknown, used or expired", err)
+		case "conflict":
+			return refusal.Conflict("that subdomain is paired to another node", err)
+		case "identity_required":
+			return refusal.BadRequest("the ingress did not accept this node's certificate", err)
+		case "bad_request":
+			return refusal.BadRequest("the ingress refused the subdomain or the mode: a subdomain is one DNS label "+
+				"of lowercase letters, digits and hyphens, and the mode passthrough or terminate", err)
+		case "unavailable":
+			return refusal.Unavailable("the ingress could not record the pairing; try again with a new token", err)
+		}
+		return refusal.BadRequest(fmt.Sprintf("the pairing URL answered HTTP %d, which is not an ingress's pairing answer", pe.Status), err)
+	}
+	if errors.Is(err, ingress.ErrIngressPin) {
+		return refusal.BadRequest("the ingress served a certificate whose fingerprint is not the one given", err)
+	}
+	return refusal.Unavailable("the ingress could not be reached", err)
 }
 
 // pairingKeys are the rows a pairing writes under `tunnel.<adapter>.`, in the order storePairing
@@ -153,11 +186,13 @@ func (s *Service) unpair(ctx context.Context, adapter string) error {
 	selected := false
 	s.readCfg(func(c *core.Config) { selected = c.Tunnel == adapter })
 	if !selected {
-		if rows, err := s.store.ListSettings(ctx); err == nil {
-			for _, r := range rows {
-				if r.Key == "tunnel" && r.Value == adapter {
-					selected = true
-				}
+		rows, err := s.store.ListSettings(ctx)
+		if err != nil {
+			return err
+		}
+		for _, r := range rows {
+			if r.Key == "tunnel" && r.Value == adapter {
+				selected = true
 			}
 		}
 	}

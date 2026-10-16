@@ -706,8 +706,8 @@ func TestIngressPairingFromThePortal(t *testing.T) {
 
 	// a fingerprint mismatch aborts before anything is stored
 	body := p.postAnswering("/settings/pair", form(mint(), "sha256:definitely-not-the-ingress"), http.StatusBadRequest)
-	if !strings.Contains(body, "refused") {
-		t.Fatalf("a mismatched fingerprint was accepted:\n%s", firstLine(body))
+	if !strings.Contains(body, "the ingress served a certificate whose fingerprint is not the one given") {
+		t.Fatalf("a mismatched fingerprint was not told as one:\n%s", firstLine(body))
 	}
 	st := openStoreAt(t, dir)
 	rows, err := st.ListSettings(ctx)
@@ -756,8 +756,18 @@ func TestIngressPairingFromThePortal(t *testing.T) {
 
 	// the token was single-use
 	body = p.postAnswering("/settings/pair", form(token, ingKP.Fingerprint), http.StatusBadRequest)
-	if !strings.Contains(body, "refused") {
-		t.Fatalf("a replayed token was accepted:\n%s", firstLine(body))
+	if !strings.Contains(body, "the pairing token is unknown, used or expired") {
+		t.Fatalf("a replayed token was not told as one:\n%s", firstLine(body))
+	}
+	// a subdomain another node holds is the ingress's conflict, told as one
+	if err := reg.Put(ingress.Node{Fingerprint: "sha256:another-node", Subdomain: "carol", Mode: ingress.ModePassthrough}); err != nil {
+		t.Fatal(err)
+	}
+	taken := form(mint(), ingKP.Fingerprint)
+	taken.Set("subdomain", "carol")
+	body = p.postAnswering("/settings/pair", taken, http.StatusConflict)
+	if !strings.Contains(body, "that subdomain is paired to another node") {
+		t.Fatalf("a taken subdomain was not told as one:\n%s", firstLine(body))
 	}
 
 	// unpair is refused while that adapter is selected, and works once it is not
