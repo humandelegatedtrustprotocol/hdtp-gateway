@@ -228,8 +228,11 @@ func (m *Manager) NoteCallFailure(ctx context.Context, integrationID string, err
 	if in.Status == "auth_error" {
 		return
 	}
-	m.landFailure(ctx, in, err)
-	m.audit("integration_call", "account:"+in.AccountID+" integration:"+in.Slug, failStatus(err))
+	outcome := failStatus(err)
+	if m.landFailure(ctx, in, err) != nil {
+		outcome = "error"
+	}
+	m.audit("integration_call", "account:"+in.AccountID+" integration:"+in.Slug, outcome)
 }
 
 // failStatus picks the status a dial/health failure lands in (SPEC §6.3/§6.10).
@@ -245,19 +248,23 @@ func failStatus(err error) string {
 }
 
 // landFailure writes the status a failure lands in (failStatus) over in, the row as read before the
-// attempt. Moving INTO auth_error is audited integration_auth and fires OnAuthError, after the
-// write, so whoever it wakes reads the new status; a row already in auth_error that fails the same
+// attempt, and returns the write's error. Moving INTO auth_error is audited integration_auth and
+// fires OnAuthError, after the write succeeded, so whoever it wakes reads the new status; a write
+// that failed moved nothing and announces nothing. A row already in auth_error that fails the same
 // way again is not news, so a health cycle against a token still dead neither audits nor fires.
-func (m *Manager) landFailure(ctx context.Context, in store.Integration, err error) {
+func (m *Manager) landFailure(ctx context.Context, in store.Integration, err error) error {
 	status := failStatus(err)
-	_ = m.Store.UpdateIntegrationStatus(ctx, in.ID, status)
+	if werr := m.Store.UpdateIntegrationStatus(ctx, in.ID, status); werr != nil {
+		return werr
+	}
 	if status != "auth_error" || in.Status == "auth_error" {
-		return
+		return nil
 	}
 	m.audit("integration_auth", "account:"+in.AccountID+" integration:"+in.Slug, "error")
 	if m.OnAuthError != nil {
 		m.OnAuthError(in.ID)
 	}
+	return nil
 }
 
 func (m *Manager) dial(ctx context.Context, in store.Integration) (*mcp.ClientSession, error) {
@@ -397,10 +404,10 @@ func (m *Manager) Connect(ctx context.Context, integrationID string) error {
 	_ = m.Store.UpdateIntegrationStatus(ctx, in.ID, "connecting")
 	session, err := m.dial(ctx, in)
 	if err != nil {
-		m.landFailure(ctx, in, err)
+		lerr := m.landFailure(ctx, in, err)
 		m.audit("integration_connect", "account:"+in.AccountID+" integration:"+in.Slug, "error")
 		m.startLoop(in.ID)
-		return fmt.Errorf("integrations: connect %s: %w", in.Slug, err)
+		return fmt.Errorf("integrations: connect %s: %w", in.Slug, errors.Join(err, lerr))
 	}
 	m.install(in.ID, session)
 	if err := m.Store.UpdateIntegrationStatus(ctx, in.ID, "ok"); err != nil {
@@ -503,9 +510,9 @@ func (m *Manager) HealthCheck(ctx context.Context, integrationID string) error {
 		// nothing connected: the cycle IS the retry path
 		session, dialErr := m.dial(ctx, in)
 		if dialErr != nil {
-			m.landFailure(ctx, in, dialErr)
+			lerr := m.landFailure(ctx, in, dialErr)
 			m.audit("integration_health", "account:"+in.AccountID+" integration:"+in.Slug, "error")
-			return fmt.Errorf("integrations: %s still unreachable: %w", in.Slug, dialErr)
+			return fmt.Errorf("integrations: %s still unreachable: %w", in.Slug, errors.Join(dialErr, lerr))
 		}
 		m.mu.Lock()
 		if m.conns == nil {
@@ -588,8 +595,9 @@ func (m *Manager) healthFail(ctx context.Context, in store.Integration, c *conn,
 		c.withheld = true
 	}
 	m.mu.Unlock()
+	var lerr error
 	if failures == 1 {
-		m.landFailure(ctx, in, cause)
+		lerr = m.landFailure(ctx, in, cause)
 	}
 	m.audit("integration_health", "account:"+in.AccountID+" integration:"+in.Slug, "error")
 	if trip {
@@ -598,7 +606,7 @@ func (m *Manager) healthFail(ctx context.Context, in store.Integration, c *conn,
 			m.OnAvailability(in.ID, true)
 		}
 	}
-	return fmt.Errorf("integrations: %s unreachable (%d consecutive failures)", in.Slug, failures)
+	return errors.Join(fmt.Errorf("integrations: %s unreachable (%d consecutive failures)", in.Slug, failures), lerr)
 }
 
 func (m *Manager) loop(ctx context.Context, integrationID string, every time.Duration) {
