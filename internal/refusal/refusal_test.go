@@ -44,6 +44,8 @@ func TestOfAnswersEachRefusalItsCodeAndNoForeignText(t *testing.T) {
 		{"a fetch refused", messaging.FetchRefusal{Code: "permission_denied", Sentence: "media.example resolves to a private address"}, "permission_denied", "media.example resolves to a private address"},
 		{"an install refused", realInstallRefusal(t), "bad_request", "identity: no certificate request is pending for this account; run `account csr` first: leaf refused"},
 		{"a token with no label", auth.ErrLabelRequired, "bad_request", auth.ErrLabelRequired.Error()},
+		{"a target in the wrong state", fmt.Errorf("unpair: %w", Conflict("x is the selected tunnel", storeFailure)), "conflict", "x is the selected tunnel"},
+		{"a target not held", errors.Join(storeFailure, NotFound("unknown account", storeFailure)), "not_found", "unknown account"},
 		{"a peer not reached", Unavailable("the request did not reach the peer", storeFailure), "unavailable", "the request did not reach the peer"},
 		{"a budget that refused", fmt.Errorf("adding: %w", RateLimited("try again in 7 s", storeFailure)), "rate_limited", "try again in 7 s"},
 		{"an identity awaiting its wallet", fmt.Errorf("node: a awaits its wallet: %w", identity.ErrNoCertificate), "not_found", "node: a awaits its wallet: identity: no current certificate"},

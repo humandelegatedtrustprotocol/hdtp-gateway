@@ -206,6 +206,12 @@ func (d SettingsDeps) rows(pending map[string]string) (reach, security []setting
 
 // render answers a settings request with the page's whole state, and the notice, error and probe verdict the request produced.
 func (d SettingsDeps) render(w http.ResponseWriter, r *http.Request, notice string, isErr bool, verdict, detail string) {
+	d.renderStatus(w, r, http.StatusOK, notice, isErr, verdict, detail)
+}
+
+// renderStatus is render answering with status: a refused pairing or unpairing answers its code's
+// status (pageStatus), with the page's state beside it.
+func (d SettingsDeps) renderStatus(w http.ResponseWriter, r *http.Request, status int, notice string, isErr bool, verdict, detail string) {
 	var pending map[string]string
 	if d.Pending != nil {
 		pending, _ = d.Pending(r.Context())
@@ -245,7 +251,8 @@ func (d SettingsDeps) render(w http.ResponseWriter, r *http.Request, notice stri
 			}
 		}
 	}
-	apiJSON(w, map[string]any{
+	w.Header().Set("Cache-Control", "no-store")
+	apiJSONStatus(w, status, map[string]any{
 		"show_storage": d.Storage != nil, "storage": storage,
 		"show_presets": d.SavePreset != nil, "presets": presetRows,
 		"preset_perms": contacts.AllPermissions,
@@ -496,7 +503,7 @@ func (d SettingsDeps) postSettingsPair(w http.ResponseWriter, r *http.Request) {
 		if res.Fingerprint != "" && in.IngressFingerprint != "" {
 			msg += " (the ingress presented " + res.Fingerprint + ")"
 		}
-		d.render(w, r, msg, true, "", "")
+		d.renderStatus(w, r, pageStatus(err), msg, true, "", "")
 		return
 	}
 	notice := "Paired as " + res.PublicName + " over " + res.Adapter +
@@ -514,7 +521,7 @@ func (d SettingsDeps) postSettingsUnpair(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := d.Unpair(r.Context(), r.PostForm.Get("adapter")); err != nil {
-		d.render(w, r, "could not unpair: "+pageError(err), true, "", "")
+		d.renderStatus(w, r, pageStatus(err), "could not unpair: "+pageError(err), true, "", "")
 		return
 	}
 	d.render(w, r, "Unpaired.", false, "", "")

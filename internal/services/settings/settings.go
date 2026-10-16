@@ -433,7 +433,7 @@ func (s *Service) Deps() internalui.SettingsDeps {
 						return s.pair(ctx, a.ID, in)
 					}
 				}
-				return internalui.PairResult{}, refusal.BadRequest("unknown account", nil)
+				return internalui.PairResult{}, refusal.NotFound("unknown account", nil)
 			}
 			if len(accts) > 1 {
 				return internalui.PairResult{}, refusal.BadRequest("this node has several identities — choose which one to pair", nil)
