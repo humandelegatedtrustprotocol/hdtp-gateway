@@ -5,14 +5,14 @@ The ingress role (SPEC.md §10.6): a public front door that holds DNS and certif
 ## What it holds
 
 Registry and pairing:
-- `Mode` (`ModePassthrough`, `ModeTerminate`), `Node`, `Registry`, `NewMemoryRegistry`, `NewFileRegistry`: the book of paired nodes and single-use pairing tokens; the file registry persists nodes (never tokens) as JSON. `Registry.ByCredential(fpr, secret)` is the data plane's lookup (the secret compared in constant time; an empty one matches nothing); `Registry.Remove(sub)` forgets a pairing (`ErrNotPaired` when none holds it), which `ingress unpair` calls over the admin socket.
+- `Mode` (`ModePassthrough`, `ModeTerminate`), `Node`, `Registry`, `NewMemoryRegistry`, `NewFileRegistry`: the book of paired nodes and single-use pairing tokens; the file registry persists nodes (never tokens) as JSON. `Registry.ByCredential(fpr, secret)` is the data plane's lookup (the secret compared in constant time; an empty one matches nothing); `Registry.Remove(sub)` forgets a pairing (`ErrNotPaired` when none holds it).
 - `ValidSubdomain`, `InternalName`: one DNS label; and `<sub>.internal.<domain>`, the name a terminate-mode node's reverse tunnel registers.
 - `PairingServer` (`Handler`, `OnPaired`), `PairRequest`, `PairResponse`, `Pair`, `PairError`, `ErrIngressPin`: the pairing endpoint and its node-side client; `ErrSubdomainTaken`, `Put`'s refusal of a subdomain paired to another fingerprint.
 
 Routing:
 - `FrontDoor`: accepts on the public port, reads one ClientHello, routes by SNI to passthrough (a splice to the data plane) or terminate (a `ConnSink`).
 - `ConnSink`, `ChanListener`, `NewChanListener`: the hand-off from the front door to the terminator, as a `net.Listener` whose `Deliver` can give up.
-- `DataPlane` (`Start`, `Stop`), `MetaNode`, `MetaSecret`: the embedded frps and its registry-enforcing plugin.
+- `DataPlane` (`Start`, `Stop`, `Unpair`), `MetaNode`, `MetaSecret`: the embedded frps and its registry-enforcing plugin. `Unpair(sub)` is what `ingress unpair` calls over the admin socket: `Registry.Remove`, then frps closes every live session whose login credentials the registry no longer accepts (`CloseControls`, added to the vendored frp by `third_party/frp.patch`), and `Unpair` returns once their proxies are closed.
 
 Terminate mode:
 - `ACME`, `ACMEOptions`, `NewACME`, `Manage`, `TLSConfig`, `Close`: certmagic with its own cache; HTTP-01 for single names, DNS-01 when a provider is set.
@@ -57,6 +57,7 @@ Constants: `helloTimeout` 10 s, `handoffTimeout` 5 s, ACME `CertObtainTimeout` 2
 ## Held by
 
 - `ingress_test.go`: `TestPairingTokenIsSingleUse` (wrong pin aborts, token reuse and unknown tokens refused, no-cert pairing is 401, a second node cannot take a paired subdomain); `TestATakenSubdomainIsRefusedWithAJSONBodyHoldingTheCode`; `TestSNIPassthroughRoutesAndKeepsClientCertVisible`; `TestTerminatePairingAnnouncesItsNameForACertificate` (`PairingServer` calls `OnPaired` after every pairing it records; the test's callback keeps only the terminate-mode ones, and holds that the terminate pairing is announced and the passthrough one is not asked for a certificate); `TestDataPlaneStopRightAfterStart`.
+- `unpair_test.go`: `TestAnUnpairedNodeLosesItsRouteToTheNextPairing` (real frps and frpc: right after `Unpair` no dial reaches the old node, a node paired on another name keeps its session, and the node paired on the name next is the only one reached).
 - `ingress_test.go`: `TestANodePairedTwiceIsKnownByTheSecretItPresents` (two pairings of one fingerprint: each secret resolves its own, 400 of 400; a wrong, an empty and a removed secret are refused).
 - `fileregistry_test.go`: `TestARemovedPairingStaysRemovedAcrossARestart` (a removal is written before it is forgotten in memory, and survives a restart); `TestPairingsSurviveARestart` (round trip, file not readable by others, tokens not persisted); `TestAPairingThatCannotBeWrittenIsRefusedAndNotRouted` (an unwritable book is 503 and the pairing is not routed; a refused takeover leaves a book the next start loads).
 - `frontdoor_test.go`: `TestOnePortRoutesPassthroughAndTerminateBySNI`; `TestFrontDoorRefusesNonTLS` (calls `peekSNI` on plain HTTP); `TestFrontDoorDropsWhenTheTerminatorIsNotAccepting`; `TestDataPlaneVhostDefaultsToLoopback`.
@@ -70,4 +71,4 @@ Constants: `helloTimeout` 10 s, `handoffTimeout` 5 s, ACME `CertObtainTimeout` 2
 - It does not authenticate a caller or open an envelope. In terminate mode the ingress can read traffic apart from sealed payloads; caller identity comes from the sealed envelope (SPEC.md §10.6).
 - The pairing tokens are in memory: a restart forgets outstanding ones, and `ingress token` mints a new one.
 - `Registry.Put` keys on the subdomain: the same fingerprint may re-pair on the same subdomain, and it replaces the row. A node can hold more than one subdomain, each with its own secret.
-- `Remove` does not close a data-plane session the node already opened: its frp login stays up until it reconnects, when `Login` refuses it. It carries nothing meanwhile, because the front door and the terminator look the subdomain up per connection and drop an unpaired one.
+- `Registry.Remove` alone does not close a data-plane session the node already opened; `DataPlane.Unpair` does. The plugin checks credentials at `Login` and `NewProxy` only (frps calls it for no other operation), so a session `Unpair` did not close would keep its proxy, and with it the vhost route for the name, until it reconnected.

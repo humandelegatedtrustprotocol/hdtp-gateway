@@ -185,6 +185,27 @@ func (d *DataPlane) Start(ctx context.Context) error {
 	return nil
 }
 
+// Unpair removes the subdomain's pairing from the registry (Registry.Remove, and its refusals),
+// then closes every live frps session whose login credentials the registry no longer accepts, and
+// returns once their proxies are closed: the removed node's tunnel stops serving the name at once,
+// and the name is free for the next node paired on it. A closed session that dials back in is
+// refused at Login.
+func (d *DataPlane) Unpair(sub string) error {
+	if err := d.Registry.Remove(sub); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	svc := d.svc
+	d.mu.Unlock()
+	if svc != nil {
+		svc.CloseControls(func(u plugin.UserInfo) bool {
+			_, ok := d.Registry.ByCredential(u.Metas[MetaNode], u.Metas[MetaSecret])
+			return !ok
+		})
+	}
+	return nil
+}
+
 // Stop closes frps and the plugin endpoint and waits for both to finish. It always returns nil
 // and is safe to call again.
 func (d *DataPlane) Stop() error {

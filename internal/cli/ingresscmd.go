@@ -93,12 +93,13 @@ func ingressUnpair(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// unpairHandler is the admin socket's ingress.unpair: Remove, audited as ingress_unpair with the
+// unpairHandler is the admin socket's ingress.unpair: the data plane's Unpair (the pairing is
+// removed and the node's live tunnel sessions are closed), audited as ingress_unpair with the
 // subdomain, ok, not_found (no pairing held it) or error (the book could not be written).
-func unpairHandler(reg ingress.Registry, auditFn func(action, resource, outcome string)) core.AdminHandler {
+func unpairHandler(dp *ingress.DataPlane, auditFn func(action, resource, outcome string)) core.AdminHandler {
 	return func(args map[string]string) (any, error) {
 		sub := args["subdomain"]
-		err := reg.Remove(sub)
+		err := dp.Unpair(sub)
 		switch {
 		case err == nil:
 			auditFn("ingress_unpair", "subdomain:"+sub, "ok")
@@ -374,7 +375,7 @@ func ingressServe(args []string, stdout, stderr io.Writer) int {
 		}
 		return map[string]string{"token": tok}, nil
 	})
-	admin.Handle("ingress.unpair", unpairHandler(reg, auditFn))
+	admin.Handle("ingress.unpair", unpairHandler(dp, auditFn))
 	if err := admin.Start(ctx); err != nil {
 		fmt.Fprintln(stderr, "ingress: admin socket:", err)
 		return 1

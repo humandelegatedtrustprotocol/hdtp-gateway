@@ -13,7 +13,8 @@ changelog can be and is not summarized into a fictional release history.
 ### Added
 
 - `hdtp-gateway ingress unpair -subdomain <s>` forgets one pairing in the running ingress, over its
-  admin socket: the name routes nowhere from then on and its data-plane secret no longer logs in.
+  admin socket, and closes the node's open data-plane sessions for it: the name routes nowhere until
+  it is paired again, and its data-plane secret no longer logs in.
   The ingress audits it `ingress_unpair subdomain:<s>`. Nothing could remove a pairing before.
 
 ### Changed

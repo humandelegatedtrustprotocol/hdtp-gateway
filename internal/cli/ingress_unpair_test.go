@@ -25,7 +25,7 @@ func TestIngressUnpairForgetsOnePairingInTheRunningIngress(t *testing.T) {
 	}
 	var rows []string
 	admin := core.NewAdminServer(core.AdminSocketPath(dir))
-	admin.Handle("ingress.unpair", unpairHandler(reg, func(action, resource, outcome string) {
+	admin.Handle("ingress.unpair", unpairHandler(&ingress.DataPlane{Registry: reg}, func(action, resource, outcome string) {
 		rows = append(rows, action+" "+resource+" "+outcome)
 	}))
 	ctx, cancel := context.WithCancel(context.Background())
