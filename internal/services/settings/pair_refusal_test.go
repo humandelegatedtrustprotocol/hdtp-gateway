@@ -69,7 +69,7 @@ func TestPairAndUnpairRefusalsAnswerTheTargetsCode(t *testing.T) {
 	if code, s := refusal.Of(err); code != "not_found" || s != "unknown account" {
 		t.Errorf("no account named on a node with one: %v → %s %q", err, code, s)
 	}
-	if want := []string{"ingress_pair account:nosuch not_found", "ingress_pair account: not_found"}; !slices.Equal(audited, want) {
+	if want := []string{"ingress_pair account:nosuch not_found", "ingress_pair url:https://ingress.example/pair not_found"}; !slices.Equal(audited, want) {
 		t.Errorf("the account refusals audited %q, want %q", audited, want)
 	}
 	named.Account = alice.ID

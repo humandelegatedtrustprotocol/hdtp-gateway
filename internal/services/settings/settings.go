@@ -436,7 +436,11 @@ func (s *Service) Deps() internalui.SettingsDeps {
 					return s.pair(ctx, a.ID, in)
 				}
 			}
-			s.audit("ingress_pair", "account:"+in.Account, "not_found")
+			subject := "url:" + in.PairURL
+			if in.Account != "" {
+				subject = "account:" + in.Account
+			}
+			s.audit("ingress_pair", subject, "not_found")
 			return internalui.PairResult{}, refusal.NotFound("unknown account", nil)
 		},
 		Accounts: func(ctx context.Context) ([]internalui.AccountChoice, error) {
