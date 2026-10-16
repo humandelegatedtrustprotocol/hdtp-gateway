@@ -48,6 +48,12 @@ changelog can be and is not summarized into a fictional release history.
   invite and, when it auto-accepts, made this identity `active` there (#178). With the link of
   somebody this identity has blocked it answers `bad_request` "you have blocked that identity;
   unblock them first" and calls nobody, as the cloud does; it called them and spent their invite.
+- `make fuzz` gives each target a number of executions (`-fuzztime Nx`, minimization
+  `-fuzzminimizetime 100x`) where it gave 30 s (minimization 5 s). A time budget that ran out
+  while the engine was minimizing a new input failed the pre-push gate with `context deadline
+  exceeded` and no failing input (#180); a count sets no deadline. Each count is 30 s at the
+  lowest of five measured rates: `FuzzVCardParse` 700,000, `FuzzSealedEnvelope` 400,000,
+  `FuzzInviteOffer` 250,000, `FuzzRedact` 2,000,000. Ten runs passed, in 136 to 160 s each.
 
 ## [0.1.5] — 2026-10-12
 

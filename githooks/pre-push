@@ -11,7 +11,7 @@
 #                     portal's page scripts under node --test (make test-js)
 #   make analyze      govulncheck, staticcheck, gosec, deadcode against docs/conformance.md
 #   make sqlc-check   the committed generated store code matches its sources
-#   make fuzz         every Fuzz target under -fuzz, 30 s each
+#   make fuzz         every Fuzz target under -fuzz, a fixed number of executions each
 #   make harness      the scenario harness's hermetic tier (no Docker)
 #   make scale        last: the store's benchmarks and the import's growth, best of three rounds
 #   make web          and web/dist must be unchanged by it — only when the push touches web/

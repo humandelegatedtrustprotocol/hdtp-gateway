@@ -93,25 +93,23 @@ scale:
 	status=$$?; rm -rf "$$dir"; test $$status -eq 0 || exit $$status; \
 	HDTP_EXPORT_SCALE=40000 go test ./internal/portable/ -run '^TestAnImportGrowsLinearlyWithItsThreads$$' -count=1 -v -timeout 20m
 
-# Every parser that meets untrusted input, 30s each. Deliberately not part of
-# `all`: two minutes of wall clock that finds nothing on most runs. The pre-push
-# hook runs it on every push, and TestEveryFuzzTargetRunsUnderMakeFuzz fails the
-# build if a target is added and this list is not.
+# Every parser that meets untrusted input, each for a fixed number of executions. Deliberately
+# not part of `all`: two to three minutes of wall clock that find nothing on most runs. The pre-push
+# hook runs it on every push, and TestEveryFuzzTargetRunsUnderMakeFuzz fails the build if a
+# target is added and this list is not; TestTheHardeningStatusTableMatchesTheTree holds
+# SECURITY.md's Fuzzing row to these counts.
 #
-# -fuzzminimizetime 5s: the engine minimizes every new input it finds, by default for up to
-# 60 s, and counts no executions while it does. Inside a 30 s run that can freeze a target for
-# the rest of its time, and a run that ends mid-minimization fails with "context deadline
-# exceeded" and no failing input. The pre-push gate failed that way twice (FuzzVCardParse,
-# FuzzRedact). Measured with FuzzRedact alone: frozen at 36,085 and at 53,839 executions with all
-# 12 workers busy, at load 1.58; built without coverage (nothing new to minimize) it ran at
-# ~500,000/s; with no minimization it ran steadily twice. In three paired runs each, the default
-# froze FuzzRedact for ~30 s twice and this flag never. 5 s and not 0, so that what is added to
-# the corpus stays minimized.
+# A count, not a time: under -fuzztime 30s a run that ended while the engine was minimizing a
+# new input failed with "context deadline exceeded" and no failing input (FuzzVCardParse and
+# FuzzRedact in the pre-push gate, #180). A count budget sets no deadline, so nothing can expire
+# mid-minimization; -fuzzminimizetime 100x bounds each minimization the same way. Each N is
+# 30 s at the lowest rate of five runs on 2026-10-16 (execs/s: FuzzVCardParse 24,607,
+# FuzzSealedEnvelope 14,450, FuzzInviteOffer 9,202, FuzzRedact 76,137), rounded down.
 fuzz:
-	go test ./internal/contacts/ -run '^FuzzVCardParse$$'    -fuzz '^FuzzVCardParse$$'    -fuzztime 30s -fuzzminimizetime 5s
-	go test ./internal/public/   -run '^FuzzSealedEnvelope$$' -fuzz '^FuzzSealedEnvelope$$' -fuzztime 30s -fuzzminimizetime 5s
-	go test ./internal/cli/      -run '^FuzzInviteOffer$$'   -fuzz '^FuzzInviteOffer$$'   -fuzztime 30s -fuzzminimizetime 5s
-	go test ./internal/core/     -run '^FuzzRedact$$'        -fuzz '^FuzzRedact$$'      -fuzztime 30s -fuzzminimizetime 5s
+	go test ./internal/contacts/ -run '^FuzzVCardParse$$'    -fuzz '^FuzzVCardParse$$'    -fuzztime 700000x -fuzzminimizetime 100x
+	go test ./internal/public/   -run '^FuzzSealedEnvelope$$' -fuzz '^FuzzSealedEnvelope$$' -fuzztime 400000x -fuzzminimizetime 100x
+	go test ./internal/cli/      -run '^FuzzInviteOffer$$'   -fuzz '^FuzzInviteOffer$$'   -fuzztime 250000x -fuzzminimizetime 100x
+	go test ./internal/core/     -run '^FuzzRedact$$'        -fuzz '^FuzzRedact$$'      -fuzztime 2000000x -fuzzminimizetime 100x
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o $(BINARY) ./cmd/hdtp-gateway
