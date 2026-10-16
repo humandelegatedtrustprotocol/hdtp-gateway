@@ -10,6 +10,26 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+### Added
+
+- The `edge` tunnel adapter, for a sidecar that terminates TLS and that the node does not run
+  itself (ngrok's agent in the `ngrok` compose profile, a quick tunnel, any terminating proxy): the
+  node starts nothing, runs in edge mode, and trusts no forwarded header, so its per-source limits
+  see the sidecar's address. The portal lists it with the other adapters (#171).
+
+### Removed
+
+- The `ngrok-https` tunnel adapter. It wrapped the decrypted HTTP ngrok handed it in the node's own
+  TLS, so it served nothing (#167). A node whose settings or environment still name it refuses to
+  start with `tunnel "ngrok-https" is not a registered adapter`; choose `edge` with the `ngrok`
+  compose profile instead.
+- `HDTP_MODE` and the config file's `mode` key: the deployment mode is derived from the tunnel
+  adapter and was never meant to be declared (SPEC.md §10.1). `HDTP_MODE` is no longer read, and a
+  config file with a `mode` key is refused (`unknown field "mode"`). A node that set
+  `HDTP_MODE=edge` beside a sidecar selects the `edge` adapter instead (#171). The refusals
+  `edge_mode_forces_seal_required` and `edge_mode_forces_client_cert_off` went with it: nothing can
+  put a node in edge mode without forcing both knobs.
+
 ### Fixed
 
 - The portal's ingress pairing refuses an account the node does not hold as `not_found`, and a

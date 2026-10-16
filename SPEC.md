@@ -135,7 +135,7 @@ Reachability is the tunnel adapters' only job: an adapter never changes protocol
 | Mode | TLS path | Forced / default knobs | Who reads what |
 |---|---|---|---|
 | **direct mode** | End-to-end mTLS terminating at the node (port forward, Tailscale Funnel, frp, ngrok TLS) | `seal: required` by default; `client_cert: preferred` by default | The carrier moves ciphertext; no third party reads content |
-| **edge mode** | Public TLS terminates at a third-party edge (Cloudflare Tunnel; ngrok HTTPS) which re-originates to the node | `seal` forced `required`; `client_cert` forced `off`; LAN connections flag defaults off | The edge sees all metadata and would see any unsealed content — which is why seal is forced; sealed content stays unreadable to it (§4, §13) |
+| **edge mode** | Public TLS terminates at a third-party edge (Cloudflare Tunnel; a terminating sidecar such as ngrok's agent) which re-originates to the node | `seal` forced `required`; `client_cert` forced `off`; LAN connections flag defaults off | The edge sees all metadata and would see any unsealed content — which is why seal is forced; sealed content stays unreadable to it (§4, §13) |
 
 The honest residue, carried in full in §13: sealing uses HPKE Base mode to a long-lived leaf key, so there is **no forward secrecy** — a later compromise of that key decrypts traffic recorded while it was current, bounded by the leaf's 398-day ceiling and by renewal with a fresh key; an edge always sees **metadata** even when content is sealed; and the sealing keypair is the **same keypair as mTLS** (an accepted key-reuse caveat, with the envelope's `kid` as the seam for a future separate encryption key).
 
@@ -1000,7 +1000,7 @@ Adapters shipped in v1, as verified against current vendor documentation and SDK
 | `frp` | direct | Embedded frp client (`client.NewService`) to an owner-run `frps` on any VPS; SNI-routed passthrough | Apache-2.0; `frps` does not perform TLS termination |
 | `ngrok` | direct | ngrok-go v2: `ngrok.Listen(ctx, ngrok.WithURL("tls://…"))` returns the unterminated stream | Paid — TLS endpoints are not available on ngrok's free plan |
 | `cloudflare` | edge | Provision tunnel, configuration, and DNS via cloudflare-go; run a spawned `cloudflared tunnel run --token` child or the `cloudflared` compose sidecar (§12) | Edge terminates TLS; works on the free plan |
-| `ngrok-https` | edge | ngrok free HTTPS endpoint | Broken: the listener carries decrypted HTTP and the node wraps it in TLS, so it serves nothing (#167) |
+| `edge` | edge | A sidecar the owner runs (ngrok's agent, a Cloudflare quick tunnel, any terminating proxy) forwards to the node's public bind; the node starts nothing | Trusts no forwarded header: the source address is the sidecar's (§5.7) |
 
 Wrapping an adapter's raw stream, the node's own TLS server always requests client certificates when `client_cert` is not `off`; unknown certificates still land in the guest tier per HDTP §6.
 

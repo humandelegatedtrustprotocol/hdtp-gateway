@@ -187,29 +187,17 @@ profile `ngrok`: ngrok's own agent image, forwarding your ngrok domain to
 `https://hdtp-gateway:8443` on the compose network. It needs an ngrok account (the free plan's one
 static `*.ngrok-free.dev` domain was enough) and two values in the environment, `NGROK_AUTHTOKEN`
 and `NGROK_URL` (`https://<your domain>`). The agent does not verify the node's certificate unless
-it is given `--upstream-tls-verify`, so it needs no flag for the node's own chain. ngrok terminates
-TLS, so the node must run in edge mode; with no tunnel adapter that is set in the node's
-environment, and the portal has no setting for it
-([#171](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/171)). Put it in a
-`compose.override.yaml` beside `compose.yaml`, which Compose reads with it:
-
-```yaml
-services:
-  hdtp-gateway:
-    environment:
-      HDTP_PUBLIC_URL: ${NGROK_URL}
-      HDTP_MODE: edge
-      HDTP_SEAL: required
-      HDTP_CLIENT_CERT: "off"
-      HDTP_LAN_CONNECTIONS: "true"
-```
-
-Then `NGROK_AUTHTOKEN=… NGROK_URL=https://<your domain> docker compose --profile ngrok up -d`.
-Compose reads `compose.override.yaml` whether or not the profile is named, so remove the file when
-you stop using the `ngrok` profile.
-`doctor` says `ok   tunnel       direct (mode edge, seal required, client_cert off)` and probes your
-domain. The node's built-in `ngrok-https` adapter is not this: it serves nothing
-([#167](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/issues/167)). Headless Chrome opening
+it is given `--upstream-tls-verify`, so it needs no flag for the node's own chain. Start it with
+`NGROK_AUTHTOKEN=… NGROK_URL=https://<your domain> docker compose --profile ngrok up -d`. ngrok
+terminates TLS, so the node runs on the **`edge` adapter**, chosen in the portal: under **Settings**
+set the public URL to `https://<your domain>`, choose `edge` as the tunnel adapter, and turn
+**Accept LAN connections** on, because the agent reaches the node from a private address on the
+compose network; the adapter takes effect at the next start (`docker compose restart
+hdtp-gateway`). The adapter starts nothing. It puts the node in **edge mode** — sealed envelopes
+forced `required`, client certificates forced `off` — and trusts no forwarded header, so the node's
+per-source limits see one address for every caller, the agent's.
+`doctor` says `ok   tunnel       edge (mode edge, seal required, client_cert off)` and probes your
+domain. Headless Chrome opening
 your invite link through the free domain showed the node's landing page, with no ngrok warning page
 in front of it, and machine callers were never shown one.
 

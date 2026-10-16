@@ -5,7 +5,7 @@ Tunnel adapters and the reachability probe (SPEC.md §10.1, §10.2, §10.4). An 
 ## What it holds
 
 The contract and registry:
-- `Adapter` (`Start`, `Status`, `Stop`), `Info`, `Status`, `Options`: the adapter contract. `Info.Listener` is non-nil for `tailscale` and `ngrok` (a raw stream the node runs its own TLS on) and for `ngrok-https` (a stream of decrypted HTTP); `direct`, `cloudflare` and `frp` (which dials the node's own bind) return none.
+- `Adapter` (`Start`, `Status`, `Stop`), `Info`, `Status`, `Options`: the adapter contract. `Info.Listener` is non-nil for `tailscale` and `ngrok` (a raw stream the node runs its own TLS on); `direct`, `cloudflare`, `edge` and `frp` (which dials the node's own bind) return none.
 - `Register`, `New`, `Names`: the name-to-constructor registry. `New` validates the options in the constructor.
 
 Adapters (name, `TerminatesAtEdge`, `Extra` keys):
@@ -14,7 +14,7 @@ Adapters (name, `TerminatesAtEdge`, `Extra` keys):
 - `frp`, false: `FRP`; the embedded frp client to an owner-run frps. Keys `server_addr` (required), `server_port` (default 7000), `token`, `proxy_type` (`tcp` default, or `https`), `remote_port` (tcp, required), `custom_domain` (https, required), `vhost_https_port` (https; default 443), `name` (default `hdtp`), and any `meta_<k>` as login metadata.
 - `ngrok`, false: `Ngrok`; a paid `tls://` endpoint, unterminated. Keys `auth_token` (or `$NGROK_AUTHTOKEN`, required), `url` (default `tls://`), `name` (default `hdtp`).
 - `cloudflare`, true: `Cloudflare`; a supervised `cloudflared` child or the compose sidecar. Keys `token` (or `$TUNNEL_TOKEN`), `hostname`, `binary`, `sidecar`.
-- `ngrok-https`, true: `NgrokHTTPS`; the free HTTPS endpoint, ngrok terminates TLS. It serves nothing: the listener it returns carries decrypted HTTP and `serve` wraps every listener in TLS, so each request is answered `400` (#167). Keys `auth_token` (or `$NGROK_AUTHTOKEN`), `url` (must be `https://`; default `https://`), `name`.
+- `edge`, true: `Edge`; a terminating sidecar the owner runs (ngrok's agent, a Cloudflare quick tunnel, any terminating proxy) forwards to the node's public bind. The node starts nothing; it advertises `PublicURL`, which may be empty until the owner sets it. No keys.
 - `ingress-passthrough` (false) and `ingress-terminate` (true): the frp adapter configured from an ingress pairing (SPEC.md §10.6). Keys `subdomain`, `domain`, `data_plane_addr`, `node_fpr`, `node_secret` (all required) and `data_plane_port` (default 7000), `data_plane_token`. Passthrough tunnels `<sub>.<domain>`, terminate tunnels `<sub>.internal.<domain>`; both log in with the node fingerprint and secret as frp metadata. Their `Status` reports the name `frp`.
 
 Edge helpers: `TrustedClientIPHeader`, `SourceIP`, `ComposeSidecar`.
@@ -23,8 +23,8 @@ Probe (SPEC.md §10.4): `ProbePath`, `ProbeHandler`, `Probe`, `ProbeOptions`, `S
 
 ## What it refuses, and how
 
-- Constructors return errors before any network is touched: `direct` without `PublicURL`; `tailscale` without `hostname` or an auth key, or with a port outside 443/8443/10000; `frp` without `server_addr`, with a port outside 1..65535, with a `proxy_type` other than `tcp`/`https`, a tcp proxy without `remote_port`, an https proxy without `custom_domain`, or a `PublicBind` that is not `host:port`; `ngrok` without a token or with a `url` that is not `tls://`; `ngrok-https` without a token or with a `url` that is not `https://`; `cloudflare` without a tunnel token or a hostname; the ingress adapters without any of their required keys. `New` of an unknown name lists the registered ones.
-- Source address (SPEC.md §5.7): `SourceIP` takes the client address from a header only when the adapter terminates at an edge and has a trusted header; only `cloudflare` has one (`CF-Connecting-IP`). `X-Forwarded-For` is never read; with no trusted header the socket address is used.
+- Constructors return errors before any network is touched: `direct` without `PublicURL`; `tailscale` without `hostname` or an auth key, or with a port outside 443/8443/10000; `frp` without `server_addr`, with a port outside 1..65535, with a `proxy_type` other than `tcp`/`https`, a tcp proxy without `remote_port`, an https proxy without `custom_domain`, or a `PublicBind` that is not `host:port`; `ngrok` without a token or with a `url` that is not `tls://`; `cloudflare` without a tunnel token or a hostname; the ingress adapters without any of their required keys. `New` of an unknown name lists the registered ones.
+- Source address (SPEC.md §5.7): `SourceIP` takes the client address from a header only when the adapter terminates at an edge and has a trusted header; only `cloudflare` has one (`CF-Connecting-IP`); `edge` has none, so behind it the source address is the sidecar's. `X-Forwarded-For` is never read; with no trusted header the socket address is used.
 - Probe verdicts: `unreachable` (not a URL, or any failure that is not a certificate-verification failure, a plain TLS handshake failure included), `wrong_cert` (an x509 or certificate-verification failure, or, when identities are given, a chain that is not exactly two certificates or does not validate to one of the served roots at its own address), `wrong_instance` (a non-200, an answer without the nonce, or another instance id), else `reachable`. A `SelfOriginated` probe carries a hairpin caveat on every verdict.
 - Network rules of the probe: it dials the endpoint it is given (`DialContext` can replace the dialer) with a 10 second timeout unless `Timeout` is set, uses TLS 1.2 or later, sends a fresh 16-byte random nonce, and reads at most 4096 bytes of the answer. `ProbeHandler` cuts the echoed nonce to 64 bytes. This package does not refuse inward (private or loopback) addresses and does not set a redirect policy: the HTTP client uses net/http's default. The endpoint it probes is the node's own configured public URL.
 - Other constants: `frp.Stop` gives in-flight work connections 2 seconds (`GracefulClose`) and waits up to 5 seconds for the client to return; `cloudflared` is run with only `PATH` and `HOME` in its environment.
@@ -39,7 +39,7 @@ Probe (SPEC.md §10.4): `ProbePath`, `ProbeHandler`, `Probe`, `ProbeOptions`, `S
 
 ## Held by
 
-- `edge_test.go`: `TestEdgeAdaptersDeriveEdgeMode`, `TestCloudflareOptionsAndSidecarFallback`, `TestCloudflareSpawnsTheConnector`, `TestNgrokHTTPSIsEdgeAndRefusesTLSURL`, `TestSourceIPHonorsOnlyTheAdaptersTrustedHeader` (including that `X-Forwarded-For` is never the answer).
+- `edge_test.go`: `TestEdgeAdaptersDeriveEdgeMode`, `TestNgrokHTTPSIsNotAnAdapter`, `TestCloudflareOptionsAndSidecarFallback`, `TestCloudflareSpawnsTheConnector`, `TestEdgeAdapterStartsNothingAndTrustsNoHeader`, `TestSourceIPHonorsOnlyTheAdaptersTrustedHeader` (including that `X-Forwarded-For` is never the answer).
 - `frp_test.go`: `TestFRPOptionsPlumbing`, `TestFRPPassthroughKeepsClientCertVisible`, `TestFRPCallersDuringRegistrationAreServed`, `TestFRPStopRightAfterStart` (Stop returns with `Run` finished).
 - `ingress_test.go`: `TestIngressAdaptersDeriveModes` (passthrough derives direct, terminate derives edge with seal required and client cert off; pairing data is mandatory; the terminate adapter tunnels the internal name).
 - `ngrok_test.go`: `TestNgrokIsConfigGated`, `TestNgrokWrapsRawListenerForNodeTLS`. `tailscale_test.go`: `TestTailscaleOptionsPlumbing`, `TestTailscaleIsRegisteredAsDirectMode`.

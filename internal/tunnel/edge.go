@@ -9,8 +9,9 @@ package tunnel
 //
 // `cloudflare` runs the vendor's own connector (`cloudflared`) with a tunnel
 // token, spawned as a supervised child when the binary is present, otherwise
-// the owner runs the compose sidecar the node prints. `ngrok-https` uses the
-// official ngrok agent's free HTTPS endpoint. Off-the-shelf on purpose.
+// the owner runs the compose sidecar the node prints. `edge` is any other
+// terminating sidecar the owner runs (ngrok's agent, a quick tunnel): the node
+// starts nothing for it. Off-the-shelf on purpose.
 
 import (
 	"context"
@@ -21,8 +22,6 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-
-	ngrok "golang.ngrok.com/ngrok/v2"
 )
 
 // TrustedClientIPHeader names the ONE header an edge adapter's own listener may
@@ -131,12 +130,8 @@ func init() {
 		}
 		return &Cloudflare{opts: c, spawn: spawnCloudflared}, nil
 	})
-	Register("ngrok-https", true, func(o Options) (Adapter, error) {
-		n, err := ngrokHTTPSOptions(o)
-		if err != nil {
-			return nil, err
-		}
-		return &NgrokHTTPS{opts: n, listen: ngrokHTTPSListen}, nil
+	Register("edge", true, func(o Options) (Adapter, error) {
+		return &Edge{publicURL: o.PublicURL}, nil
 	})
 }
 
@@ -193,96 +188,41 @@ func (c *Cloudflare) Stop() error {
 	return err
 }
 
-/* ------------------------------ ngrok-https ----------------------------- */
+/* --------------------------------- edge --------------------------------- */
 
-type ngrokHTTPSOpts struct {
-	AuthToken string
-	URL       string // https://… or "" for an allocated hostname
-	Name      string
-}
-
-func ngrokHTTPSOptions(o Options) (ngrokHTTPSOpts, error) {
-	get := func(k string) string {
-		if o.Extra == nil {
-			return ""
-		}
-		return o.Extra[k]
-	}
-	n := ngrokHTTPSOpts{AuthToken: get("auth_token"), URL: get("url"), Name: get("name")}
-	if n.AuthToken == "" {
-		n.AuthToken = os.Getenv("NGROK_AUTHTOKEN")
-	}
-	if n.AuthToken == "" {
-		return n, fmt.Errorf("tunnel: ngrok-https needs auth_token (or NGROK_AUTHTOKEN) — the free plan is enough")
-	}
-	if n.URL == "" {
-		n.URL = "https://"
-	}
-	if !strings.HasPrefix(n.URL, "https://") {
-		return n, fmt.Errorf("tunnel: ngrok-https url must be https:// (use the `ngrok` adapter for tls:// passthrough)")
-	}
-	if n.Name == "" {
-		n.Name = "hdtp"
-	}
-	return n, nil
-}
-
-// NgrokHTTPS is the free-plan edge adapter: ngrok terminates TLS (TerminatesAtEdge true). Its
-// constructor refuses a missing auth token (Extra auth_token, else $NGROK_AUTHTOKEN) and a url
-// that is not https://; the default url is "https://" (an allocated hostname).
-type NgrokHTTPS struct {
-	opts   ngrokHTTPSOpts
-	listen func(ctx context.Context, o ngrokHTTPSOpts) (net.Listener, string, error)
-
-	mu        sync.Mutex
-	ln        net.Listener
+// Edge is the generic edge adapter (TerminatesAtEdge true) for a sidecar the owner runs that
+// terminates the public TLS session and forwards to the node's public bind: ngrok's agent, a
+// Cloudflare quick tunnel, any terminating reverse proxy. The node starts nothing and opens no
+// listener. It advertises the configured PublicURL, "" until the owner sets one, so a node that
+// selects it before the address is known still starts and the portal can set it. It trusts no
+// forwarded header (TrustedClientIPHeader is ""): the source address is the socket's, the sidecar's.
+type Edge struct {
 	publicURL string
+	mu        sync.Mutex
 	running   bool
 }
 
-func ngrokHTTPSListen(ctx context.Context, o ngrokHTTPSOpts) (net.Listener, string, error) {
-	agent, err := ngrok.NewAgent(ngrok.WithAuthtoken(o.AuthToken))
-	if err != nil {
-		return nil, "", fmt.Errorf("tunnel: ngrok agent: %w", err)
-	}
-	ln, err := agent.Listen(ctx, ngrok.WithURL(o.URL), ngrok.WithName(o.Name))
-	if err != nil {
-		return nil, "", fmt.Errorf("tunnel: ngrok-https listen: %w", err)
-	}
-	return ln, ln.URL().String(), nil
+// Start marks the adapter running and returns the configured PublicURL with TerminatesAtEdge true
+// and no Listener.
+func (e *Edge) Start(ctx context.Context) (Info, error) {
+	e.mu.Lock()
+	e.running = true
+	e.mu.Unlock()
+	return Info{PublicURL: e.publicURL, TerminatesAtEdge: true}, nil
 }
 
-// Start opens the ngrok HTTPS endpoint and returns its URL with TerminatesAtEdge true and the
-// Listener, which carries decrypted HTTP: the node serves plain HTTP on it.
-func (a *NgrokHTTPS) Start(ctx context.Context) (Info, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	ln, endpoint, err := a.listen(ctx, a.opts)
-	if err != nil {
-		return Info{}, err
-	}
-	a.ln, a.publicURL, a.running = ln, endpoint, true
-	// The stream ngrok hands back carries DECRYPTED HTTP: the node serves plain
-	// HTTP on it and identity comes from sealed envelopes only (edge mode).
-	return Info{PublicURL: endpoint, TerminatesAtEdge: true, Listener: ln}, nil
+// Status reports the configured PublicURL and that a sidecar terminates TLS.
+func (e *Edge) Status() Status {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return Status{Name: "edge", Running: e.running, PublicURL: e.publicURL,
+		Detail: "a sidecar terminates TLS; the node starts nothing and trusts no forwarded header (edge mode: seal required, client certs never arrive)"}
 }
 
-// Status reports the endpoint URL and that ngrok terminates TLS.
-func (a *NgrokHTTPS) Status() Status {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return Status{Name: "ngrok-https", Running: a.running, PublicURL: a.publicURL,
-		Detail: "ngrok terminates TLS (edge mode: seal required, client certs never arrive)"}
-}
-
-// Stop closes the ngrok listener and returns its close error.
-func (a *NgrokHTTPS) Stop() error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	var err error
-	if a.ln != nil {
-		err = a.ln.Close()
-	}
-	a.ln, a.running = nil, false
-	return err
+// Stop clears the running flag. It always returns nil.
+func (e *Edge) Stop() error {
+	e.mu.Lock()
+	e.running = false
+	e.mu.Unlock()
+	return nil
 }

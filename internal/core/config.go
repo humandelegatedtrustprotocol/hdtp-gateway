@@ -19,8 +19,8 @@ import (
 )
 
 // Mode is the deployment mode (SPEC §2.5, §10.1): direct, the node's own listener, or edge, a
-// tunnel adapter that terminates at an edge. When a tunnel adapter is named, Config.Derive sets the
-// mode from it; with none, it is what the file or HDTP_MODE says, and direct by default.
+// tunnel adapter that terminates at an edge. Config.Derive sets it from the tunnel adapter's
+// TerminatesAtEdge flag, and nothing else sets it: no tunnel, or `direct`, is direct mode.
 type Mode string
 
 // Seal is the sealing policy the node enforces and its cards advertise as X-HDTP-SEAL (SPEC §4.6).
@@ -53,8 +53,6 @@ const (
 	// in Validate: the judgement is the passkey library's own, and this package imports no library.
 	RuleInternalHostIsRPID = "internal_host_is_a_passkey_relying_party" // SPEC §12.2
 	RulePostgresDSN        = "postgres_dsn_required"                    // SPEC §11.1
-	RuleEdgeSeal           = "edge_mode_forces_seal_required"           // SPEC §2.5
-	RuleEdgeClientCert     = "edge_mode_forces_client_cert_off"         // SPEC §2.5
 	RuleEnum               = "invalid_enum_value"
 	RuleRange              = "value_out_of_range"
 	RuleWalletURL          = "wallet_url_is_an_https_origin" // SPEC §12.2, HDTP §9.1
@@ -122,7 +120,7 @@ type Config struct {
 	// TerminatesAtEdge flag (SPEC §10.1) — never declared. There are two: direct
 	// and edge.
 	Tunnel     string     `json:"tunnel"`
-	Mode       Mode       `json:"mode"`
+	Mode       Mode       `json:"-"`
 	Seal       Seal       `json:"seal"`
 	ClientCert ClientCert `json:"client_cert"`
 
@@ -245,7 +243,6 @@ func Load(path string, lookup func(string) (string, bool)) (*Config, error) {
 		DataDir:      "./data",
 		PublicBind:   ":8443",
 		InternalBind: "127.0.0.1:8080",
-		Mode:         ModeDirect,
 		Seal:         SealRequired,
 		ClientCert:   ClientCertPreferred,
 		StoreEngine:  "sqlite",
@@ -311,9 +308,6 @@ func Load(path string, lookup func(string) (string, bool)) (*Config, error) {
 	envStr("HDTP_AUDIT_ARCHIVE_AFTER", &c.AuditArchiveAfter)
 	envStr("HDTP_LIMITS_SOCKET", &c.LimitsSocket)
 	envStr("HDTP_PROXY_ADDRESS", &c.ProxyAddress)
-	if v, ok := lookup("HDTP_MODE"); ok {
-		c.Mode = Mode(v)
-	}
 	if v, ok := lookup("HDTP_SEAL"); ok {
 		c.Seal = Seal(v)
 	}
@@ -381,8 +375,9 @@ func OwnerSettableKeys() []string {
 func (c *Config) Derive() error {
 	lanOpt := c.lanExplicit
 
-	// SPEC §10.1: an inbound tunnel adapter DERIVES the mode; an edge adapter
-	// forces seal=required and client_cert=off (never merely validates them).
+	// SPEC §10.1: the tunnel adapter DERIVES the mode; an edge adapter forces
+	// seal=required and client_cert=off, so no configuration can contradict it.
+	c.Mode = ModeDirect
 	if c.Tunnel != "" && c.Tunnel != "direct" {
 		edge, ok := tunnelTerminatesAtEdge(c.Tunnel)
 		if !ok {
@@ -392,8 +387,6 @@ func (c *Config) Derive() error {
 			c.Mode = ModeEdge
 			c.Seal = SealRequired
 			c.ClientCert = ClientCertOff
-		} else {
-			c.Mode = ModeDirect
 		}
 	}
 
@@ -411,11 +404,6 @@ func (c *Config) Derive() error {
 }
 
 func (c *Config) validate() error {
-	switch c.Mode {
-	case ModeDirect, ModeEdge:
-	default:
-		return fmt.Errorf("%s: mode %q (want direct|edge)", RuleEnum, c.Mode)
-	}
 	switch c.Seal {
 	case SealNone, SealOptional, SealRequired:
 	default:
@@ -452,16 +440,6 @@ func (c *Config) validate() error {
 		return fmt.Errorf("%s: store_engine postgres needs postgres_dsn", RulePostgresDSN)
 	}
 
-	// SPEC §2.5: mode-forced knobs — a contradiction is a refused config, so the owner
-	// can never run an edge with the seal down.
-	if c.Mode == ModeEdge {
-		if c.Seal != SealRequired {
-			return fmt.Errorf("%s: edge mode forces seal=required, got %q", RuleEdgeSeal, c.Seal)
-		}
-		if c.ClientCert != ClientCertOff {
-			return fmt.Errorf("%s: edge mode forces client_cert=off, got %q", RuleEdgeClientCert, c.ClientCert)
-		}
-	}
 	// A non-loopback portal must name the host it is served at, or no WebAuthn
 	// ceremony can ever succeed: the relying party is derived from the request's
 	// host against an allow-list, and with no configured name every host is
