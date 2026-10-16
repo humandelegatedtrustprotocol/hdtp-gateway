@@ -32,6 +32,7 @@ interface, and nothing else: it does not know which engine it is judging.
 | import and move (`conformance_import.go`) | `AtomicallyLandsEverythingOrNothing`; `MoveFanoutIsOneRowPerContactAndResumable`; `ImportContactWritesWhatAnExportCarries` |
 | identity state (`conformance_identity_state.go`) | `IdentityStateRoundTrips` (root, leaf ledger, pins, tombstones, former and pending addresses); `OnePendingRequestAndReplacingItIsOneStep` |
 | retention (`conformance_retention.go`) | `RetentionPrimitives`; `ClosedWindowsLeave` (idempotency records and sessions past their window go) |
+| thread-id wipe (`conformance_wipe.go`) | `ThreadIDWipe`: `ListStoredThreadIDs` answers each (account, thread) once across thread rows, messages no thread row names and change rows, never a change row's empty id; `ThreadIDWipePending` true after migrating and false after `EndThreadIDWipe`; `OrphanSweepSince` set by migrating |
 | settings (`conformance_settings.go`) | `SettingsUpsertAndSecretFlag` |
 | credentials (`conformance_credentials.go`) | `CredentialsInsertAndCount`; `RemoveCredentialIfNotLastKeepsTheLastOne` |
 | messages (`conformance_messages.go`) | `MsgIDIsScopedToDirection`; `MessageExpiryHoldsAFarFutureDeadline`; `ReadMarkerCountsAndMarksAConversation` |

@@ -133,7 +133,8 @@ interface.
   code in both dialects; `make sqlc-check` fails when the committed generated code differs from its
   sources.
 - **The two engines are held to one behaviour** by `conformance.Run` (see `store/conformance`), run by
-  `TestSQLiteConformance` and `TestPostgresConformance`.
+  `TestSQLiteConformance` and `TestPostgresConformance`, for the methods it calls; its README names the
+  ones it does not and where those are held.
 - **`Store` is its roles and nothing else** (`TestStoreIsOnlyItsRoles`).
 - **Every statement has a plan** that does not scan a growing table without a listed reason
   (`TestEveryQueryHasAPlan`; its Postgres half runs when `HDTP_TEST_POSTGRES_DSN` is set). It proves an

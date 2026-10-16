@@ -35,6 +35,7 @@ func Run(t *testing.T, newStore Factory) {
 	identityState(t, newStore)
 	retention(t, newStore)
 	conversationDeletion(t, newStore)
+	threadIDWipe(t, newStore)
 	settings(t, newStore)
 	credentials(t, newStore)
 	messages(t, newStore)
