@@ -21,10 +21,11 @@ changelog can be and is not summarized into a fictional release history.
   way when the thread cannot be read, and with "not_found: …" for a thread no identity of the scope
   holds, where both were "ownermcp: no such thread".
 - The owner MCP's `wait_for_updates`, `digest`, `list_integrations` and `get_inbox` answer
-  `internal` when a count, a list or a thread they read cannot be read. They read each failure as
-  nothing — no integration needing attention, no request or address waiting, a thread's unread 0,
-  a thread's messages skipped, nothing exposed — so a wait could park and a digest say all was
-  quiet.
+  `internal` when a count, a list, a thread or the contact behind a call they read cannot be read.
+  They read each failure as nothing — no integration needing attention, no request or address
+  waiting, a thread's unread 0, a thread's messages skipped, a contact's call skipped as if the
+  contact were removed, nothing exposed — so a wait could park, or move its cursor past a call it
+  never reported, and a digest say all was quiet.
 - `wait_for_updates` ends a wait on what happened since the cursor: a new contact request or
   agent-answered request, a contact newly held at a new address, an integration newly needing
   re-authorization, beside moved threads and contacts' calls. It ended every wait at once while any

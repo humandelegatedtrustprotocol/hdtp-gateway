@@ -2,9 +2,11 @@ package ownermcp
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/integrations"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
@@ -82,5 +84,49 @@ func TestTheWatchToolsAnswerAFailedReadAsInternal(t *testing.T) {
 		if _, body, isErr := run(""); isErr {
 			t.Errorf("%s, the control: %s", c.tool, body)
 		}
+	}
+}
+
+func (f *failingStore) GetContact(ctx context.Context, a, fpr string) (store.Contact, error) {
+	if err := f.hit("GetContact"); err != nil {
+		return store.Contact{}, err
+	}
+	return f.Store.GetContact(ctx, a, fpr)
+}
+
+// A contact's call whose contact row could not be read ends the wait internal: it was skipped as if
+// the contact were gone, and the cursor moved past it, so the call was never reported. The control,
+// the same wait with nothing failing, reports the call of the contact the account holds and skips
+// the call of one it holds no row for (removed since), with no error.
+func TestAWaitAnswersAContactsCallItCouldNotReadAsInternal(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: e.acctA, Fingerprint: "sha256:k", Status: "active",
+		CreatedAt: time.Now().Unix()}); err != nil {
+		t.Fatal(err)
+	}
+	for _, fpr := range []string{"sha256:k", "sha256:gone"} {
+		e.deps.Bus.Publish(messaging.Event{Kind: messaging.EventCall, AccountID: e.acctA, ContactFpr: fpr, Ref: core.ToolBookSlot})
+	}
+	wait := map[string]any{"account_id": e.acctA, "since": 0, "timeout_sec": 1}
+	run := func(fail string) (*failingStore, string, bool) {
+		fs := &failingStore{Store: e.st, fail: fail, called: map[string]bool{}}
+		d := e.deps
+		d.Store = fs
+		srv := NewServerWithExtra(d, Extra{Log: func(string, string, string) {}}, auth.Identity{OwnerID: e.owner})
+		body, isErr := callParityResult(t, ctx, srv, "wait_for_updates", wait)
+		return fs, body, isErr
+	}
+	fs, body, isErr := run("GetContact")
+	if !fs.called["GetContact"] {
+		t.Fatalf("never reached GetContact: %s", body)
+	}
+	if got := noStoreText(t, "wait_for_updates GetContact", body, isErr); got["code"] != "internal" || got["detail"] != refusal.InternalDetail {
+		t.Errorf("wait_for_updates with GetContact failing: %s, want internal", body)
+	}
+	_, body, isErr = run("")
+	var r waitResult
+	if isErr || json.Unmarshal([]byte(body), &r) != nil || len(r.Calls) != 1 || r.Calls[0].ContactFpr != "sha256:k" || r.Calls[0].Trust != "messages_only" {
+		t.Errorf("the control: want the held contact's call alone: %s", body)
 	}
 }

@@ -379,8 +379,12 @@ func (d Deps) changesSince(ctx context.Context, accountID string, since int64) (
 			}
 			trust, cached := trustOf[c.ContactFpr]
 			if !cached {
-				if ct, err := d.Store.GetContact(ctx, accountID, c.ContactFpr); err == nil {
+				ct, err := d.Store.GetContact(ctx, accountID, c.ContactFpr)
+				switch {
+				case err == nil:
 					trust = ct.TrustFlag
+				case !errors.Is(err, store.ErrNotFound):
+					return waitResult{}, err
 				}
 				trustOf[c.ContactFpr] = trust
 			}
