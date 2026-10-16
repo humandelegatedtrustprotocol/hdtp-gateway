@@ -12,7 +12,7 @@ Written by `make notices` (scripts/notices.mjs) for these platforms from these i
   platforms                   linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
   go.sum                      sha256 27b1308c1c8ea02f6640e022abb69b91caea2dead25d8db33d1bf136a32cd062
   cmd/hdtp-limitd/Cargo.lock  sha256 ac4527ff7687cd994e31824d78c6b094f0c359a49c5ec594a3b9b608b56e33c3
-  web/package-lock.json       sha256 71a6314115f7faa5c572f8f0b1157c16f1e9d5f6788be171948a3d2bc29b0861
+  web/package-lock.json       sha256 0b4a4dc83b830865d5866e5672066f6496cae5add0ecd4f187ced2103ddafafa
 
 Not repeated here: the fonts under web/dist/fonts, whose SIL Open Font License texts are beside
 them (web/dist/fonts/OFL-*.txt); and the modification notice for the copy of frp in

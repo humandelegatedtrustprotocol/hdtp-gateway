@@ -54,6 +54,11 @@ changelog can be and is not summarized into a fictional release history.
   `HDTP_MODE=edge` beside a sidecar selects the `edge` adapter instead (#171). The refusals
   `edge_mode_forces_seal_required` and `edge_mode_forces_client_cert_off` went with it: nothing can
   put a node in edge mode without forcing both knobs.
+- The live-only portal scripts under `web/tools/` (`portal-live.mjs`, `portal-oauth-live.mjs`,
+  `portal-oauth-probe.mjs`, `portal-invite-flow.mjs`, `preset-live.mjs`, `trust-live.mjs`, their
+  helpers `portal-login.mjs` and `mcp.mjs`, and `agent-loop.mjs`), and with them the portal's
+  `puppeteer-core` dependency. No gate, target or document ran them; the harness and
+  `make screenshots` drive a real Chrome against a node.
 
 ### Fixed
 
