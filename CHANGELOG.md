@@ -45,7 +45,9 @@ changelog can be and is not summarized into a fictional release history.
   start with `tunnel "ngrok-https" is not a registered adapter`; choose `edge` with the `ngrok`
   compose profile instead.
 - `HDTP_MODE` and the config file's `mode` key: the deployment mode is derived from the tunnel
-  adapter and was never meant to be declared (SPEC.md §10.1). `HDTP_MODE` is no longer read, and a
+  adapter and was never meant to be declared (SPEC.md §10.1). A node whose environment sets
+  `HDTP_MODE`, to any value, refuses to start (`invalid_enum_value: HDTP_MODE is not read: the mode
+  is derived from the tunnel adapter; set HDTP_TUNNEL=edge (or the portal's tunnel setting)`), and a
   config file with a `mode` key is refused (`unknown field "mode"`). A node that set
   `HDTP_MODE=edge` beside a sidecar selects the `edge` adapter instead (#171). The refusals
   `edge_mode_forces_seal_required` and `edge_mode_forces_client_cert_off` went with it: nothing can

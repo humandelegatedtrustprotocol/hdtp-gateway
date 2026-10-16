@@ -287,6 +287,9 @@ func Load(path string, lookup func(string) (string, bool)) (*Config, error) {
 	}
 
 	// env layer (HDTP_* — SPEC §12.2)
+	if _, ok := lookup("HDTP_MODE"); ok {
+		return nil, fmt.Errorf("%s: HDTP_MODE is not read: the mode is derived from the tunnel adapter; set HDTP_TUNNEL=edge (or the portal's tunnel setting)", RuleEnum)
+	}
 	envStr := func(key string, dst *string) {
 		if v, ok := lookup(key); ok {
 			*dst = v

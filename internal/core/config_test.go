@@ -113,17 +113,27 @@ func TestNonLoopbackInternalNeedsAHost(t *testing.T) {
 }
 
 // SPEC §10.1: the mode is derived, never declared. Neither the file nor the environment can name
-// it: a file that tries is refused as an unknown field, and HDTP_MODE is read by nothing.
+// it: a file that tries is refused as an unknown field, and a node whose environment sets HDTP_MODE
+// (to any value) refuses to start, rather than boot in the mode its adapter gives while the
+// operator believes it is in another.
 func TestTheModeIsNeverDeclared(t *testing.T) {
 	if _, err := load(t, `{"mode": "edge"}`, nil); err == nil || !strings.Contains(err.Error(), `unknown field "mode"`) {
 		t.Fatalf("a file that declares the mode was accepted: %v", err)
 	}
-	c, err := load(t, "", map[string]string{"HDTP_MODE": "edge"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.Mode != ModeDirect {
-		t.Fatalf("HDTP_MODE declared the mode: %s", c.Mode)
+	const want = RuleEnum + ": HDTP_MODE is not read: the mode is derived from the tunnel adapter; set HDTP_TUNNEL=edge (or the portal's tunnel setting)"
+	for _, env := range []map[string]string{
+		{"HDTP_MODE": "edge", "HDTP_CLIENT_CERT": "off"},
+		{"HDTP_MODE": "direct"},
+		{"HDTP_MODE": ""},
+		{"HDTP_MODE": "edge", "HDTP_TUNNEL": "edge"},
+	} {
+		c, err := load(t, "", env)
+		if err == nil {
+			t.Fatalf("%v booted (mode %s, client_cert %s, lan %v)", env, c.Mode, c.ClientCert, c.LANConnections)
+		}
+		if err.Error() != want {
+			t.Fatalf("%v: %v", env, err)
+		}
 	}
 }
 
