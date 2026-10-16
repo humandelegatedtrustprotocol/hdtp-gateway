@@ -10,7 +10,7 @@ same ones the wallet and the node use.
 Callers are test files in `internal/cli`, `internal/contacts`, `internal/core`, `internal/identity`,
 `internal/integrationtest`, `internal/internalui` (and `ownermcp`), `internal/messaging`,
 `internal/node`, `internal/outbound`, `internal/portable`, `internal/public`, `internal/tunnel` and
-`internal/storecheck`'s tests. No non-test file imports it. It is a leaf (rank 0 in
+`internal/storecheck`'s tests, and the harness module's `harness/journeys`. No non-test file imports it. It is a leaf (rank 0 in
 `internal/integrationtest/layering_test.go`). Every function but `Host.Card` takes a `testing.TB`, not a
 `*testing.T`, so a fuzz target can build a real identity for its seed corpus
 (`internal/cli/offer_fuzz_test.go`).
@@ -41,8 +41,9 @@ Callers are test files in `internal/cli`, `internal/contacts`, `internal/core`, 
   an HDTP certificate.
 - Sibling files (`sibling.go`): `SiblingFile(t, repo, rel, unchecked)` reads `rel` inside the checkout
   of `repo` that `SiblingDir(t, repo)` finds: the directory its variable names (`SiblingEnv`:
-  `HDTP_BATONDECK_DIR`, `HDTP_IDENTITY_DIR`, `HDTP_SPEC_DIR`), else `../<repo>` from this module's root
-  (the nearest directory upward holding `go.mod`), as the umbrella lays its repositories out, else
+  `HDTP_BATONDECK_DIR`, `HDTP_IDENTITY_DIR`, `HDTP_SPEC_DIR`), else `../<repo>` from this repository's top level
+  (the nearest directory upward whose `go.mod` declares the node's module, so the harness's tests find
+  the same one), as the umbrella lays its repositories out, else
   beside the checkout git keeps this one's objects in (the umbrella, for `<umbrella>/.git/modules/<name>`;
   the main checkout's parent, for its `.git`), so a worktree anywhere finds the umbrella's.
   `scripts/sibling.sh` is the same rule for the Makefile. Its callers are the guards that hold a copy here to its source there:
@@ -50,7 +51,8 @@ Callers are test files in `internal/cli`, `internal/contacts`, `internal/core`, 
   `TestTheCloudsCopyOfTheRefusalsIsCurrent`, `TestTheCloudsCopyOfTheOwnerToolsIsCurrent`,
   `TestTheCloudsCopyOfTheProtocolHintsIsCurrent` and `TestTheCloudsServedAnnotationCasesHoldHere`
   (batondeck's `gateway/test/fixtures/`), and `TestTheArticleRuleIsOneRuleInEveryRepository`
-  (hdtp-identity's `gate.sh`, hdtp-spec's `vectors/lib/stated.mjs`).
+  (hdtp-identity's `gate.sh`, hdtp-spec's `vectors/lib/stated.mjs`); and, in the harness module,
+  `TestTheCloudsCopyIsThisList` (batondeck's `gateway/e2e/tables/journeys.json`).
 
 ## What it refuses, and how
 

@@ -37,6 +37,12 @@ changelog can be and is not summarized into a fictional release history.
   `409 conflict`; a pairing the registry could not record (the file registry's write failed) is
   `503 unavailable`, where it was a 409 whose body carried the error's text inside a JSON string
   and was not valid JSON when that text held a quote (a subdomain's name always did).
+- The pre-push hook needs the sibling checkouts its guards read: batondeck (the cloud's
+  conformance battery and fixtures), hdtp-identity and hdtp-spec. It sets
+  `HDTP_REQUIRE_SIBLINGS=1`, and a guard whose checkout is not found fails where it skipped; a
+  bare `make check` or `go test` still skips, saying where it looked. Each checkout is found by
+  `HDTP_BATONDECK_DIR`, `HDTP_IDENTITY_DIR` or `HDTP_SPEC_DIR`, else beside this checkout, else
+  beside the main checkout of a worktree (`scripts/sibling.sh`, `testid.SiblingDir`).
 
 ### Removed
 

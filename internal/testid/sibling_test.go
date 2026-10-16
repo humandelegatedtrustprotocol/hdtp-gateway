@@ -17,7 +17,7 @@ func TestTheTwoSiblingLocatorsAgree(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Fatalf("git is not on PATH: %v", err)
 	}
-	script := filepath.Join(moduleRoot(t), "scripts", "sibling.sh")
+	script := filepath.Join(nodeRoot(t), "scripts", "sibling.sh")
 	tmp, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

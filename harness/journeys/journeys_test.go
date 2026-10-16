@@ -5,11 +5,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"regexp"
 	"testing"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/harness/registry"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 )
 
 type journey struct {
@@ -73,25 +73,16 @@ func TestEveryJourneyIsProvenOnTheNodeOrSaysWhyNot(t *testing.T) {
 	}
 }
 
-// The cloud's copy is these bytes, when batondeck is checked out beside this repository (or the
-// battery's checkout names where it is): one list, two copies, held to each other.
+// The cloud's copy is these bytes: one list, two copies, held to each other. The batondeck checkout
+// is found as every sibling guard finds it (testid.SiblingFile); without one the test skips, saying
+// so, and fails under the pre-push hook.
 func TestTheCloudsCopyIsThisList(t *testing.T) {
 	ours, err := os.ReadFile("journeys.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidates := []string{filepath.Join("..", "..", "..", "batondeck", "gateway", "e2e", "tables", "journeys.json")}
-	if b := os.Getenv(registry.CloudBatteryEnv); b != "" {
-		candidates = append(candidates, filepath.Join(b, "..", "e2e", "tables", "journeys.json"))
-	}
-	for _, p := range candidates {
-		theirs, err := os.ReadFile(p)
-		if err != nil {
-			t.Logf("not compared: %s: %v", p, err)
-			continue
-		}
-		if !bytes.Equal(ours, theirs) {
-			t.Errorf("%s differs from harness/journeys/journeys.json: one list, two copies", p)
-		}
+	theirs := testid.SiblingFile(t, "batondeck", "gateway/e2e/tables/journeys.json", "the cloud's copy of the journeys is unchecked")
+	if !bytes.Equal(ours, theirs) {
+		t.Error("batondeck's gateway/e2e/tables/journeys.json differs from harness/journeys/journeys.json: one list, two copies")
 	}
 }

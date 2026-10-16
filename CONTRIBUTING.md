@@ -21,6 +21,9 @@ is what a change must carry and how to run the gates it is held to.
 You need Go (the version in [`go.mod`](go.mod)), Rust with cargo (the limits sidecar,
 `cmd/hdtp-limitd`, is built and tested by `make check`), Node (the page scripts and `make web`),
 and Docker (the pre-push gate starts a Postgres container, and the scenario harness needs it).
+The pre-push gate also needs checkouts of the repositories its guards compare this one with:
+batondeck (the cloud's conformance battery and fixtures, which is private), hdtp-identity and
+hdtp-spec; see the pre-push bullet under Hooks for where it looks.
 
 ```
 make build      # static binary

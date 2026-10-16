@@ -26,7 +26,7 @@ var SiblingEnv = map[string]string{
 }
 
 // SiblingFile returns the bytes of rel, a slash-separated path inside the repository repo (found by
-// SiblingDir). When the checkout is not found the test is skipped, saying what goes unchecked, or
+// SiblingDir, from this repository's top level whichever of its modules the test is in). When the checkout is not found the test is skipped, saying what goes unchecked, or
 // fails when RequireSiblings is 1. When it is found and the file cannot be read, the test fails: a
 // guard that skipped on any missing file passed the day its file moved.
 func SiblingFile(t testing.TB, repo, rel, unchecked string) []byte {
@@ -56,7 +56,7 @@ func SiblingDir(t testing.TB, repo string) (string, []string) {
 	if !ok {
 		t.Fatalf("SiblingDir: %s has no variable in SiblingEnv", repo)
 	}
-	return siblingDir(moduleRoot(t), repo, os.Getenv(env))
+	return siblingDir(nodeRoot(t), repo, os.Getenv(env))
 }
 
 func siblingDir(root, repo, override string) (string, []string) {
@@ -116,20 +116,29 @@ func withoutGitEnv(env []string) []string {
 	return out
 }
 
-// moduleRoot is the nearest directory upward from the test's working directory that holds go.mod.
-func moduleRoot(t testing.TB) string {
+// nodeModule is this repository's root module. The harness is a module of its own inside it, and
+// its tests read siblings too, so the root is found by name rather than as the nearest go.mod.
+const nodeModule = "github.com/humandelegatedtrustprotocol/hdtp-gateway"
+
+var moduleLine = regexp.MustCompile(`(?m)^module\s+(\S+)\s*$`)
+
+// nodeRoot is the nearest directory upward from the test's working directory whose go.mod declares
+// nodeModule: the repository's top level, from the node's packages and the harness's alike.
+func nodeRoot(t testing.TB) string {
 	t.Helper()
 	dir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
+		if b, err := os.ReadFile(filepath.Join(dir, "go.mod")); err == nil {
+			if m := moduleLine.FindSubmatch(b); m != nil && string(m[1]) == nodeModule {
+				return dir
+			}
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			t.Fatal("no go.mod above the test's directory")
+			t.Fatalf("no go.mod declaring %s above the test's directory", nodeModule)
 		}
 		dir = parent
 	}
