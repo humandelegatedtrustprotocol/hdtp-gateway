@@ -565,7 +565,10 @@ func (ot ownerTools) getInboxTool(ctx context.Context, req *mcp.CallToolRequest,
 	names := store.KeptNamesByRoot(threads)
 	out := make([]row, 0, len(threads))
 	for _, th := range threads {
-		n, _ := ot.d.Store.UnreadCount(ctx, a.AccountID, th.ID)
+		n, err := ot.d.Store.UnreadCount(ctx, a.AccountID, th.ID)
+		if err != nil {
+			return fail(err)
+		}
 		r := row{ThreadID: th.ID, ContactFpr: th.ContactFpr, Unread: n, LastAt: th.LastAt}
 		if st, held := status[th.ContactFpr]; held {
 			r.ContactStatus = st

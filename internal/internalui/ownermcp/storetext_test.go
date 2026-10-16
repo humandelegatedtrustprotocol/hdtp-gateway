@@ -125,6 +125,9 @@ func TestAStoreFailureAnswersInternalWithNoStoreText(t *testing.T) {
 		CreatedAt: time.Now().Unix()}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := e.deps.Msg.Record(ctx, e.acctA, "sha256:c", messaging.DirIn, messaging.Input{MsgID: "m1", Text: "hi", Origin: messaging.OriginPeer, Sender: messaging.SenderAgent}); err != nil {
+		t.Fatal(err)
+	}
 	contact := map[string]any{"account_id": e.acctA, "contact_fpr": "sha256:c"}
 	with := func(extra map[string]any) map[string]any {
 		out := map[string]any{}
@@ -143,6 +146,7 @@ func TestAStoreFailureAnswersInternalWithNoStoreText(t *testing.T) {
 	}{
 		{"list_contacts", "ListContacts", account},
 		{"get_inbox", "ListThreadsByAccount", account},
+		{"get_inbox", "UnreadCount", account},
 		{"list_invites", "ListInvites", account},
 		{"rename_contact", "SetContactPetname", with(map[string]any{"petname": "C"})},
 		{"set_trust_flag", "UpdateContactTrust", with(map[string]any{"trust": "messages_only"})},
