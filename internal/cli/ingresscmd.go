@@ -158,7 +158,7 @@ func ingressFlagSet(f *ingressFlags, stderr io.Writer) *flag.FlagSet {
 	fs.IntVar(&f.dataPlanePort, "data-plane-port", 7000, "data-plane control port nodes dial")
 	fs.IntVar(&f.vhostPort, "vhost-port", 443, "public port serving both modes by SNI")
 	fs.StringVar(&f.token, "token", "", "shared data-plane transport token (default: HDTP_INGRESS_TOKEN)")
-	fs.StringVar(&f.keyFile, "key", "", "ingress identity key file (default: <domain>.key in the working directory)")
+	fs.StringVar(&f.keyFile, "key", "", "ingress identity key file (default: ingress.key in -data-dir)")
 	fs.StringVar(&f.acmeEmail, "acme-email", "", "contact address for ACME registration; enables terminate mode")
 	fs.StringVar(&f.acmeDir, "acme-dir", "", "ACME storage directory (default: ./acme)")
 	fs.BoolVar(&f.terminate, "terminate", false, "also terminate TLS for terminate-mode subdomains on the public port")

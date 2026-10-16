@@ -218,6 +218,4 @@ All in this directory unless named.
 - `account`, `passkey` and `token` subcommands are checked after the configuration loads, and
   `audit` after it has taken the lock and opened the store, so an unknown subcommand with a bad
   config reports the config error (exit 1), not the usage (exit 2).
-- `ingress serve`'s `-key` help text says "default: <domain>.key in the working directory"; the
-  code defaults to `ingress.key` in `-data-dir`.
 - No daemon supervision, no config writing: the operator's config file is read, never written.
