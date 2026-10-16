@@ -47,6 +47,24 @@ func TestNgrokHTTPSIsNotAnAdapter(t *testing.T) {
 	if _, err := New("ngrok-https", Options{}); err == nil {
 		t.Fatal("ngrok-https still constructs")
 	}
+	// A stored selection of it stops the node before the portal serves; HDTP_TUNNEL wins over
+	// the store, so setting it in the environment is the way back in.
+	stored := map[string]string{"tunnel": "ngrok-https"}
+	for _, env := range []map[string]string{{}, {"HDTP_TUNNEL": "edge"}} {
+		env["HDTP_DATA_DIR"] = t.TempDir()
+		c, err := core.Load("", func(k string) (string, bool) { v, ok := env[k]; return v, ok })
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = c.ApplyStoreSettings(stored)
+		if _, pinned := env["HDTP_TUNNEL"]; pinned {
+			if err != nil || c.Tunnel != "edge" || c.Mode != core.ModeEdge {
+				t.Fatalf("HDTP_TUNNEL=edge over a stored ngrok-https: tunnel %q mode %s, %v", c.Tunnel, c.Mode, err)
+			}
+		} else if err == nil || !strings.Contains(err.Error(), `tunnel "ngrok-https" is not a registered adapter`) {
+			t.Fatalf("a stored ngrok-https was accepted: %v", err)
+		}
+	}
 }
 
 func TestCloudflareOptionsAndSidecarFallback(t *testing.T) {

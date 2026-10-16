@@ -43,7 +43,9 @@ changelog can be and is not summarized into a fictional release history.
 - The `ngrok-https` tunnel adapter. It wrapped the decrypted HTTP ngrok handed it in the node's own
   TLS, so it served nothing (#167). A node whose settings or environment still name it refuses to
   start with `tunnel "ngrok-https" is not a registered adapter`; choose `edge` with the `ngrok`
-  compose profile instead.
+  compose profile instead. A node whose portal saved it stops before the portal serves, so the
+  portal cannot change it: set `HDTP_TUNNEL=edge` in the environment, which wins over the stored
+  selection, and the node starts.
 - `HDTP_MODE` and the config file's `mode` key: the deployment mode is derived from the tunnel
   adapter and was never meant to be declared (SPEC.md §10.1). A node whose environment sets
   `HDTP_MODE`, to any value, refuses to start (`invalid_enum_value: HDTP_MODE is not read: the mode
