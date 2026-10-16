@@ -91,7 +91,9 @@ type PairInput struct {
 	// trust-on-first-use, and the fingerprint actually seen is reported back.
 	IngressFingerprint string
 	// Account is the identity whose certificate authenticates the pairing and
-	// whose fingerprint the ingress records. Empty means "the only one".
+	// whose fingerprint the ingress records: the form's, else the one
+	// accountMiddleware resolved for the request (the node's sole account, when
+	// the signed-in owner administers it). Empty is neither, and is refused.
 	Account string
 }
 
@@ -512,6 +514,9 @@ func (d SettingsDeps) postSettingsPair(w http.ResponseWriter, r *http.Request) {
 		Mode:               r.PostForm.Get("mode"),
 		IngressFingerprint: strings.TrimSpace(r.PostForm.Get("ingress_fingerprint")),
 		Account:            r.PostForm.Get("account"),
+	}
+	if in.Account == "" {
+		in.Account = accountParam(r)
 	}
 	if in.PairURL == "" || in.Token == "" || in.Subdomain == "" {
 		d.render(w, r, "a pairing needs the URL, the one-time token and a subdomain", true, "", "")

@@ -73,6 +73,10 @@ changelog can be and is not summarized into a fictional release history.
   `bad_request`. `POST /settings/pair` and `POST /settings/unpair` answer a refusal with the status
   its code reads (404, 409, 400, or 500 for a failure of the node) beside the page's state, where
   every refusal was a 200 with `error` set (a pairing form missing a field still is).
+- A portal pairing that names no account pairs the node's sole account only when the signed-in
+  owner administers it, as `accountMiddleware` resolves it for the request; otherwise it is
+  refused `not_found` ("unknown account") and audited `ingress_pair` `not_found`, as is a named
+  account the node does not hold. It paired the sole account for any signed-in owner.
 - `add_contact` tells this identity's own outbound budget refusing the call as `rate_limited`, with
   the wait ("this identity has sent as many calls as its budget allows for now; try again in N s"),
   on both of its paths, and audits it `rate_limited`. It was told as a peer that could not be

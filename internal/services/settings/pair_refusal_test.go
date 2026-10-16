@@ -37,9 +37,11 @@ func TestAPairingWhoseAccountsCannotBeReadIsAFailure(t *testing.T) {
 }
 
 // A pairing or an unpairing the target's state or holdings refuse answers the code of that truth,
-// not bad_request: an account the caller named that the node does not hold is not_found, a node
-// not serving yet and the selected tunnel are conflict. Each keeps its sentence. The control, an
-// unpairing of an adapter that is not selected, gets through.
+// not bad_request: an account the caller named that the node does not hold is not_found, and so is
+// no account on a node with one — the portal names the sole account when the owner administers it
+// (accountMiddleware), so none named is an owner who does not, and the sole account was paired for
+// them. A node not serving yet and the selected tunnel are conflict. Each keeps its sentence. The
+// control, an unpairing of an adapter that is not selected, gets through.
 func TestPairAndUnpairRefusalsAnswerTheTargetsCode(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -47,7 +49,8 @@ func TestPairAndUnpairRefusalsAnswerTheTargetsCode(t *testing.T) {
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "alice", DisplayName: "Alice", Algo: "ed25519"}); err != nil {
+	alice, err := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "alice", DisplayName: "Alice", Algo: "ed25519"})
+	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := &core.Config{DataDir: dir, Tunnel: "ingress-terminate"}
@@ -56,11 +59,16 @@ func TestPairAndUnpairRefusalsAnswerTheTargetsCode(t *testing.T) {
 
 	named := in
 	named.Account = "nosuch"
-	_, err := svc.Deps().Pair(ctx, named)
+	_, err = svc.Deps().Pair(ctx, named)
 	if code, s := refusal.Of(err); code != "not_found" || s != "unknown account" {
 		t.Errorf("an account the node does not hold: %v → %s %q", err, code, s)
 	}
 	_, err = svc.Deps().Pair(ctx, in)
+	if code, s := refusal.Of(err); code != "not_found" || s != "unknown account" {
+		t.Errorf("no account named on a node with one: %v → %s %q", err, code, s)
+	}
+	named.Account = alice.ID
+	_, err = svc.Deps().Pair(ctx, named)
 	if code, s := refusal.Of(err); code != "conflict" || s != "the node is not serving yet" {
 		t.Errorf("a node not serving yet: %v → %s %q", err, code, s)
 	}

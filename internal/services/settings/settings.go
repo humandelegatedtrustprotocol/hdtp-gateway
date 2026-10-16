@@ -428,18 +428,16 @@ func (s *Service) Deps() internalui.SettingsDeps {
 			if len(accts) == 0 {
 				return internalui.PairResult{}, refusal.BadRequest("create an account before pairing", nil)
 			}
-			if in.Account != "" {
-				for _, a := range accts {
-					if a.ID == in.Account {
-						return s.pair(ctx, a.ID, in)
-					}
-				}
-				return internalui.PairResult{}, refusal.NotFound("unknown account", nil)
-			}
-			if len(accts) > 1 {
+			if in.Account == "" && len(accts) > 1 {
 				return internalui.PairResult{}, refusal.BadRequest("this node has several identities — choose which one to pair", nil)
 			}
-			return s.pair(ctx, accts[0].ID, in)
+			for _, a := range accts {
+				if a.ID == in.Account {
+					return s.pair(ctx, a.ID, in)
+				}
+			}
+			s.audit("ingress_pair", "account:"+in.Account, "not_found")
+			return internalui.PairResult{}, refusal.NotFound("unknown account", nil)
 		},
 		Accounts: func(ctx context.Context) ([]internalui.AccountChoice, error) {
 			accts, err := s.store.ListAccounts(ctx)
