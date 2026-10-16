@@ -179,6 +179,19 @@ export function check(tree) {
     if (!has('https://download.docker.com/linux/ubuntu/gpg')) fail(CLOUD_INIT, "runcmd must fetch Docker's apt key from download.docker.com")
     if (!has('usermod -aG docker hdtp') || !has('useradd --system')) fail(CLOUD_INIT, 'runcmd must create the service user hdtp in the docker group')
 
+    // docs/deploy.md's upgrade runs what the first boot ran after installing Docker: the same tag
+    // fetch, the same vendor step, the ownership of what it wrote, the build and the start, each
+    // as runcmd spells it (an upgrade without the vendor step builds a new tag's sidecar from the
+    // old tag's crates, or from none).
+    const doc = tree.read(DOC)
+    const fetch = cmds.map((c) => c.match(/git fetch -q --depth 1 origin tag \$\{Release\} && git checkout -q \$\{Release\}/)?.[0]).find(Boolean)
+    const vendorStep = cmds.find((c) => c.startsWith('docker run --rm -e CARGO_NET_GIT_FETCH_WITH_CLI=true '))
+    const upgrade = [['the tag fetch', fetch], ['the vendor step', vendorStep], ['the ownership of the vendored crates', 'chown -R hdtp:hdtp /opt/hdtp/.build'], ['the build and the start', 'docker compose build && docker compose up -d']]
+    for (const [what, cmd] of upgrade) {
+      if (!cmd || !has(cmd)) fail(CLOUD_INIT, `runcmd has no ${what} for docs/deploy.md's upgrade to repeat`)
+      else if (!doc.includes(cmd)) fail(DOC, `the upgrade does not run ${what} as the first boot does: ${cmd}`)
+    }
+
     // The login message: where the setup link is, and how to reach the portal.
     const motd = files['/etc/update-motd.d/99-hdtp-gateway']?.content || ''
     for (const s of ['docker compose logs hdtp-gateway', '/setup?token=', 'ssh -L 8080:127.0.0.1:8080', 'cloud-init status']) if (!motd.includes(s)) fail(CLOUD_INIT, `the login message does not say: ${s}`)
@@ -518,6 +531,7 @@ function selftest() {
     edit(DOC, '`make deploy-check`', '`make deploy-validate`', DOC, 'a make target the Makefile has not got'),
     edit(DOC, 'deploy/aws/hdtp-gateway.cfn.json', 'deploy/aws/hdtp-gateway.cfn.yaml', DOC, 'a file that does not exist'),
     edit(DOC, '| Azure |', '| Azure Stack |', DOC, 'a provider without a status row'),
+    edit(DOC, 'sudo docker run --rm -e CARGO_NET_GIT_FETCH_WITH_CLI=true', 'sudo true', DOC, 'an upgrade without the vendor step the first boot runs'),
     edit(DOC, 'Template validated offline by `make deploy-check` on 2026-10-09; not yet run on AWS by the maintainers', 'Template validated offline by `make deploy-check` on 2026-10-09', DOC, 'a status that no longer says not yet run while no run is dated'),
     edit(DOC, 'sign in at `http://localhost:8080`', 'sign in at `http://localhost:8081`', DOC, "the document naming a portal port compose.yaml does not publish"),
     edit(CLOUD_INIT, 'ssh -L 8080:127.0.0.1:8080 <your login>', 'ssh -L 9090:127.0.0.1:9090 <your login>', CLOUD_INIT, 'the login message tunnelling a port compose.yaml does not publish'),

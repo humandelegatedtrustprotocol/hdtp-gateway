@@ -116,6 +116,9 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Docs
 
+- `docs/deploy.md`'s upgrade of a VM runs what the first boot runs, the vendor step for the limits
+  sidecar's crates included, which it left out; `make deploy-check` holds the lines to
+  `deploy/cloud-init.yaml`'s (#141).
 - `docs/operations.md` lists a Cloudflare quick tunnel (no account) with the `edge` adapter, and
   says localtunnel is not supported, with what was measured (#172, #173). The two-users demo no
   longer names a scenario count its battery has outgrown, and the quickstart says what the pairing
