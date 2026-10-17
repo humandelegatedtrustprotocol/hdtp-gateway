@@ -21,3 +21,6 @@ docs/conformance-hdtp-*.json
 
 # The certificate and key an operator puts in front of the node behind Envoy (deploy/envoy).
 /deploy/envoy/tls/
+
+.env
+.dev.vars
