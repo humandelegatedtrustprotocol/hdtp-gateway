@@ -10,7 +10,7 @@ import (
 )
 
 const accountChangesAfter = `-- name: AccountChangesAfter :many
-SELECT id, account_id, kind, thread_id, contact_fpr, ref, at FROM changes WHERE account_id = $1 AND id > $2 ORDER BY id LIMIT $3
+SELECT id, account_id, kind, thread_id, contact_fpr, ref, at, msg_id, direction, msg_kind FROM changes WHERE account_id = $1 AND id > $2 ORDER BY id LIMIT $3
 `
 
 type AccountChangesAfterParams struct {
@@ -36,6 +36,9 @@ func (q *Queries) AccountChangesAfter(ctx context.Context, arg AccountChangesAft
 			&i.ContactFpr,
 			&i.Ref,
 			&i.At,
+			&i.MsgID,
+			&i.Direction,
+			&i.MsgKind,
 		); err != nil {
 			return nil, err
 		}
@@ -48,7 +51,7 @@ func (q *Queries) AccountChangesAfter(ctx context.Context, arg AccountChangesAft
 }
 
 const changesAfter = `-- name: ChangesAfter :many
-SELECT id, account_id, kind, thread_id, contact_fpr, ref, at FROM changes WHERE id > $1 ORDER BY id LIMIT $2
+SELECT id, account_id, kind, thread_id, contact_fpr, ref, at, msg_id, direction, msg_kind FROM changes WHERE id > $1 ORDER BY id LIMIT $2
 `
 
 type ChangesAfterParams struct {
@@ -73,6 +76,9 @@ func (q *Queries) ChangesAfter(ctx context.Context, arg ChangesAfterParams) ([]C
 			&i.ContactFpr,
 			&i.Ref,
 			&i.At,
+			&i.MsgID,
+			&i.Direction,
+			&i.MsgKind,
 		); err != nil {
 			return nil, err
 		}
@@ -128,8 +134,8 @@ func (q *Queries) DeleteChangesByThread(ctx context.Context, arg DeleteChangesBy
 }
 
 const insertChange = `-- name: InsertChange :one
-INSERT INTO changes (account_id, kind, thread_id, contact_fpr, ref, at)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO changes (account_id, kind, thread_id, contact_fpr, ref, at, msg_id, direction, msg_kind)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id
 `
 
@@ -140,6 +146,9 @@ type InsertChangeParams struct {
 	ContactFpr string
 	Ref        string
 	At         int64
+	MsgID      string
+	Direction  string
+	MsgKind    string
 }
 
 func (q *Queries) InsertChange(ctx context.Context, arg InsertChangeParams) (int64, error) {
@@ -150,6 +159,9 @@ func (q *Queries) InsertChange(ctx context.Context, arg InsertChangeParams) (int
 		arg.ContactFpr,
 		arg.Ref,
 		arg.At,
+		arg.MsgID,
+		arg.Direction,
+		arg.MsgKind,
 	)
 	var id int64
 	err := row.Scan(&id)

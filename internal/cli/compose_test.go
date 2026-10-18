@@ -121,7 +121,7 @@ func startServeAt(t *testing.T, dir, cfgPath, internal, public string) *running 
 		out: &bytes.Buffer{}, cancel: cancel, done: make(chan int, 1)}
 	var mu sync.Mutex
 	out := &lockedBuf{buf: r.out, mu: &mu}
-	go func() { r.done <- serveWith(ctx, []string{"--config", cfgPath}, out, out) }()
+	go func() { r.done <- serveWith(ctx, "test", []string{"--config", cfgPath}, out, out) }()
 	t.Cleanup(func() { r.stop() })
 	// Ready is what the healthcheck says: it reaches the portal the way serve serves it.
 	loaded, err := loadConfig(cfgPath)
@@ -421,7 +421,7 @@ func TestServeShutsDownAndReleasesTheLock(t *testing.T) {
 	done := make(chan int, 1)
 	var mu sync.Mutex
 	out := &lockedBuf{buf: &bytes.Buffer{}, mu: &mu}
-	go func() { done <- serveWith(runCtx, []string{"--config", cfgPath}, out, out) }()
+	go func() { done <- serveWith(runCtx, "test", []string{"--config", cfgPath}, out, out) }()
 
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {

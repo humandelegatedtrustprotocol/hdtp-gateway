@@ -406,7 +406,7 @@ func (m *MediaService) keepAndRecord(ctx context.Context, msgSvc *Service, accou
 		return Result{}, err
 	}
 	if fresh {
-		msgSvc.publish(accountID, contactFpr, res.ThreadID)
+		msgSvc.publish(accountID, contactFpr, res.ThreadID, dir, in.MsgID, "media")
 	}
 	return res, nil
 }

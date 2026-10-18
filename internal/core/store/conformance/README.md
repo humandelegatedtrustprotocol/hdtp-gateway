@@ -40,6 +40,7 @@ interface, and nothing else: it does not know which engine it is judging.
 | memberships (`conformance_memberships.go`) | `MembershipRoundTripAndFK` |
 | integrations (`conformance_integrations.go`) | `IntegrationsCRUD`; `PendingRequestsAreReadAndAnsweredByAccount` (another account's request reads as a missing one and its answer closes nothing) |
 | audit pages (`conformance_audit.go`) | `AuditPageScopesToAnAccountAndKeepsTheNodesOwnRows` |
+| webhooks (`conformance_webhooks.go`) | `WebhookEndpointsAreScopedToTheirAccount` (another account's endpoint is not found, and its writes report false and change nothing); `ARotationKeepsTheSecretItReplaces`; `AFailureRunParksAtTheLimitAndResumingClearsIt`; `DeliveriesAreNewestFirstAndOutliveTheirEndpoint`; `AChangeRowCarriesItsMessage` (the message id, direction and kind read back from both change reads); `ACursorIsClaimedOnceFromTheIdItWasReadAt` (a second claim of one change, and a claim from an id the cursor is not at, are refused and move nothing; each account has its own); `TheAccountsWithAnEndpointActiveOrPausedAreListed` |
 
 ### How a new engine plugs in
 

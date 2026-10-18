@@ -457,6 +457,80 @@ type Store interface {
 	ChangeStore
 	PresenceStore
 	LeaseStore
+	WebhookStore
+}
+
+// WebhookEndpoint is one place an account's events are posted (internal/services/webhooks).
+// Events is the JSON list of event names it filters on, "[]" for every event. SecretSealed is
+// the keyring-sealed signing secret; PreviousSealed the one it replaced, accepted until
+// PreviousUntil (0 when no rotation was made). Times are unix milliseconds.
+type WebhookEndpoint struct {
+	ID             string
+	AccountID      string
+	URL            string
+	Events         string
+	Status         string
+	Failures       int64
+	SecretSealed   []byte
+	PreviousSealed []byte
+	PreviousUntil  int64
+	CreatedAt      int64
+	UpdatedAt      int64
+}
+
+// WebhookDelivery is one attempt to post one event to one endpoint: Status is delivered or
+// failed, HTTPStatus 0 when no answer came, Excerpt the first bytes of the answer or the reason
+// none came. CreatedAt is unix milliseconds.
+type WebhookDelivery struct {
+	ID         string
+	AccountID  string
+	EndpointID string
+	EventID    string
+	EventType  string
+	Status     string
+	HTTPStatus int64
+	LatencyMs  int64
+	Excerpt    string
+	CreatedAt  int64
+}
+
+// WebhookStore keeps an account's webhook endpoints and the log of what was posted to them. Every
+// method is scoped to the account: an endpoint of another account is not found, as one that does
+// not exist is. The writes that report a bool report false, with nothing changed, for either.
+type WebhookStore interface {
+	// InsertWebhookEndpoint inserts an endpoint, active with no failures, as given.
+	InsertWebhookEndpoint(ctx context.Context, e WebhookEndpoint) error
+	// ListWebhookEndpoints returns up to limit of the account's endpoints, newest first.
+	ListWebhookEndpoints(ctx context.Context, accountID string, limit int) ([]WebhookEndpoint, error)
+	// GetWebhookEndpoint returns one of the account's endpoints, or ErrNotFound.
+	GetWebhookEndpoint(ctx context.Context, accountID, id string) (WebhookEndpoint, error)
+	// RotateWebhookSecret stores sealed as the endpoint's secret and keeps the one it replaces as
+	// the previous secret, accepted until until.
+	RotateWebhookSecret(ctx context.Context, accountID, id string, sealed []byte, until, now int64) (bool, error)
+	// PauseWebhookEndpoint parks the endpoint; ResumeWebhookEndpoint makes it active and clears its
+	// failure run.
+	PauseWebhookEndpoint(ctx context.Context, accountID, id string, now int64) (bool, error)
+	ResumeWebhookEndpoint(ctx context.Context, accountID, id string, now int64) (bool, error)
+	// DeleteWebhookEndpoint removes the endpoint; its delivery rows stay.
+	DeleteWebhookEndpoint(ctx context.Context, accountID, id string) (bool, error)
+	// InsertWebhookDelivery records one attempt.
+	InsertWebhookDelivery(ctx context.Context, d WebhookDelivery) error
+	// ClearWebhookFailures ends the endpoint's failure run. CountWebhookFailure adds one failure to
+	// it and parks the endpoint when the run reaches limit.
+	ClearWebhookFailures(ctx context.Context, accountID, id string, now int64) (bool, error)
+	CountWebhookFailure(ctx context.Context, accountID, id string, limit, now int64) (bool, error)
+	// ListWebhookDeliveries returns up to limit of one endpoint's attempts, newest first.
+	ListWebhookDeliveries(ctx context.Context, accountID, endpointID string, limit int) ([]WebhookDelivery, error)
+	// WebhookAccounts returns every account with an endpoint, active or paused: the accounts whose
+	// change log the dispatcher reads.
+	WebhookAccounts(ctx context.Context) ([]string, error)
+	// WebhookCursor returns the id of the account's last change the dispatcher claimed, 0 before
+	// its first claim.
+	WebhookCursor(ctx context.Context, accountID string) (int64, error)
+	// ClaimWebhookCursor moves the account's cursor from `from`, the id the caller read, to `to`,
+	// and reports false, changing nothing, when another process moved it first: of two dispatchers
+	// on one store, one claims each change.
+	ClaimWebhookCursor(ctx context.Context, accountID string, from, to int64) (bool, error)
 }
 
 // LeaseStore hands background work to one node process at a time (SPEC §11.1).
@@ -490,6 +564,12 @@ type Change struct {
 	ContactFpr string
 	Ref        string
 	At         int64
+	// MsgID, Direction ("in" or "out") and MsgKind ("text" or "media") name the message of a
+	// message row, and MsgID the message of a delivery-status row; every other row leaves them
+	// empty. The webhooks read them (internal/services/webhooks, EnvelopeOf).
+	MsgID     string
+	Direction string
+	MsgKind   string
 }
 
 // ChangeStore is the change log every node process sharing a store reads and writes.

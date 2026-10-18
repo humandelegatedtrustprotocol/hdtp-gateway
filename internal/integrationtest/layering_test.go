@@ -77,14 +77,17 @@ var layerRank = map[string]int{
 	"internal/node":                   5,
 	"internal/integrations/providers": 5,
 	"internal/integrations/recipes":   5,
+	// the owner's webhooks, over the node's delivery statuses and the doors' refusals; the portal
+	// is their door
+	"internal/services/webhooks": 6,
 	// the owner's surfaces: the portal and the owner MCP, which the node must not import
-	"internal/internalui":          6,
-	"internal/internalui/ownermcp": 6,
+	"internal/internalui":          7,
+	"internal/internalui/ownermcp": 7,
 	// the owner's settings, which reach into the node and the portal's page model
-	"internal/services/settings": 7,
+	"internal/services/settings": 8,
 	// the wiring, and the binary
-	"internal/cli":     8,
-	"cmd/hdtp-gateway": 9,
+	"internal/cli":     9,
+	"cmd/hdtp-gateway": 10,
 }
 
 // nodeImports reads every non-test Go file under internal/ and cmd/ and returns, per package

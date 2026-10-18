@@ -24,7 +24,7 @@ func pgLimit(n int) int32 {
 // writes one transaction at a time, so ids commit in the order they are assigned.
 func (s *SQLite) AppendChange(ctx context.Context, c Change) (int64, error) {
 	return s.q.InsertChange(ctx, sqlitedb.InsertChangeParams{AccountID: c.AccountID, Kind: c.Kind,
-		ThreadID: c.ThreadID, ContactFpr: c.ContactFpr, Ref: c.Ref, At: c.At})
+		ThreadID: c.ThreadID, ContactFpr: c.ContactFpr, Ref: c.Ref, At: c.At, MsgID: c.MsgID, Direction: c.Direction, MsgKind: c.MsgKind})
 }
 
 // ChangesAfter returns up to limit changes with ids above after, in id order.
@@ -99,7 +99,7 @@ func (s *Postgres) AppendChange(ctx context.Context, c Change) (int64, error) {
 		}
 		var err error
 		if id, err = q.InsertChange(ctx, pgdb.InsertChangeParams{AccountID: c.AccountID, Kind: c.Kind,
-			ThreadID: c.ThreadID, ContactFpr: c.ContactFpr, Ref: c.Ref, At: c.At}); err != nil {
+			ThreadID: c.ThreadID, ContactFpr: c.ContactFpr, Ref: c.Ref, At: c.At, MsgID: c.MsgID, Direction: c.Direction, MsgKind: c.MsgKind}); err != nil {
 			return err
 		}
 		return q.NotifyChanges(ctx)

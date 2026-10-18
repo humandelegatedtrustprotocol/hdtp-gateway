@@ -35,7 +35,7 @@ func TestAThreadsTopicReachesThePeerOnTheFirstAttemptAndOnARetry(t *testing.T) {
 	}
 
 	first, err := bharat.n.SendMessage(ctx, bharat.acct.ID, alina.rootFpr(), messaging.Input{MsgID: "t1", Text: "coffee?", Topic: "Coffee catch-up", Origin: messaging.OriginMCP})
-	if err != nil || first.Status != StatusDelivered {
+	if err != nil || first.Status != messaging.StatusDelivered {
 		t.Fatalf("send: %v %+v", err, first)
 	}
 	if got := topicAt(bharat, first.ThreadID); got != "Coffee catch-up" {

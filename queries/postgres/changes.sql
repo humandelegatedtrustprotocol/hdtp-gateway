@@ -5,8 +5,8 @@
 SELECT pg_advisory_xact_lock(7152101200000012);
 
 -- name: InsertChange :one
-INSERT INTO changes (account_id, kind, thread_id, contact_fpr, ref, at)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO changes (account_id, kind, thread_id, contact_fpr, ref, at, msg_id, direction, msg_kind)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id;
 
 -- name: NotifyChanges :exec

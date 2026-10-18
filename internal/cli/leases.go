@@ -19,9 +19,9 @@ const (
 )
 
 // leaseKeeper holds this process's share of the leases on background work that only one node
-// process on the store may run at a time: the outbound retries and the retention pass. It takes or
-// renews every one on a clock of its own, independent of how often the work runs, and the work asks
-// it whether this process holds its lease.
+// process on the store may run at a time: the outbound retries, the retention pass and the webhook
+// dispatcher. It takes or renews every one on a clock of its own, independent of how often the work
+// runs, and the work asks it whether this process holds its lease.
 type leaseKeeper struct {
 	st     store.LeaseStore
 	holder string

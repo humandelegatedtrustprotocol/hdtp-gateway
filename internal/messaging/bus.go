@@ -86,6 +86,13 @@ type Event struct {
 	// EventCall, the request of an EventPending, EventAnswered or EventRelayed, the scope of an
 	// EventInvalidate, the slug of an EventAccount, the key of an EventSettings.
 	Ref string `json:"ref,omitempty"`
+	// MsgID, Direction and MsgKind name the message of an EventMessage that recorded one (a
+	// deleted thread's names none), and MsgID the message of an EventDelivery. They are stored in
+	// the change log for the webhooks (internal/services/webhooks) and are not on the portal's
+	// event stream.
+	MsgID     string    `json:"-"`
+	Direction Direction `json:"-"`
+	MsgKind   string    `json:"-"`
 	// Local marks an event this process published, as its own subscribers receive it: a
 	// subscriber that applies other processes' changes to this one passes over it.
 	Local bool `json:"-"`
@@ -172,6 +179,7 @@ func (b *Bus) Publish(e Event) {
 	id, err := b.log.AppendChange(context.Background(), store.Change{
 		AccountID: e.AccountID, Kind: string(e.Kind), ThreadID: e.ThreadID,
 		ContactFpr: e.ContactFpr, Ref: changeRef(e), At: b.now().Unix(),
+		MsgID: e.MsgID, Direction: string(e.Direction), MsgKind: e.MsgKind,
 	})
 	if err != nil {
 		b.fail(err)
@@ -217,7 +225,8 @@ func changeRef(e Event) string {
 
 // EventOf is the event a change-log row records.
 func EventOf(c store.Change) Event {
-	e := Event{ID: c.ID, Kind: EventKind(c.Kind), AccountID: c.AccountID, ThreadID: c.ThreadID, ContactFpr: c.ContactFpr}
+	e := Event{ID: c.ID, Kind: EventKind(c.Kind), AccountID: c.AccountID, ThreadID: c.ThreadID, ContactFpr: c.ContactFpr,
+		MsgID: c.MsgID, Direction: Direction(c.Direction), MsgKind: c.MsgKind}
 	if e.Kind == EventDelivery {
 		e.Status = c.Ref
 	} else {

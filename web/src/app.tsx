@@ -17,6 +17,7 @@ import { Integrations } from "./views/integrations";
 import { Exposure } from "./views/exposure";
 import { Identity } from "./views/identity";
 import { Owners } from "./views/owners";
+import { Webhooks } from "./views/webhooks";
 import { Settings } from "./views/settings";
 import { Audit } from "./views/audit";
 import { Login } from "./views/login";
@@ -29,6 +30,7 @@ const PLACES: Item[] = [
   { to: "/contacts", label: "People", icon: "people", match: ["/contacts", "/requests", "/invites"], counts: "requests waiting" },
   { to: "/card", label: "My card", icon: "card" },
   { to: "/integrations", label: "Integrations", icon: "plug" },
+  { to: "/webhooks", label: "Webhooks", icon: "activity" },
 ];
 const SIDE_KEY = "hdtp.side";
 const NODE: Item[] = [
@@ -229,6 +231,7 @@ function route(path: string, account: string) {
   if (path === "/card") return <CardView key={key} />;
   if (path === "/integrations") return <Integrations key={key} />;
   if (seg[0] === "integrations" && seg[2] === "exposure") return <Exposure key={key} id={decodeURIComponent(seg[1])} />;
+  if (path === "/webhooks") return <Webhooks key={key} />;
   if (path === "/identity") return <Identity key={key} />;
   if (path === "/owners") return <Owners key={key} />;
   if (path === "/settings") return <Settings key={key} />;

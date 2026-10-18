@@ -1,6 +1,6 @@
 -- name: InsertChange :one
-INSERT INTO changes (account_id, kind, thread_id, contact_fpr, ref, at)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO changes (account_id, kind, thread_id, contact_fpr, ref, at, msg_id, direction, msg_kind)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id;
 
 -- name: ChangesAfter :many

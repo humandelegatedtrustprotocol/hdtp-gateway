@@ -38,7 +38,7 @@ func Run(args []string, version string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "hdtp-gateway "+version)
 		return 0
 	case "serve":
-		return serve(rest, stdout, stderr)
+		return serve(rest, version, stdout, stderr)
 	case "ingress":
 		return ingressCmd(rest, stdout, stderr)
 	case "migrate":

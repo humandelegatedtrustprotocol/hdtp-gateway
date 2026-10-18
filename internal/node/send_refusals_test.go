@@ -60,7 +60,7 @@ func TestASendIsRefusedByCodeForAContactNotHeldOrNotActive(t *testing.T) {
 		t.Fatalf("redeem: %v %+v", err, res)
 	}
 	bharat.pinPeer(alina)
-	if res, err := bharat.n.SendMessage(ctx, bharat.acct.ID, alina.rootFpr(), in("ok")); err != nil || res.Status != StatusDelivered {
+	if res, err := bharat.n.SendMessage(ctx, bharat.acct.ID, alina.rootFpr(), in("ok")); err != nil || res.Status != messaging.StatusDelivered {
 		t.Fatalf("the control: %v %+v", err, res)
 	}
 
@@ -68,7 +68,7 @@ func TestASendIsRefusedByCodeForAContactNotHeldOrNotActive(t *testing.T) {
 	// node names, which a door answers unavailable; the dial's text stays in Error() for the audit.
 	dn.set(alina.host, "127.0.0.1:1")
 	res, err := bharat.n.SendMessage(ctx, bharat.acct.ID, alina.rootFpr(), in("down"))
-	if why, ok := refusal.Why(err); !ok || why != WhyUnreachable || res.ThreadID == "" || res.Status != StatusPending {
+	if why, ok := refusal.Why(err); !ok || why != WhyUnreachable || res.ThreadID == "" || res.Status != messaging.StatusPending {
 		t.Errorf("an unreachable contact: %v (why %q) %+v, want a pending result and %q", err, why, res, WhyUnreachable)
 	}
 }
