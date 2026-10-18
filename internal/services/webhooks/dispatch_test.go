@@ -118,8 +118,9 @@ func TestADeliveryIsSignedWithTheHeadersAReceiverNeedsAndLogged(t *testing.T) {
 		t.Fatalf("%d posts, want 1", len(got))
 	}
 	h := got[0].header
+	// The identity is the account's id, never its slug: the id every owner MCP tool takes.
 	want, _ := EnvelopeBody(EventEnvelope{ID: "evt_" + strconv.FormatInt(change, 10), Type: "message.received",
-		CreatedAt: now.Unix() * 1000, Identity: "alice", Data: map[string]any{"thread_id": "th1", "message_id": "m1", "from": "sha256:abc"}})
+		CreatedAt: now.Unix() * 1000, Identity: f.mine, Data: map[string]any{"thread_id": "th1", "message_id": "m1", "from": "sha256:abc"}})
 	if got[0].body != want {
 		t.Fatalf("body\n%s\nwant\n%s", got[0].body, want)
 	}

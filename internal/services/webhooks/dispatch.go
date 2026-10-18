@@ -138,11 +138,6 @@ func (d *Dispatcher) account(ctx context.Context, accountID string) {
 		d.fail(ctx, failCursor, accountID, "")
 		return
 	}
-	a, err := st.GetAccountByID(ctx, accountID)
-	if err != nil {
-		d.fail(ctx, failChanges, accountID, "")
-		return
-	}
 	for {
 		rows, err := st.AccountChangesAfter(ctx, accountID, from, cursorPage)
 		if err != nil {
@@ -159,7 +154,7 @@ func (d *Dispatcher) account(ctx context.Context, accountID string) {
 				return // another process moved the cursor: what follows is its
 			}
 			from = c.ID
-			if event, ok := EnvelopeOf(c, a.Slug); ok {
+			if event, ok := EnvelopeOf(c, accountID); ok {
 				d.publish(ctx, accountID, event)
 			}
 		}

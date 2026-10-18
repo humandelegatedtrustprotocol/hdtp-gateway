@@ -108,11 +108,11 @@ func TestEveryChangeRowTheNodeWritesIsDeliveredAsItsNameOrNotAtAll(t *testing.T)
 	}
 	var got []sent
 	for _, c := range rows {
-		env, ok := EnvelopeOf(c, "alice")
+		env, ok := EnvelopeOf(c, a.ID)
 		if !ok {
 			continue
 		}
-		if env.ID != "evt_"+strconv.FormatInt(c.ID, 10) || env.CreatedAt != c.At*1000 || env.Identity != "alice" {
+		if env.ID != "evt_"+strconv.FormatInt(c.ID, 10) || env.CreatedAt != c.At*1000 || env.Identity != a.ID {
 			t.Fatalf("the envelope of row %d: %+v", c.ID, env)
 		}
 		got = append(got, sent{env.Type, env.Data})

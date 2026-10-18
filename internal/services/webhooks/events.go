@@ -38,7 +38,8 @@ type EventEnvelope struct {
 	Type string
 	// CreatedAt is unix milliseconds, as the cloud's is; the change log keeps seconds.
 	CreatedAt int64
-	// Identity is the account's slug.
+	// Identity is the account's id, as the cloud's is its identity's id: the id every owner MCP tool
+	// takes, so a receiver acts on the account without looking it up.
 	Identity string
 	Data     map[string]any
 }
@@ -127,7 +128,7 @@ func Subscribable() []string {
 	return out
 }
 
-// EnvelopeOf is the envelope a change row is delivered as, for the account whose slug is identity;
+// EnvelopeOf is the envelope a change row is delivered as, for the account whose id is identity;
 // ok is false for a row no webhook carries.
 func EnvelopeOf(c store.Change, identity string) (env EventEnvelope, ok bool) {
 	e := messaging.EventOf(c)
