@@ -214,7 +214,9 @@ func (d *Dispatcher) deliverOnce(ctx context.Context, accountID, endpointID stri
 	}
 	deliveryID := NewDeliveryID()
 	out := d.attempt(ctx, row.URL, secrets, event, body, deliveryID, at)
-	if _, err := d.svc.RecordAttempt(ctx, accountID, deliveryID, row.ID, event, out); err != nil {
+	// The attempt was made, so it is logged even when the process is stopping: the change was
+	// claimed and is never posted again, and a log missing it would say it was never sent.
+	if _, err := d.svc.RecordAttempt(context.WithoutCancel(ctx), accountID, deliveryID, row.ID, event, out); err != nil {
 		d.fail(ctx, failRecord, accountID, event.Type)
 		return false
 	}

@@ -267,6 +267,29 @@ func TestAnAttemptHasTenSecondsAndThenHasFailed(t *testing.T) {
 	}
 }
 
+// A process stopped while a post is in flight still logs the attempt: the change was claimed and is
+// never posted again, so the log is the only record that it went out. The receiver has answered
+// before the stop, and the attempt cannot end before the stop: the answer's end comes after it.
+func TestAPostInFlightWhenTheProcessStopsIsStillLogged(t *testing.T) {
+	f := newFixture(t)
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	rc := newReceiver(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+		w.(http.Flusher).Flush()
+		stop()
+	})
+	made, _ := f.create(t, rc.URL)
+	f.received(t, f.mine, "m1")
+	f.dispatcher(nil).Pass(ctx)
+	if n := len(rc.posts()); n != 1 {
+		t.Fatalf("%d posts, want 1", n)
+	}
+	if l := f.deliveries(t, made.ID); len(l) != 1 {
+		t.Fatalf("the log after a stop mid-post: %+v; want the one attempt", l)
+	}
+}
+
 // An endpoint hears what happens from its registration on, only what its filter names, nothing
 // while paused, and no backlog when it is resumed. A change no webhook carries moves the cursor and
 // posts nothing.
