@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/pgdb"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
@@ -23,6 +24,11 @@ func (s *Postgres) ListWebhookEndpoints(ctx context.Context, accountID string, l
 		out = append(out, webhookEndpointFromRow(sqlitedb.WebhookEndpoint(r)))
 	}
 	return out, nil
+}
+
+// CountWebhookEndpoints returns how many endpoints the account has, active or paused.
+func (s *Postgres) CountWebhookEndpoints(ctx context.Context, accountID string) (int64, error) {
+	return s.q.CountWebhookEndpoints(ctx, accountID)
 }
 
 // GetWebhookEndpoint returns one of the account's endpoints, or ErrNotFound.
@@ -115,4 +121,31 @@ func (s *Postgres) ClaimWebhookCursor(ctx context.Context, accountID string, fro
 		n, err = s.q.MoveWebhookCursor(ctx, pgdb.MoveWebhookCursorParams{LastChangeID: to, AccountID: accountID, LastChangeID_2: from})
 	}
 	return n == 1, err
+}
+
+// StartWebhookCursorAt puts the account's cursor at id, as though every change up to it had been
+// claimed, and never moves it back. Id 0 writes nothing: no row is the cursor at 0, and a row at 0
+// would refuse the first claim (ClaimWebhookCursor).
+func (s *Postgres) StartWebhookCursorAt(ctx context.Context, accountID string, id int64) error {
+	if id == 0 {
+		return nil
+	}
+	n, err := s.q.StartWebhookCursor(ctx, pgdb.StartWebhookCursorParams{AccountID: accountID, LastChangeID: id})
+	if err != nil || n == 1 {
+		return err
+	}
+	_, err = s.q.AdvanceWebhookCursor(ctx, pgdb.AdvanceWebhookCursorParams{LastChangeID: id, AccountID: accountID})
+	return err
+}
+
+// DeleteWebhookDeliveriesBefore deletes the delivery rows written before at (unix milliseconds)
+// and returns how many went.
+func (s *Postgres) DeleteWebhookDeliveriesBefore(ctx context.Context, at int64) (int64, error) {
+	return s.q.DeleteWebhookDeliveriesBefore(ctx, at)
+}
+
+// ForgetExpiredWebhookSecrets clears the secret a rotation replaced where it stopped being
+// accepted by now (unix milliseconds), and returns how many were cleared.
+func (s *Postgres) ForgetExpiredWebhookSecrets(ctx context.Context, now int64) (int64, error) {
+	return s.q.ForgetExpiredWebhookSecrets(ctx, sql.NullInt64{Int64: now, Valid: true})
 }

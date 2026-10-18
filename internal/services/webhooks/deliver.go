@@ -25,12 +25,14 @@ import (
 const ExcerptBytes = 500
 
 // AttemptOutcome is what one attempt did: whether the answer was a 2xx, its status (0 when none
-// came), the time it took, and an excerpt of the answer or of the reason none came.
+// came), the time it took, and an excerpt of the answer or of the reason none came. Stopped is a
+// failure that ended because the node was stopping, which says nothing about the receiver.
 type AttemptOutcome struct {
 	OK         bool
 	HTTPStatus int64
 	LatencyMs  int64
 	Excerpt    string
+	Stopped    bool
 }
 
 // NewDeliveryID is a delivery id, distinct per attempt, so the log is a log and not a latest-state
@@ -55,8 +57,9 @@ func excerpt(s string) string {
 // RecordAttempt writes what one attempt to the account's endpoint did, and the endpoint's health,
 // in one transaction, and returns the row's status: delivered or failed, and failed is final. A
 // success clears the failure run; a failure counts one, and the FailureLimit-th in a row parks the
-// endpoint, which only the owner resumes. An endpoint removed meanwhile keeps the row and has no
-// health to change.
+// endpoint, which only the owner resumes. A Stopped failure is logged and not counted: a node
+// stopping mid-post must not park a receiver that was answering. An endpoint removed meanwhile
+// keeps the row and has no health to change.
 func (s *Service) RecordAttempt(ctx context.Context, accountID, deliveryID, endpointID string, event EventEnvelope, out AttemptOutcome) (string, error) {
 	status := "failed"
 	if out.OK {
@@ -70,9 +73,10 @@ func (s *Service) RecordAttempt(ctx context.Context, accountID, deliveryID, endp
 			return err
 		}
 		var err error
-		if out.OK {
+		switch {
+		case out.OK:
 			_, err = tx.ClearWebhookFailures(ctx, accountID, endpointID, now)
-		} else {
+		case !out.Stopped:
 			_, err = tx.CountWebhookFailure(ctx, accountID, endpointID, FailureLimit, now)
 		}
 		return err

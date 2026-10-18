@@ -502,6 +502,8 @@ type WebhookStore interface {
 	InsertWebhookEndpoint(ctx context.Context, e WebhookEndpoint) error
 	// ListWebhookEndpoints returns up to limit of the account's endpoints, newest first.
 	ListWebhookEndpoints(ctx context.Context, accountID string, limit int) ([]WebhookEndpoint, error)
+	// CountWebhookEndpoints returns how many endpoints the account has, active or paused.
+	CountWebhookEndpoints(ctx context.Context, accountID string) (int64, error)
 	// GetWebhookEndpoint returns one of the account's endpoints, or ErrNotFound.
 	GetWebhookEndpoint(ctx context.Context, accountID, id string) (WebhookEndpoint, error)
 	// RotateWebhookSecret stores sealed as the endpoint's secret and keeps the one it replaces as
@@ -531,6 +533,15 @@ type WebhookStore interface {
 	// and reports false, changing nothing, when another process moved it first: of two dispatchers
 	// on one store, one claims each change.
 	ClaimWebhookCursor(ctx context.Context, accountID string, from, to int64) (bool, error)
+	// StartWebhookCursorAt puts the account's cursor at id, as though every change up to it had
+	// been claimed, and never moves it back; id 0 (an empty log) writes nothing.
+	StartWebhookCursorAt(ctx context.Context, accountID string, id int64) error
+	// DeleteWebhookDeliveriesBefore deletes the delivery rows of every account written before at
+	// (unix milliseconds) and returns how many went.
+	DeleteWebhookDeliveriesBefore(ctx context.Context, at int64) (int64, error)
+	// ForgetExpiredWebhookSecrets clears the secret a rotation replaced on every endpoint where it
+	// stopped being accepted by now (unix milliseconds), and returns how many were cleared.
+	ForgetExpiredWebhookSecrets(ctx context.Context, now int64) (int64, error)
 }
 
 // LeaseStore hands background work to one node process at a time (SPEC §11.1).

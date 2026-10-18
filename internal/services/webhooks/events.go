@@ -38,8 +38,8 @@ type EventEnvelope struct {
 	Type string
 	// CreatedAt is unix milliseconds, as the cloud's is; the change log keeps seconds.
 	CreatedAt int64
-	// Identity is the account's id, as the cloud's is its identity's id: the id every owner MCP tool
-	// takes, so a receiver acts on the account without looking it up.
+	// Identity is the account's id: the id every owner MCP tool takes, so a receiver acts on the
+	// account without looking it up. The cloud's is the slug, a named divergence (README).
 	Identity string
 	Data     map[string]any
 }

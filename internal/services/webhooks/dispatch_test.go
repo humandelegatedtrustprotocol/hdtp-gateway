@@ -269,16 +269,17 @@ func TestAnAttemptHasTenSecondsAndThenHasFailed(t *testing.T) {
 }
 
 // A process stopped while a post is in flight still logs the attempt: the change was claimed and is
-// never posted again, so the log is the only record that it went out. The receiver has answered
-// before the stop, and the attempt cannot end before the stop: the answer's end comes after it.
+// never posted again, so the log is the only record that it went out. The receiver stops the node
+// and holds its answer until the node hangs up, so the attempt ends because of the stop and for no
+// other reason. It is logged failed, with no answer, and not counted toward FailureLimit: the node
+// stopped, the receiver did not fail.
 func TestAPostInFlightWhenTheProcessStopsIsStillLogged(t *testing.T) {
 	f := newFixture(t)
 	ctx, stop := context.WithCancel(context.Background())
 	defer stop()
-	rc := newReceiver(t, func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, "ok")
-		w.(http.Flusher).Flush()
+	rc := newReceiver(t, func(_ http.ResponseWriter, r *http.Request) {
 		stop()
+		<-r.Context().Done()
 	})
 	made, _ := f.create(t, rc.URL)
 	f.received(t, f.mine, "m1")
@@ -286,8 +287,12 @@ func TestAPostInFlightWhenTheProcessStopsIsStillLogged(t *testing.T) {
 	if n := len(rc.posts()); n != 1 {
 		t.Fatalf("%d posts, want 1", n)
 	}
-	if l := f.deliveries(t, made.ID); len(l) != 1 {
-		t.Fatalf("the log after a stop mid-post: %+v; want the one attempt", l)
+	l := f.deliveries(t, made.ID)
+	if len(l) != 1 || l[0].Status != "failed" || l[0].HTTPStatus != nil {
+		t.Fatalf("the log after a stop mid-post: %+v; want the one attempt, failed with no answer", l)
+	}
+	if e := f.find(t, made.ID); e.ConsecutiveFailures != 0 || e.Status != "active" {
+		t.Fatalf("the endpoint after a stop mid-post: %+v; want no failure counted", e)
 	}
 }
 

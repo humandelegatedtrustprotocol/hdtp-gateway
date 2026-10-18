@@ -255,4 +255,121 @@ func webhooks(t *testing.T, newStore Factory) {
 			t.Fatalf("accounts with an endpoint: %v %v, want %v (once each, a paused one included)", got, err, want)
 		}
 	})
+
+	// A cursor started at an id reads after it, and a start never moves a cursor back.
+	t.Run("ACursorStartsAtAnIdAndNeverMovesBack", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "ws-a", DisplayName: "A", Algo: "p256"})
+		b, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "ws-b", DisplayName: "B", Algo: "p256"})
+		at := func(want int64) {
+			t.Helper()
+			if got, err := s.WebhookCursor(ctx, a.ID); got != want || err != nil {
+				t.Fatalf("the cursor is at %d (%v), want %d", got, err, want)
+			}
+		}
+		// An empty log: the first claim still goes through.
+		if err := s.StartWebhookCursorAt(ctx, a.ID, 0); err != nil {
+			t.Fatal(err)
+		}
+		if ok, _ := s.ClaimWebhookCursor(ctx, b.ID, 0, 1); !ok {
+			t.Fatal("the control: a first claim")
+		}
+		if err := s.StartWebhookCursorAt(ctx, b.ID, 0); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := s.WebhookCursor(ctx, b.ID); got != 1 {
+			t.Fatalf("a start at 0 moved a cursor to %d", got)
+		}
+		if ok, _ := s.ClaimWebhookCursor(ctx, a.ID, 0, 3); !ok {
+			t.Fatal("after a start at 0, the first claim was refused")
+		}
+		if err := s.StartWebhookCursorAt(ctx, a.ID, 7); err != nil {
+			t.Fatal(err)
+		}
+		at(7)
+		if ok, _ := s.ClaimWebhookCursor(ctx, a.ID, 7, 8); !ok {
+			t.Fatal("a claim from the id it was started at was refused")
+		}
+		if err := s.StartWebhookCursorAt(ctx, a.ID, 3); err != nil {
+			t.Fatal(err)
+		}
+		at(8)
+		if err := s.StartWebhookCursorAt(ctx, a.ID, 20); err != nil {
+			t.Fatal(err)
+		}
+		at(20)
+		if got, _ := s.WebhookCursor(ctx, b.ID); got != 1 {
+			t.Fatalf("another account's cursor is at %d", got)
+		}
+	})
+
+	t.Run("EndpointsAreCountedPerAccount", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "wn-a", DisplayName: "A", Algo: "p256"})
+		b, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "wn-b", DisplayName: "B", Algo: "p256"})
+		for i, id := range []string{"whe_n1", "whe_n2"} {
+			if err := s.InsertWebhookEndpoint(ctx, store.WebhookEndpoint{ID: id, AccountID: a.ID, URL: "http://127.0.0.1/",
+				Events: "[]", SecretSealed: []byte{1}, CreatedAt: int64(i), UpdatedAt: int64(i)}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if ok, _ := s.PauseWebhookEndpoint(ctx, a.ID, "whe_n2", 9); !ok {
+			t.Fatal("pause")
+		}
+		if n, err := s.CountWebhookEndpoints(ctx, a.ID); n != 2 || err != nil {
+			t.Fatalf("count: %d %v, want 2 (a paused one included)", n, err)
+		}
+		if n, err := s.CountWebhookEndpoints(ctx, b.ID); n != 0 || err != nil {
+			t.Fatalf("another account's count: %d %v, want 0", n, err)
+		}
+	})
+
+	// The retention pass's two writes: delivery rows older than the cutoff go, on every account,
+	// and a replaced secret goes once it is no longer accepted, the current one staying.
+	t.Run("RetentionTakesOldDeliveriesAndExpiredReplacedSecrets", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "wr-a", DisplayName: "A", Algo: "p256"})
+		b, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "wr-b", DisplayName: "B", Algo: "p256"})
+		for _, e := range []store.WebhookEndpoint{{ID: "whe_x", AccountID: a.ID}, {ID: "whe_y", AccountID: b.ID}} {
+			e.URL, e.Events, e.SecretSealed, e.CreatedAt, e.UpdatedAt = "http://127.0.0.1/", "[]", []byte("first"), 1, 1
+			if err := s.InsertWebhookEndpoint(ctx, e); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, d := range []store.WebhookDelivery{
+			{ID: "whd_old_a", AccountID: a.ID, EndpointID: "whe_x", CreatedAt: 99},
+			{ID: "whd_old_b", AccountID: b.ID, EndpointID: "whe_y", CreatedAt: 50},
+			{ID: "whd_new_a", AccountID: a.ID, EndpointID: "whe_x", CreatedAt: 100},
+		} {
+			d.EventID, d.EventType, d.Status = "evt_1", "message.received", "delivered"
+			if err := s.InsertWebhookDelivery(ctx, d); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if n, err := s.DeleteWebhookDeliveriesBefore(ctx, 100); n != 2 || err != nil {
+			t.Fatalf("deleted %d (%v), want the two older than the cutoff", n, err)
+		}
+		if l, _ := s.ListWebhookDeliveries(ctx, a.ID, "whe_x", 50); len(l) != 1 || l[0].ID != "whd_new_a" {
+			t.Fatalf("what stayed: %+v, want the row at the cutoff", l)
+		}
+		if ok, _ := s.RotateWebhookSecret(ctx, a.ID, "whe_x", []byte("second"), 500, 2); !ok {
+			t.Fatal("rotate")
+		}
+		if ok, _ := s.RotateWebhookSecret(ctx, b.ID, "whe_y", []byte("second"), 900, 2); !ok {
+			t.Fatal("rotate")
+		}
+		if n, err := s.ForgetExpiredWebhookSecrets(ctx, 500); n != 1 || err != nil {
+			t.Fatalf("cleared %d (%v), want the one whose window ended", n, err)
+		}
+		x, _ := s.GetWebhookEndpoint(ctx, a.ID, "whe_x")
+		if x.PreviousSealed != nil || x.PreviousUntil != 0 || string(x.SecretSealed) != "second" {
+			t.Fatalf("the expired one: %+v, want no replaced secret and the current one kept", x)
+		}
+		if y, _ := s.GetWebhookEndpoint(ctx, b.ID, "whe_y"); string(y.PreviousSealed) != "first" || y.PreviousUntil != 900 {
+			t.Fatalf("one still accepted lost its replaced secret: %+v", y)
+		}
+	})
 }

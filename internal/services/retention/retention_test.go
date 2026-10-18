@@ -300,3 +300,76 @@ func TestAPassThatCannotListAccountsSaysSo(t *testing.T) {
 		t.Fatalf("a pass that could not list accounts printed %q", got)
 	}
 }
+
+// afterStoreWide is a Windows that says when the pass has reached the accounts, which is after
+// every store-wide step; it sets no window.
+type afterStoreWide struct{ reached chan struct{} }
+
+func (w afterStoreWide) RequestExpiryFor(context.Context, string) time.Duration {
+	select {
+	case w.reached <- struct{}{}:
+	default:
+	}
+	return 30 * 24 * time.Hour
+}
+
+func (afterStoreWide) StorageFor(context.Context, string) (int64, time.Duration) { return 0, 0 }
+
+// A pass takes webhook delivery rows older than WebhookDeliveriesKept, on every account, and keeps
+// the newer ones; and it forgets the secret a rotation replaced once that secret is no longer
+// accepted, keeping one still inside its window and every current secret.
+func TestThePassTakesOldWebhookDeliveriesAndExpiredReplacedSecrets(t *testing.T) {
+	dir := t.TempDir()
+	st := migrated(t, dir)
+	defer st.Close()
+	bg := context.Background()
+	a, err := st.CreateAccount(bg, store.CreateAccountParams{Slug: "a", DisplayName: "A", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nowMs := time.Now().UnixMilli()
+	day := (24 * time.Hour).Milliseconds()
+	for _, id := range []string{"whe_expired", "whe_rotating"} {
+		if err := st.InsertWebhookEndpoint(bg, store.WebhookEndpoint{ID: id, AccountID: a.ID, URL: "http://127.0.0.1/",
+			Events: "[]", SecretSealed: []byte("first"), CreatedAt: nowMs - 40*day, UpdatedAt: nowMs - 40*day}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ok, _ := st.RotateWebhookSecret(bg, a.ID, "whe_expired", []byte("second"), nowMs-time.Hour.Milliseconds(), nowMs-day); !ok {
+		t.Fatal("rotate")
+	}
+	if ok, _ := st.RotateWebhookSecret(bg, a.ID, "whe_rotating", []byte("second"), nowMs+time.Hour.Milliseconds(), nowMs); !ok {
+		t.Fatal("rotate")
+	}
+	kept := WebhookDeliveriesKept.Milliseconds()
+	for id, at := range map[string]int64{"whd_old": nowMs - kept - day, "whd_recent": nowMs - kept + day} {
+		if err := st.InsertWebhookDelivery(bg, store.WebhookDelivery{ID: id, AccountID: a.ID, EndpointID: "whe_expired",
+			EventID: "evt_1", EventType: "message.received", Status: "delivered", CreatedAt: at}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reached := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(bg)
+	var swept sync.WaitGroup
+	swept.Go(func() {
+		Run(ctx, afterStoreWide{reached}, st, &core.Config{DataDir: dir}, func(string, string, string) {}, io.Discard,
+			nil, nil, nil, nil)
+	})
+	select {
+	case <-reached:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the pass did not reach the accounts")
+	}
+	cancel()
+	swept.Wait()
+	l, err := st.ListWebhookDeliveries(bg, a.ID, "whe_expired", 50)
+	if err != nil || len(l) != 1 || l[0].ID != "whd_recent" {
+		t.Fatalf("the delivery log after the pass: %+v %v; want only the row inside the window", l, err)
+	}
+	if e, _ := st.GetWebhookEndpoint(bg, a.ID, "whe_expired"); e.PreviousSealed != nil || string(e.SecretSealed) != "second" {
+		t.Fatalf("an expired replaced secret: %+v; want it forgotten and the current one kept", e)
+	}
+	if e, _ := st.GetWebhookEndpoint(bg, a.ID, "whe_rotating"); string(e.PreviousSealed) != "first" {
+		t.Fatalf("a replaced secret still accepted: %+v; want it kept", e)
+	}
+}

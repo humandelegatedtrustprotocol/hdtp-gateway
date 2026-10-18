@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -30,11 +31,20 @@ func TestAURLIsAnHTTPOrHTTPSURLWithAHostAndNoCredentials(t *testing.T) {
 		// Reads as hooks.example.test, dials evil.test.
 		"https://hooks.example.test@evil.test/hdtp": HasCredentials,
 		"http://user:pass@hooks.example.test/":      HasCredentials,
+		// Bounded in bytes: MaxURLBytes is taken, one more is not.
+		longURL(MaxURLBytes):     "",
+		longURL(MaxURLBytes + 1): URLTooLong,
 	} {
 		if got := CheckEndpointURL(raw); got != want {
 			t.Errorf("CheckEndpointURL(%q) = %q, want %q", raw, got, want)
 		}
 	}
+}
+
+// longURL is an https URL of exactly n bytes.
+func longURL(n int) string {
+	const head = "https://hooks.example.test/"
+	return head + strings.Repeat("a", n-len(head))
 }
 
 // Ruling A: every URL the cloud's test refuses as not_https, literal_address or private_name is a
@@ -76,6 +86,8 @@ func TestEachRefusalSaysItsOwnReasonInTheCloudsWords(t *testing.T) {
 			"Take the username and password out of the URL — a URL that carries them reads as one host and dials another."},
 		{"https://hooks.example.test/x", []string{"message.recieved"}, UnknownEvent,
 			"message.recieved is not an event we send, so a filter on it would never fire. The ones we send are listed on this page."},
+		// The node's own: the cloud bounds no URL.
+		{longURL(MaxURLBytes + 1), nil, URLTooLong, "That URL is longer than 2048 bytes, the most an endpoint takes."},
 	} {
 		_, secret, err := f.svc.Create(ctx, f.mine, c.url, c.events)
 		var r Refused
@@ -89,7 +101,7 @@ func TestEachRefusalSaysItsOwnReasonInTheCloudsWords(t *testing.T) {
 	if l, _ := f.svc.List(ctx, f.mine); len(l) != 0 {
 		t.Fatalf("a refused registration stored %d endpoints", len(l))
 	}
-	if got := joined(f.log.take()); strings.Count(got, "webhook_create account:"+f.mine+" bad_request") != 3 {
+	if got := joined(f.log.take()); strings.Count(got, "webhook_create account:"+f.mine+" bad_request") != 4 {
 		t.Fatalf("each refusal is audited once under its account:\n%s", got)
 	}
 }
@@ -280,8 +292,15 @@ func TestEveryCallRefusesAMissingAnotherAccountsAndAMalformedTarget(t *testing.T
 	}
 
 	mine, _ := f.create(t, "https://mine.example.test/h")
+	f.log.take()
 	if err := f.svc.SetStatus(ctx, f.mine, mine.ID, "parked"); !isBadRequest(err) {
 		t.Errorf("an unknown status: %v, want bad_request", err)
+	}
+	if got, want := joined(f.log.take()), "webhook_status account:"+f.mine+" webhook:"+mine.ID+" bad_request"; got != want {
+		t.Errorf("an unknown status is audited as %q, want %q", got, want)
+	}
+	if e := f.find(t, mine.ID); e.Status != "active" {
+		t.Errorf("an unknown status changed the endpoint to %q", e.Status)
 	}
 	for _, limit := range []int{-1, deliveriesMax + 1} {
 		if _, err := f.svc.ListDeliveries(ctx, f.mine, mine.ID, limit); !isBadRequest(err) {
@@ -319,7 +338,7 @@ func isBadRequest(err error) bool {
 func TestTheListIsNewestFirstAndBounded(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	for i := range listLimit + 1 {
+	for i := range EndpointLimit + 1 {
 		if err := f.st.InsertWebhookEndpoint(ctx, store.WebhookEndpoint{ID: "whe_" + string(rune('a'+i/26)) + string(rune('a'+i%26)),
 			AccountID: f.mine, URL: "https://x.example.test/", Events: "[]", SecretSealed: []byte("s"),
 			CreatedAt: int64(i), UpdatedAt: int64(i)}); err != nil {
@@ -330,7 +349,74 @@ func TestTheListIsNewestFirstAndBounded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(l) != listLimit || l[0].CreatedAt != listLimit || l[len(l)-1].CreatedAt != 1 {
+	if len(l) != EndpointLimit || l[0].CreatedAt != EndpointLimit || l[len(l)-1].CreatedAt != 1 {
 		t.Fatalf("listed %d, newest %d, oldest %d", len(l), l[0].CreatedAt, l[len(l)-1].CreatedAt)
+	}
+}
+
+// An account has at most EndpointLimit endpoints: the next is a conflict, audited, and nothing is
+// stored. The control: once one is removed, the next is taken.
+func TestTheEndpointPastTheLimitIsAConflict(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	var first EndpointView
+	for i := range EndpointLimit {
+		v, _ := f.create(t, "https://hooks.example.test/"+strconv.Itoa(i))
+		if i == 0 {
+			first = v
+		}
+	}
+	f.log.take()
+	_, secret, err := f.svc.Create(ctx, f.mine, "https://hooks.example.test/one-more", nil)
+	if code, detail := refusal.Of(err); code != "conflict" || secret != "" ||
+		detail != "This identity has 100 endpoints, the most it can have. Remove one to add another." {
+		t.Fatalf("the endpoint past the limit: %s %q (secret %q), want a conflict", code, detail, secret)
+	}
+	if got, want := joined(f.log.take()), "webhook_create account:"+f.mine+" endpoint_cap"; got != want {
+		t.Fatalf("audit: %q, want %q", got, want)
+	}
+	if n, _ := f.st.CountWebhookEndpoints(ctx, f.mine); n != EndpointLimit {
+		t.Fatalf("%d endpoints stored, want %d", n, EndpointLimit)
+	}
+	// Another account is not held to this one's count.
+	if _, _, err := f.svc.Create(ctx, f.theirs, "https://theirs.example.test/h", nil); err != nil {
+		t.Fatalf("another account's first endpoint: %v", err)
+	}
+	if err := f.svc.Remove(ctx, f.mine, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.create(t, "https://hooks.example.test/one-more")
+}
+
+// An account's first endpoint starts the dispatcher's cursor at the newest change, so the log
+// written before it is not walked change by change; a later endpoint leaves the cursor where the
+// dispatcher has it. An endpoint is still sent nothing from a second before it was added; the
+// first one is also not sent a change written earlier in its own second.
+func TestTheFirstEndpointStartsTheCursorAtTheNewestChange(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	var last int64
+	for i := range 3 {
+		id, err := f.st.AppendChange(ctx, store.Change{AccountID: f.mine, Kind: "message", ThreadID: "th",
+			At: f.clock.Unix() - 60, MsgID: "old" + strconv.Itoa(i), Direction: "in", MsgKind: "text"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		last = id
+	}
+	f.create(t, "https://hooks.example.test/a")
+	if got, _ := f.st.WebhookCursor(ctx, f.mine); got != last {
+		t.Fatalf("the first endpoint left the cursor at %d, want the newest change %d", got, last)
+	}
+	if got, _ := f.st.WebhookCursor(ctx, f.theirs); got != 0 {
+		t.Fatalf("another account's cursor moved to %d", got)
+	}
+	// The dispatcher has moved on; a second endpoint does not move it back, or on.
+	if ok, _ := f.st.ClaimWebhookCursor(ctx, f.mine, last, last+5); !ok {
+		t.Fatal("claim")
+	}
+	f.create(t, "https://hooks.example.test/b")
+	if got, _ := f.st.WebhookCursor(ctx, f.mine); got != last+5 {
+		t.Fatalf("a second endpoint moved the cursor to %d, want %d", got, last+5)
 	}
 }

@@ -10,6 +10,26 @@ import (
 	"database/sql"
 )
 
+const advanceWebhookCursor = `-- name: AdvanceWebhookCursor :execrows
+UPDATE webhook_cursor SET last_change_id = ? WHERE account_id = ? AND last_change_id < ?
+`
+
+type AdvanceWebhookCursorParams struct {
+	LastChangeID   int64
+	AccountID      string
+	LastChangeID_2 int64
+}
+
+// Moves the cursor forward to an id and never back: an account's first endpoint starts reading at
+// the newest change, not a week of log before it.
+func (q *Queries) AdvanceWebhookCursor(ctx context.Context, arg AdvanceWebhookCursorParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, advanceWebhookCursor, arg.LastChangeID, arg.AccountID, arg.LastChangeID_2)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const clearWebhookFailures = `-- name: ClearWebhookFailures :execrows
 UPDATE webhook_endpoints SET failures = 0, updated_at = ? WHERE account_id = ? AND id = ?
 `
@@ -26,6 +46,17 @@ func (q *Queries) ClearWebhookFailures(ctx context.Context, arg ClearWebhookFail
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const countWebhookEndpoints = `-- name: CountWebhookEndpoints :one
+SELECT COUNT(*) FROM webhook_endpoints WHERE account_id = ?
+`
+
+func (q *Queries) CountWebhookEndpoints(ctx context.Context, accountID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countWebhookEndpoints, accountID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const countWebhookFailure = `-- name: CountWebhookFailure :execrows
@@ -57,6 +88,19 @@ func (q *Queries) CountWebhookFailure(ctx context.Context, arg CountWebhookFailu
 	return result.RowsAffected()
 }
 
+const deleteWebhookDeliveriesBefore = `-- name: DeleteWebhookDeliveriesBefore :execrows
+DELETE FROM webhook_deliveries WHERE created_at < ?
+`
+
+// The retention pass: delivery rows older than their window (unix milliseconds).
+func (q *Queries) DeleteWebhookDeliveriesBefore(ctx context.Context, createdAt int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteWebhookDeliveriesBefore, createdAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteWebhookEndpoint = `-- name: DeleteWebhookEndpoint :execrows
 DELETE FROM webhook_endpoints WHERE account_id = ? AND id = ?
 `
@@ -68,6 +112,20 @@ type DeleteWebhookEndpointParams struct {
 
 func (q *Queries) DeleteWebhookEndpoint(ctx context.Context, arg DeleteWebhookEndpointParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteWebhookEndpoint, arg.AccountID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const forgetExpiredWebhookSecrets = `-- name: ForgetExpiredWebhookSecrets :execrows
+UPDATE webhook_endpoints SET previous_sealed = NULL, previous_until = NULL
+WHERE previous_sealed IS NOT NULL AND previous_until <= ?
+`
+
+// The retention pass: a secret a rotation replaced, once it is no longer accepted, is not kept.
+func (q *Queries) ForgetExpiredWebhookSecrets(ctx context.Context, previousUntil sql.NullInt64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, forgetExpiredWebhookSecrets, previousUntil)
 	if err != nil {
 		return 0, err
 	}

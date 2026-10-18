@@ -34,8 +34,8 @@ func MountWebhookPages(mux *http.ServeMux, d WebhooksDeps) {
 
 // webhookRefusal answers a failure of the service as JSON: the code, the node's sentence (a fixed
 // phrase for a failure of the node's own, never an error's text) and, for a registration a check
-// refused, the cloud's reason (not_a_url, has_credentials, unknown_event). The status is read from
-// the code (pageStatus).
+// refused, its reason (the cloud's not_a_url, has_credentials and unknown_event, and the node's
+// url_too_long). The status is read from the code (pageStatus).
 func webhookRefusal(w http.ResponseWriter, err error) {
 	code, detail := refusal.Of(err)
 	body := map[string]any{"error": code, "detail": detail}

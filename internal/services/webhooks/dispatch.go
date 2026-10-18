@@ -39,10 +39,14 @@ const LeaseName = "webhooks"
 // cursorPage is how many of an account's changes one read takes; a full page is read again at once.
 const cursorPage = 500
 
+// recordTimeout bounds the write of an attempt's row, which runs on after the process is told to
+// stop: a store that does not answer must not hold the shutdown.
+const recordTimeout = 5 * time.Second
+
 // The stages a swallowed failure is logged as, the cloud's codes where the cloud has the stage:
 //   - webhook_accounts_unreadable, webhook_cursor_unreadable, webhook_changes_unreadable: the
-//     accounts with an endpoint, an account's cursor, or the account and its change log could not
-//     be read, so nothing was sent from it this pass;
+//     accounts with an endpoint, an account's cursor, or its change log could not be read, so
+//     nothing was sent from it this pass;
 //   - webhook_cursor_unwritable: a change could not be claimed, so it was not sent; the next pass
 //     reads it again;
 //   - webhook_endpoints_unreadable: the account's endpoints could not be listed; nothing was sent;
@@ -209,9 +213,12 @@ func (d *Dispatcher) deliverOnce(ctx context.Context, accountID, endpointID stri
 	}
 	deliveryID := NewDeliveryID()
 	out := d.attempt(ctx, row.URL, secrets, event, body, deliveryID, at)
+	out.Stopped = !out.OK && ctx.Err() != nil
 	// The attempt was made, so it is logged even when the process is stopping: the change was
 	// claimed and is never posted again, and a log missing it would say it was never sent.
-	if _, err := d.svc.RecordAttempt(context.WithoutCancel(ctx), accountID, deliveryID, row.ID, event, out); err != nil {
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
+	defer cancel()
+	if _, err := d.svc.RecordAttempt(rctx, accountID, deliveryID, row.ID, event, out); err != nil {
 		d.fail(ctx, failRecord, accountID, event.Type)
 		return false
 	}

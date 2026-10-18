@@ -8,6 +8,9 @@ VALUES ($1, $2, $3, $4, 'active', 0, $5, $6, $7);
 -- name: ListWebhookEndpoints :many
 SELECT * FROM webhook_endpoints WHERE account_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2;
 
+-- name: CountWebhookEndpoints :one
+SELECT COUNT(*) FROM webhook_endpoints WHERE account_id = $1;
+
 -- name: GetWebhookEndpoint :one
 SELECT * FROM webhook_endpoints WHERE account_id = $1 AND id = $2;
 
@@ -63,3 +66,17 @@ ON CONFLICT (account_id) DO NOTHING;
 -- Every later claim moves the cursor only from the id the claimant read; no row changes when
 -- another process moved it first.
 UPDATE webhook_cursor SET last_change_id = $1 WHERE account_id = $2 AND last_change_id = $3;
+
+-- name: AdvanceWebhookCursor :execrows
+-- Moves the cursor forward to an id and never back: an account's first endpoint starts reading at
+-- the newest change, not a week of log before it.
+UPDATE webhook_cursor SET last_change_id = $1 WHERE account_id = $2 AND last_change_id < $1;
+
+-- name: DeleteWebhookDeliveriesBefore :execrows
+-- The retention pass: delivery rows older than their window (unix milliseconds).
+DELETE FROM webhook_deliveries WHERE created_at < $1;
+
+-- name: ForgetExpiredWebhookSecrets :execrows
+-- The retention pass: a secret a rotation replaced, once it is no longer accepted, is not kept.
+UPDATE webhook_endpoints SET previous_sealed = NULL, previous_until = NULL
+WHERE previous_sealed IS NOT NULL AND previous_until <= $1;

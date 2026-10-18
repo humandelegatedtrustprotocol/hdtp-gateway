@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -18,7 +19,7 @@ import (
 // The Webhooks page's routes through the whole portal (session, CSRF, account resolution), with
 // the refusals of Building rule 3: no session, no CSRF token, an endpoint that does not exist, an
 // endpoint of another account (under one's own account, and with that account named), a malformed
-// URL, an event the node does not send and a status that is neither. The control is the owner's
+// URL, one too long, an event the node does not send and a status that is neither. The control is the owner's
 // own endpoint, which every route acts on. Nothing a refusal names is changed, and the service's
 // audit rows are the only ones written.
 func TestTheWebhooksPageRefusesWhatItMustAndServesTheOwnersOwn(t *testing.T) {
@@ -107,6 +108,7 @@ func TestTheWebhooksPageRefusesWhatItMustAndServesTheOwnersOwn(t *testing.T) {
 	for _, c := range []struct{ url, events, reason string }{
 		{"not a url", "", webhooks.NotAURL},
 		{"https://user:pw@hooks.example.test/a", "", webhooks.HasCredentials},
+		{"https://hooks.example.test/" + strings.Repeat("a", webhooks.MaxURLBytes), "", webhooks.URLTooLong},
 		{"https://hooks.example.test/a", "message.received,contact.removed", webhooks.UnknownEvent},
 	} {
 		a := send(http.MethodPost, "/webhooks/create", as(mine.ID, "url", c.url, "events", c.events), true, true)
@@ -192,6 +194,7 @@ func TestTheWebhooksPageRefusesWhatItMustAndServesTheOwnersOwn(t *testing.T) {
 		"webhook_create account:" + mine.ID + " bad_request",
 		"webhook_create account:" + mine.ID + " bad_request",
 		"webhook_create account:" + mine.ID + " bad_request",
+		"webhook_create account:" + mine.ID + " bad_request",
 		"webhook_create account:" + mine.ID + " webhook:" + id + " host:agent:4111 ok",
 	}
 	for _, r := range []string{"webhook_rotate", "webhook_pause", "webhook_delete"} {
@@ -200,6 +203,7 @@ func TestTheWebhooksPageRefusesWhatItMustAndServesTheOwnersOwn(t *testing.T) {
 		}
 	}
 	want = append(want,
+		"webhook_status account:"+mine.ID+" webhook:"+id+" bad_request",
 		"webhook_rotate account:"+mine.ID+" webhook:"+id+" ok",
 		"webhook_pause account:"+mine.ID+" webhook:"+id+" ok",
 		"webhook_resume account:"+mine.ID+" webhook:"+id+" ok",
@@ -208,5 +212,53 @@ func TestTheWebhooksPageRefusesWhatItMustAndServesTheOwnersOwn(t *testing.T) {
 	)
 	if strings.Join(rows, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("audit rows:\n%s\nwant:\n%s", strings.Join(rows, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// The endpoint past webhooks.EndpointLimit is a conflict the page answers 409 with the node's
+// sentence, audited once, and nothing is stored.
+func TestTheWebhooksPageRefusesTheEndpointPastTheLimit(t *testing.T) {
+	ctx := context.Background()
+	kr, err := core.OpenKeyring(filepath.Join(t.TempDir(), "master.key"), func(string) (string, bool) { return "", false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []string
+	var svc *webhooks.Service
+	e := newPortalEnv(t, func(mux *http.ServeMux, st store.Store) {
+		svc = webhooks.New(st, kr, func(a, r, o string) { rows = append(rows, a+" "+r+" "+o) })
+		MountWebhookPages(mux, WebhooksDeps{Webhooks: svc})
+	})
+	me, session := e.signIn(t, "Me")
+	mine, _ := e.st.CreateAccount(ctx, store.CreateAccountParams{Slug: "mine", DisplayName: "Mine", Algo: "p256"})
+	if err := e.st.AddMembership(ctx, me, mine.ID, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	for i := range webhooks.EndpointLimit {
+		if _, _, err := svc.Create(ctx, mine.ID, "http://agent:4111/"+strconv.Itoa(i), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows = nil
+	form := url.Values{"account": {mine.ID}, "url": {"http://agent:4111/one-more"}}
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Host = "localhost:8080"
+	req.AddCookie(&http.Cookie{Name: "hdtp_csrf", Value: "tok"})
+	req.Header.Set("X-HDTP-Csrf", "tok")
+	req.AddCookie(session)
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if rec.Code != http.StatusConflict || body["error"] != "conflict" ||
+		body["detail"] != "This identity has 100 endpoints, the most it can have. Remove one to add another." || body["secret"] != nil {
+		t.Fatalf("the endpoint past the limit: %d %v; want 409 conflict with the node's sentence", rec.Code, body)
+	}
+	if list, _ := svc.List(ctx, mine.ID); len(list) != webhooks.EndpointLimit {
+		t.Fatalf("%d endpoints after the refusal, want %d", len(list), webhooks.EndpointLimit)
+	}
+	if got, want := strings.Join(rows, "\n"), "webhook_create account:"+mine.ID+" endpoint_cap"; got != want {
+		t.Fatalf("audit rows: %q, want %q", got, want)
 	}
 }

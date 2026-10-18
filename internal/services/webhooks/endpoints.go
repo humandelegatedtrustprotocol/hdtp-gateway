@@ -23,6 +23,7 @@ import (
 	"errors"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,8 +37,13 @@ const RotationWindow = 24 * time.Hour
 // FailureLimit is how many failures in a row park an endpoint.
 const FailureLimit = 20
 
-// listLimit is the most endpoints List returns, as the cloud's listEndpoints.
-const listLimit = 100
+// EndpointLimit is the most endpoints Create lets an account have (the next one is a conflict),
+// and the most List returns, as the cloud's listEndpoints. The cloud refuses no endpoint for
+// their number.
+const EndpointLimit = 100
+
+// MaxURLBytes is the longest URL an endpoint takes, in bytes.
+const MaxURLBytes = 2048
 
 // The deliveries a log read returns: deliveriesDefault when the caller names no number, at most
 // deliveriesMax, as the cloud's limitQuery(200, 50).
@@ -51,6 +57,8 @@ const (
 	NotAURL        = "not_a_url"
 	HasCredentials = "has_credentials"
 	UnknownEvent   = "unknown_event"
+	// URLTooLong is the node's own: the cloud bounds no URL.
+	URLTooLong = "url_too_long"
 )
 
 // refusalWords is what each refusal says, in the cloud's words (BatonDeck's WEBHOOK_REFUSALS,
@@ -59,6 +67,7 @@ var refusalWords = map[string]string{
 	NotAURL:        "That is not a URL.",
 	HasCredentials: "Take the username and password out of the URL — a URL that carries them reads as one host and dials another.",
 	UnknownEvent:   " is not an event we send, so a filter on it would never fire. The ones we send are listed on this page.",
+	URLTooLong:     "That URL is longer than " + strconv.Itoa(MaxURLBytes) + " bytes, the most an endpoint takes.",
 }
 
 // Refused is beside the refusal of a registration a check refused: the cloud's code, and for
@@ -76,9 +85,14 @@ func refused(code, detail string) error {
 }
 
 // CheckEndpointURL is the reason a URL is not one the node will post to, or "" when it is. Go's
-// url.Parse takes nearly anything, so a URL here is an absolute http or https URL with a host.
+// url.Parse takes nearly anything, so a URL here is an absolute http or https URL with a host, of at
+// most MaxURLBytes once trimmed.
 func CheckEndpointURL(raw string) string {
-	u, err := url.Parse(strings.TrimSpace(raw))
+	raw = strings.TrimSpace(raw)
+	if len(raw) > MaxURLBytes {
+		return URLTooLong
+	}
+	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
 		return NotAURL
 	}
@@ -175,7 +189,10 @@ func (s *Service) account(ctx context.Context, accountID string) error {
 func noEndpoint() error { return refusal.NotFound(refusal.NotFoundDetail, store.ErrNotFound) }
 
 // Create registers an endpoint for the account and returns it with its signing secret, shown this
-// once. The URL is stored trimmed, the filter without repeats.
+// once. The URL is stored trimmed, the filter without repeats. An account that has EndpointLimit
+// endpoints is refused another (conflict). The account's first endpoint starts the dispatcher's
+// cursor at the newest change, so it is not walked through the log written before it, change by
+// change, to reach the first one it may be sent.
 func (s *Service) Create(ctx context.Context, accountID, rawURL string, events []string) (EndpointView, string, error) {
 	if err := s.account(ctx, accountID); err != nil {
 		return EndpointView{}, "", err
@@ -210,8 +227,35 @@ func (s *Service) Create(ctx context.Context, accountID, rawURL string, events [
 	now := s.now().UnixMilli()
 	e := store.WebhookEndpoint{ID: id, AccountID: accountID, URL: strings.TrimSpace(rawURL), Events: string(list),
 		Status: "active", SecretSealed: sealed, CreatedAt: now, UpdatedAt: now}
-	if err := s.store.InsertWebhookEndpoint(ctx, e); err != nil {
+	full := false
+	err = s.store.Atomically(ctx, func(tx store.Store) error {
+		n, err := tx.CountWebhookEndpoints(ctx, accountID)
+		if err != nil {
+			return err
+		}
+		if n >= EndpointLimit {
+			full = true
+			return nil
+		}
+		if err := tx.InsertWebhookEndpoint(ctx, e); err != nil {
+			return err
+		}
+		if n > 0 {
+			return nil
+		}
+		_, newest, err := tx.ChangeBounds(ctx)
+		if err != nil {
+			return err
+		}
+		return tx.StartWebhookCursorAt(ctx, accountID, newest)
+	})
+	if err != nil {
 		return EndpointView{}, "", err
+	}
+	if full {
+		s.audit("webhook_create", "account:"+accountID, "endpoint_cap")
+		return EndpointView{}, "", refusal.Conflict("This identity has "+strconv.Itoa(EndpointLimit)+
+			" endpoints, the most it can have. Remove one to add another.", nil)
 	}
 	// The host and never the address: a receiver may put a token in the path or the query, and an
 	// audit row is never edited afterwards.
@@ -220,12 +264,12 @@ func (s *Service) Create(ctx context.Context, accountID, rawURL string, events [
 	return viewOf(e, now), secret, nil
 }
 
-// List is the account's endpoints, newest first, at most listLimit.
+// List is the account's endpoints, newest first, at most EndpointLimit.
 func (s *Service) List(ctx context.Context, accountID string) ([]EndpointView, error) {
 	if err := s.account(ctx, accountID); err != nil {
 		return nil, err
 	}
-	rows, err := s.store.ListWebhookEndpoints(ctx, accountID, listLimit)
+	rows, err := s.store.ListWebhookEndpoints(ctx, accountID, EndpointLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -282,6 +326,7 @@ func (s *Service) SetStatus(ctx context.Context, accountID, id, status string) e
 		action = "webhook_resume"
 		ok, err = s.store.ResumeWebhookEndpoint(ctx, accountID, id, now)
 	default:
+		s.audit("webhook_status", "account:"+accountID+" webhook:"+id, "bad_request")
 		return refusal.BadRequest(`status is "active" or "paused"`, nil)
 	}
 	if err != nil {
@@ -295,8 +340,9 @@ func (s *Service) SetStatus(ctx context.Context, accountID, id, status string) e
 	return nil
 }
 
-// Remove deletes an endpoint. Its delivery rows stay, still naming it (nothing expires them yet:
-// the plan's rule 8 names the gap); its log is not found once it is gone, as the cloud's.
+// Remove deletes an endpoint. Its delivery rows stay, still naming it, until the retention pass
+// takes them at their 30-day window (retention.WebhookDeliveriesKept); its log is not found once it
+// is gone, as the cloud's.
 func (s *Service) Remove(ctx context.Context, accountID, id string) error {
 	ok, err := s.store.DeleteWebhookEndpoint(ctx, accountID, id)
 	if err != nil {
