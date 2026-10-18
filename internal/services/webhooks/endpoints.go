@@ -295,8 +295,8 @@ func (s *Service) SetStatus(ctx context.Context, accountID, id, status string) e
 	return nil
 }
 
-// Remove deletes an endpoint. Its delivery rows stay, still naming it, until they expire; its log
-// is not found once it is gone, as the cloud's.
+// Remove deletes an endpoint. Its delivery rows stay, still naming it (nothing expires them yet:
+// the plan's rule 8 names the gap); its log is not found once it is gone, as the cloud's.
 func (s *Service) Remove(ctx context.Context, accountID, id string) error {
 	ok, err := s.store.DeleteWebhookEndpoint(ctx, accountID, id)
 	if err != nil {
