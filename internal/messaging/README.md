@@ -64,7 +64,7 @@ message touches it (`TouchThread`). A thread belongs to the one contact that cre
 A message row's status, as this package writes it: `delivered` for an inbound message, `pending` for
 an outbound one (service.go, status assignment in `record`). It then leaves this package: `internal/node`
 sets `delivered` when a peer accepts it, `failed`, or gives it up at its deadline
-(`StatusDelivered` and `StatusFailed` in `internal/node/send.go`, set by `Node.setStatus` and its callers there). The deadline is the message's `ExpiresAt`, or its creation time plus
+(`StatusDelivered` and `StatusFailed`, declared in this package beside the sender labels, set by `Node.setStatus` and its callers in `internal/node/send.go`). The deadline is the message's `ExpiresAt`, or its creation time plus
 `store.DefaultMessageExpiry` (24 hours) when it has none (`store.Message.Deadline`). `queued_for_human` is not
 written by this package.
 
@@ -100,6 +100,10 @@ private (the refusal is audited as `media_fetch_refused`), and any redirect.
 - A published event is appended to the store's change log before it is delivered locally; `Run` skips the
   ids this process published so a subscriber hears each event once; a full subscriber channel drops the
   event instead of blocking the publisher.
+- A recorded message's `EventMessage` names the message (`MsgID`), its `Direction` and its `MsgKind`
+  (`text` or `media`), and its change row keeps all three. A deleted thread's event names no message.
+  The node's `EventDelivery` names the message whose status moved. The three fields are for the webhooks
+  (`internal/services/webhooks`) and are not on the portal's event stream (`json:"-"`).
 - `FetchMessage` dials the address it vetted (the first resolved), not the name, so a rebinding DNS answer
   cannot change the target between check and connect; it times out at 30 s and follows no redirect.
 - Retention deletes locally only. A file's record goes only when no media message of the account names
@@ -130,6 +134,10 @@ private (the refusal is audited as `media_fetch_refused`), and any redirect.
 - bus_test.go: `TestAnEventCrossesToAnotherProcessOnTheStore` (SQLite and Postgres),
   `TestAProcessDoesNotHearItsOwnEventTwice`, `TestPostgresWakesAnotherProcessAtCommit`,
   `TestAnEventPublishedBeforeTheReaderStartsIsDelivered`.
+- changerow_test.go: `TestAMessagesChangeRowNamesTheMessageItsDirectionAndItsKind` (an inbound and an
+  outbound text, inline media both ways, URL media in, a replay that writes nothing, a deleted thread
+  that names no message); the delivery row's message is held by internal/node's
+  `TestADeliveryStatusRowNamesItsMessage`.
 
 ## What it does not do
 

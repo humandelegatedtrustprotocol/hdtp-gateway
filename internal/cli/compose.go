@@ -29,6 +29,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/integrationchain"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/presence"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/webhooks"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/tunnel"
 )
 
@@ -110,7 +111,7 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 	chain *integrationchain.Chain, connector *integrations.Connector, agent *integrations.AgentAnswered,
 	presence *presence.Tracker, identityDeps internalui.IdentityDeps,
 	setStatic, setOAuthClient func(ctx context.Context, integrationID, a, b string) error,
-	auditFn func(action, resource, outcome string), publicURL string,
+	auditFn func(action, resource, outcome string), hooks *webhooks.Service, publicURL string,
 	settings internalui.SettingsDeps, authDeps *internalui.AuthDeps,
 	cfg *core.Config, background func(work func(ctx context.Context)), onError func(error)) http.Handler {
 	// Everything below is owner-initiated by construction: it is the internal
@@ -216,6 +217,10 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 				SetOAuthClient: setOAuthClient,
 				Background:     background,
 			})
+		},
+		func(mux *http.ServeMux) {
+			// The SAME service the dispatcher posts through (serve's hooks).
+			internalui.MountWebhookPages(mux, internalui.WebhooksDeps{Webhooks: hooks})
 		},
 		func(mux *http.ServeMux) {
 			// The trail, and the lists its ids are named from: the owners page's tokens and passkeys.

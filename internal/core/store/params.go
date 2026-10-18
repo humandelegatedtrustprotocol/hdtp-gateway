@@ -225,3 +225,29 @@ func tokenInsert(id, ownerID, label string, hash []byte, accountID string, creat
 		AccountID: sql.NullString{String: accountID, Valid: accountID != ""}, CreatedAt: createdAt,
 	}
 }
+
+// webhookEndpointInsert is an endpoint's insert parameters, for both engines.
+func webhookEndpointInsert(e WebhookEndpoint) sqlitedb.InsertWebhookEndpointParams {
+	return sqlitedb.InsertWebhookEndpointParams{
+		ID: e.ID, AccountID: e.AccountID, Url: e.URL, Events: e.Events, SecretSealed: e.SecretSealed,
+		CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt,
+	}
+}
+
+// webhookDeliveryInsert is a delivery's insert parameters, for both engines: an HTTPStatus of 0
+// (no answer came) is stored as NULL.
+func webhookDeliveryInsert(d WebhookDelivery) sqlitedb.InsertWebhookDeliveryParams {
+	return sqlitedb.InsertWebhookDeliveryParams{
+		ID: d.ID, AccountID: d.AccountID, EndpointID: d.EndpointID, EventID: d.EventID, EventType: d.EventType,
+		Status: d.Status, HttpStatus: sql.NullInt64{Int64: d.HTTPStatus, Valid: d.HTTPStatus != 0},
+		LatencyMs: d.LatencyMs, Excerpt: d.Excerpt, CreatedAt: d.CreatedAt,
+	}
+}
+
+// webhookRotate is a rotation's parameters, for both engines.
+func webhookRotate(accountID, id string, sealed []byte, until, now int64) sqlitedb.RotateWebhookSecretParams {
+	return sqlitedb.RotateWebhookSecretParams{
+		SecretSealed: sealed, PreviousUntil: sql.NullInt64{Int64: until, Valid: true}, UpdatedAt: now,
+		AccountID: accountID, ID: id,
+	}
+}

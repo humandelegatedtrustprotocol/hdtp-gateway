@@ -5,14 +5,14 @@ The node's slow background sweeper (SPEC §7.9, §9.1, §11.1): one ticker that 
 ## What it holds
 
 - `Run(ctx, settings, st, cfg, auditFn, stderr, retireLeaves, archiveTrail, invalidate, leading)`: blocks until `ctx` ends, runs one pass at startup and one every `SweepInterval`, and never returns while a pass is running.
-- `SweepInterval` = 1 hour. `ChangeLogKept` = 7 days.
+- `SweepInterval` = 1 hour. `ChangeLogKept` = 7 days. `WebhookDeliveriesKept` = 30 days (the cloud's window for its webhook delivery log).
 - `Windows`: `RequestExpiryFor(ctx, accountID)` and `StorageFor(ctx, accountID)` (quota, retention window).
 
 A pass does, in this order (`Run`'s `sweep`):
 
 1. Returns at once when `leading` is non-nil and reports false (one process on the store sweeps).
 2. Calls `retireLeaves(ctx)`, then `archiveTrail(ctx)`, each only when non-nil.
-3. Store-wide: deletes idempotency records and owner sessions past their own expiry, and change-log rows older than `ChangeLogKept`.
+3. Store-wide: deletes idempotency records and owner sessions past their own expiry, change-log rows older than `ChangeLogKept` and webhook delivery rows older than `WebhookDeliveriesKept`, and clears the secret a webhook rotation replaced once it is no longer accepted (`internal/services/webhooks`).
 4. For each account: expires pending contact requests (theirs and ours) older than `settings.RequestExpiryFor`, writing one `contact_expire` audit row per removed contact (`account:<id> contact:<fingerprint> status:<status>`); then, whatever the window, unlimited included, runs `messaging.Sweeper.CollectOrphans`, which deletes the files no message names whose record is older than `messaging.FileGrace`; then, only when the account's retention window is positive, runs `messaging.Sweeper.Sweep`, which deletes messages older than the window, empty threads, and blobs no retained message references.
 
 ## What it refuses, and how
@@ -35,6 +35,7 @@ Nothing is refused. A failed step is printed to stderr as `retention: <what>: <e
 - `TestTheRetentionPassRunsOnlyWhileItLeads`: the startup pass runs when `leading` is true and not when false.
 - `TestThePassTakesUnnamedFilesUnderUnlimitedRetention`: with no window set, a file no message names and older than `messaging.FileGrace` goes, and one recorded before migration 0003 stays.
 - `TestAPassThatCannotListAccountsSaysSo`: a failed account listing prints `retention: accounts: <error>`.
+- `TestThePassTakesOldWebhookDeliveriesAndExpiredReplacedSecrets`: a delivery row a day past `WebhookDeliveriesKept` goes and one a day inside it stays; a replaced secret whose window ended is cleared, and one still accepted is kept, with every current secret.
 
 No test here covers the message sweep itself; `internal/messaging/retention_test.go` holds `Sweeper`.
 

@@ -198,6 +198,12 @@ func leaveErasesEveryRow(t *testing.T, st store.Store, list func(*testing.T) []t
 		must(st.InsertAuditEvent(ctx, seq, 1, a.ID, "cli", "cli", "seed", "account:"+a.ID, "ok", "", "{}", "", "h-"+slug))
 		_, err = st.AppendChange(ctx, store.Change{AccountID: a.ID, Kind: "message", ThreadID: "th-" + slug, At: 1})
 		must(err)
+		must(st.InsertWebhookEndpoint(ctx, store.WebhookEndpoint{ID: "whe-" + slug, AccountID: a.ID, URL: "https://hooks.example/" + slug,
+			Events: "[]", SecretSealed: []byte{9}, CreatedAt: 1, UpdatedAt: 1}))
+		must(st.InsertWebhookDelivery(ctx, store.WebhookDelivery{ID: "whd-" + slug, AccountID: a.ID, EndpointID: "whe-" + slug,
+			EventID: "evt-" + slug, EventType: "message.received", Status: "delivered", HTTPStatus: 200, CreatedAt: 1}))
+		_, err = st.ClaimWebhookCursor(ctx, a.ID, 0, 1)
+		must(err)
 		return a, in.ID
 	}
 	leaving, leavingIntegration := seed("leaving")

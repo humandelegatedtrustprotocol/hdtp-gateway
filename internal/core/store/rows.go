@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store/sqlitedb"
@@ -121,4 +122,28 @@ func contactChanged(n int64, err error) error {
 		return fmt.Errorf("store: contact not found")
 	}
 	return nil
+}
+
+func webhookEndpointFromRow(r sqlitedb.WebhookEndpoint) WebhookEndpoint {
+	return WebhookEndpoint{
+		ID: r.ID, AccountID: r.AccountID, URL: r.Url, Events: r.Events, Status: r.Status, Failures: r.Failures,
+		SecretSealed: r.SecretSealed, PreviousSealed: r.PreviousSealed, PreviousUntil: r.PreviousUntil.Int64,
+		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+	}
+}
+
+func webhookDeliveryFromRow(r sqlitedb.WebhookDelivery) WebhookDelivery {
+	return WebhookDelivery{
+		ID: r.ID, AccountID: r.AccountID, EndpointID: r.EndpointID, EventID: r.EventID, EventType: r.EventType,
+		Status: r.Status, HTTPStatus: r.HttpStatus.Int64, LatencyMs: r.LatencyMs, Excerpt: r.Excerpt,
+		CreatedAt: r.CreatedAt,
+	}
+}
+
+// cursorOf reads GetWebhookCursor's answer: no row is a cursor that has not moved yet.
+func cursorOf(id int64, err error) (int64, error) {
+	if errors.Is(err, ErrNotFound) {
+		return 0, nil
+	}
+	return id, err
 }

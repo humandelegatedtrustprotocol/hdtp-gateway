@@ -103,7 +103,7 @@ func TestServeRefusesATLSConfigurationThatDoesNotLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	code := serveWith(context.Background(), []string{"--config", cfgPath}, &out, &out)
+	code := serveWith(context.Background(), "test", []string{"--config", cfgPath}, &out, &out)
 	if code == 0 || !strings.Contains(out.String(), missing) {
 		t.Fatalf("serve with an unloadable certificate exited %d: %s", code, out.String())
 	}

@@ -262,7 +262,7 @@ with the old binary if you want a copy; an import of that file leaves those thre
 them in its review. One process serves the admin
 socket and `serve` prints `admin: ... is served by another hdtp-gateway process` on the others;
 the setup URL a first run prints works on the portal of the process that printed it. The outbound
-retries and the hourly retention pass run on one process at a time: the one holding the work's
+retries, the hourly retention pass and the webhook dispatcher run on one process at a time: the one holding the work's
 lease in the store, renewed every 10 s; a holder that stops lets it go at once, and one that
 crashes is replaced within 30 s.
 

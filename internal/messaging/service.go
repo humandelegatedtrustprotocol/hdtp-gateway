@@ -38,6 +38,13 @@ const (
 	SenderHuman Sender = "human"
 )
 
+// Delivery statuses a message row can carry (SPEC §7.1).
+const (
+	StatusPending   = "pending"
+	StatusDelivered = "delivered"
+	StatusFailed    = "failed"
+)
+
 // Origin is the surface a message was composed on, and it — not the caller — is
 // what decides the sender label. The portal's compose box is the owner typing;
 // every MCP surface is an agent acting on their behalf; an inbound message is
@@ -171,15 +178,17 @@ func (s *Service) Record(ctx context.Context, accountID, contactFpr string, dir 
 func (s *Service) record(ctx context.Context, accountID, contactFpr string, dir Direction, in Input, kind string) (Result, error) {
 	res, fresh, err := s.write(ctx, s.Store, accountID, contactFpr, dir, in, kind)
 	if err == nil && fresh {
-		s.publish(accountID, contactFpr, res.ThreadID)
+		s.publish(accountID, contactFpr, res.ThreadID, dir, in.MsgID, kind)
 	}
 	return res, err
 }
 
-// publish tells the bus a message was recorded in a thread.
-func (s *Service) publish(accountID, contactFpr, threadID string) {
+// publish tells the bus a message was recorded in a thread: which one, in which direction, of
+// which kind.
+func (s *Service) publish(accountID, contactFpr, threadID string, dir Direction, msgID, kind string) {
 	if s.Bus != nil {
-		s.Bus.Publish(Event{Kind: EventMessage, AccountID: accountID, ThreadID: threadID, ContactFpr: contactFpr})
+		s.Bus.Publish(Event{Kind: EventMessage, AccountID: accountID, ThreadID: threadID, ContactFpr: contactFpr,
+			MsgID: msgID, Direction: dir, MsgKind: kind})
 	}
 }
 
@@ -257,9 +266,9 @@ func (s *Service) write(ctx context.Context, st ConversationStore, accountID, co
 	// no path to the wire at all, so claiming delivery here told the owner their
 	// message had been sent when nothing had left the machine. It becomes
 	// `delivered` when a peer accepts it (SetMessageStatus, §7.1).
-	status := "delivered"
+	status := StatusDelivered
 	if dir == DirOut {
-		status = "pending"
+		status = StatusPending
 	}
 	// The thread row and the message land together. A conversation deleted between the read above
 	// and these writes leaves no thread to touch, and the message then starts it afresh: a message

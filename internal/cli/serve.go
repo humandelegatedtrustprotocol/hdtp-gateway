@@ -29,15 +29,16 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/presence"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/retention"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/settings"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/webhooks"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/storecheck"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/tunnel"
 )
 
-func serve(args []string, stdout, stderr io.Writer) int {
+func serve(args []string, version string, stdout, stderr io.Writer) int {
 	// SIGINT/SIGTERM end the serving context; every surface shuts down from it.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return serveWith(ctx, args, stdout, stderr)
+	return serveWith(ctx, version, args, stdout, stderr)
 }
 
 // serveRun is what serve's stages share. The admin handlers are registered while nd and auditFn
@@ -56,6 +57,8 @@ type serveRun struct {
 	// end the owner's session, at the next start.
 	cookieTag      string
 	stdout, stderr io.Writer
+	// version is the binary's, as `hdtp-gateway version` prints it; the webhooks' user agent names it.
+	version string
 	// holder names this process to the leases on background work (leaseKeeper).
 	holder string
 
@@ -71,6 +74,8 @@ type serveRun struct {
 	// that, which is why they may reach it.
 	auditFn func(action, resource, outcome string)
 	ownerFn func(action, resource, outcome string)
+	// hooks is the one webhooks service: the portal's Webhooks page and the dispatcher both call it.
+	hooks   *webhooks.Service
 	auditAs func(kind, action, resource, outcome string)
 	// auditChecked is auditFn for a writer that must know its row was written (the trail archive).
 	auditChecked func(action, resource, outcome string) error
@@ -104,13 +109,13 @@ type serveRun struct {
 // teardown runs in the reverse order: the background loops, the integrations, the node, the
 // tunnel, the admin socket, the store, the lock. A stage that fails returns before the teardown of
 // what it did not start is deferred.
-func serveWith(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+func serveWith(ctx context.Context, version string, args []string, stdout, stderr io.Writer) int {
 	var cfgPath string
 	fs := commonFlags("serve", &cfgPath, stderr)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	s := &serveRun{ctx: ctx, stdout: stdout, stderr: stderr, holder: core.ProcessName}
+	s := &serveRun{ctx: ctx, version: version, stdout: stdout, stderr: stderr, holder: core.ProcessName}
 	fail := func(err error) int {
 		fmt.Fprintln(stderr, "serve:", err)
 		return 1
@@ -286,6 +291,7 @@ func (s *serveRun) startTunnel() (tunnel.Adapter, error) {
 	// tunnel chosen in the portal forces the same knobs an env-set one would
 	// (SPEC §10.1, §12.2).
 	s.settings = settings.New(s.st, s.kr, s.cfg, s.ownerFn)
+	s.hooks = webhooks.New(s.st, s.kr, s.ownerFn)
 	stored, err := s.settings.Values(s.ctx)
 	if err != nil {
 		return nil, err
@@ -501,7 +507,7 @@ func (s *serveRun) startBackground(bgCtx context.Context, background *sync.WaitG
 	nd := s.nd
 	// The leases on work only one process on the store may run (SPEC §11.1): taken once before
 	// that work first asks, then kept on a clock of their own.
-	leases := newLeaseKeeper(s.st, s.holder, s.stderr, "retries", "retention")
+	leases := newLeaseKeeper(s.st, s.holder, s.stderr, "retries", "retention", webhooks.LeaseName)
 	leases.renew(bgCtx)
 	background.Go(func() { leases.Run(bgCtx) })
 	// What other node processes on this store publish reaches this one's waiters (SPEC §7.8).
@@ -536,6 +542,12 @@ func (s *serveRun) startBackground(bgCtx context.Context, background *sync.WaitG
 	// fetch our own mail (SPEC §10.5)", naming a role and a section both deleted
 	// on 2026-09-18; there is no mail to fetch, only sends to retry.
 	background.Go(func() { nd.RunRetries(bgCtx, leases.leading("retries")) })
+
+	// ---- webhooks: what the change log records, posted to the endpoints that want it ----
+	// One attempt each, never retried (internal/services/webhooks), while this process holds the
+	// lease.
+	hooks := webhooks.NewDispatcher(s.hooks, s.bus, leases.leading(webhooks.LeaseName), s.version, s.stderr)
+	background.Go(func() { hooks.Run(bgCtx) })
 
 	// There is no contact sweep here. There was: every active contact of every account had its
 	// card re-fetched two minutes after start and every six hours after. The owner's rule is that
@@ -624,7 +636,7 @@ func (s *serveRun) internalSurface() http.Handler {
 		},
 	}
 	return internalHandler(ctx, nd, st, setup, s.tokSvc, s.authSvc, s.chain, s.connector, s.agent, s.presence, identityDeps,
-		setStatic, setOAuthClient, s.ownerFn,
+		setStatic, setOAuthClient, s.ownerFn, s.hooks,
 		cfg.PublicURL, s.settings.Deps(), authDeps, cfg, s.spawn,
 		func(err error) { fmt.Fprintf(s.stderr, "messaging: %v\n", err) })
 }

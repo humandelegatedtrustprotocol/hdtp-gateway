@@ -76,6 +76,9 @@ type Change struct {
 	ContactFpr string
 	Ref        string
 	At         int64
+	MsgID      string
+	Direction  string
+	MsgKind    string
 }
 
 type Contact struct {
@@ -311,4 +314,36 @@ type Tombstone struct {
 	Root      string
 	Leaf      []byte
 	At        int64
+}
+
+type WebhookCursor struct {
+	AccountID    string
+	LastChangeID int64
+}
+
+type WebhookDelivery struct {
+	ID         string
+	AccountID  string
+	EndpointID string
+	EventID    string
+	EventType  string
+	Status     string
+	HttpStatus sql.NullInt64
+	LatencyMs  int64
+	Excerpt    string
+	CreatedAt  int64
+}
+
+type WebhookEndpoint struct {
+	ID             string
+	AccountID      string
+	Url            string
+	Events         string
+	Status         string
+	Failures       int64
+	SecretSealed   []byte
+	PreviousSealed []byte
+	PreviousUntil  sql.NullInt64
+	CreatedAt      int64
+	UpdatedAt      int64
 }

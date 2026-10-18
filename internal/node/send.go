@@ -37,13 +37,6 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 )
 
-// Delivery statuses a message row can carry (SPEC §7.1).
-const (
-	StatusPending   = "pending"
-	StatusDelivered = "delivered"
-	StatusFailed    = "failed"
-)
-
 // ErrUnknownContact is a send to a fingerprint this account holds no contact by. It satisfies
 // errors.Is with contacts.ErrUnknownContact, which is how a door codes it not_found.
 var ErrUnknownContact error = sendRefusal{text: "send: unknown contact", is: contacts.ErrUnknownContact}
@@ -93,7 +86,7 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 		return messaging.Result{}, err
 	}
 	// An idempotent replay of a msg_id already delivered must not send twice.
-	if res.Status == StatusDelivered {
+	if res.Status == messaging.StatusDelivered {
 		return res, nil
 	}
 
@@ -121,7 +114,7 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 		n.auditFor(accountID, core.ToolSendMessage, "contact:"+contactFpr+" "+WhyFailed(derr), "undelivered")
 		return res, derr
 	}
-	status := StatusDelivered
+	status := messaging.StatusDelivered
 	// Same reasoning: a delivery that succeeded must be RECORDED as delivered
 	// even if the caller has gone, or the retry loop sends it a second time.
 	if err := n.setStatus(context.WithoutCancel(ctx),
@@ -159,7 +152,7 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 	if err != nil {
 		return messaging.Result{}, err
 	}
-	if res.Status == StatusDelivered {
+	if res.Status == messaging.StatusDelivered {
 		return res, nil
 	}
 	// Same reasoning as SendMessage: the row exists, so delivery is the node's
@@ -170,11 +163,11 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 		n.auditFor(accountID, core.ToolSendMedia, "contact:"+contactFpr+" "+WhyFailed(derr), "undelivered")
 		return res, derr
 	}
-	if err := n.setStatus(context.WithoutCancel(ctx), accountID, contactFpr, in.MsgID, res.ThreadID, StatusDelivered); err != nil {
+	if err := n.setStatus(context.WithoutCancel(ctx), accountID, contactFpr, in.MsgID, res.ThreadID, messaging.StatusDelivered); err != nil {
 		return res, err
 	}
-	n.auditFor(accountID, core.ToolSendMedia, "contact:"+contactFpr, StatusDelivered)
-	res.Status = StatusDelivered
+	n.auditFor(accountID, core.ToolSendMedia, "contact:"+contactFpr, messaging.StatusDelivered)
+	res.Status = messaging.StatusDelivered
 	return res, nil
 }
 
@@ -228,7 +221,7 @@ func (n *Node) retryMedia(ctx context.Context, m store.Message, c store.Contact,
 	if err := n.deliverMedia(ctx, m.AccountID, c, m.MsgID, m.ThreadID, m.Sender, meta.Filename, meta.Mime, data); err != nil {
 		return false
 	}
-	if err := n.setStatus(ctx, m.AccountID, m.ContactFpr, m.MsgID, m.ThreadID, StatusDelivered); err != nil {
+	if err := n.setStatus(ctx, m.AccountID, m.ContactFpr, m.MsgID, m.ThreadID, messaging.StatusDelivered); err != nil {
 		return false
 	}
 	n.auditFor(m.AccountID, core.ToolSendMedia, "contact:"+m.ContactFpr+" msg:"+m.MsgID, "delivered_on_retry")
@@ -381,7 +374,7 @@ func (n *Node) RetryPending(ctx context.Context) (delivered, expired int) {
 		if expiredNow {
 			// Nothing carried it. Say so on the row: an owner is owed the truth
 			// that this one never arrived.
-			if err := n.setStatus(ctx, m.AccountID, m.ContactFpr, m.MsgID, m.ThreadID, StatusFailed); err == nil {
+			if err := n.setStatus(ctx, m.AccountID, m.ContactFpr, m.MsgID, m.ThreadID, messaging.StatusFailed); err == nil {
 				n.auditFor(m.AccountID, core.ToolSendMessage, "contact:"+m.ContactFpr+" msg:"+m.MsgID, "expired")
 				expired++
 			}
@@ -417,7 +410,7 @@ func (n *Node) RetryPending(ctx context.Context) (delivered, expired int) {
 			time.Unix(m.Deadline(), 0)); err != nil {
 			continue // still unreachable; the next scheduled attempt tries again
 		}
-		status, detail := StatusDelivered, "delivered_on_retry"
+		status, detail := messaging.StatusDelivered, "delivered_on_retry"
 		if err := n.setStatus(ctx, m.AccountID, m.ContactFpr, m.MsgID, m.ThreadID, status); err == nil {
 			n.auditFor(m.AccountID, core.ToolSendMessage, "contact:"+m.ContactFpr+" msg:"+m.MsgID, detail)
 			delivered++
@@ -439,7 +432,7 @@ func (n *Node) setStatus(ctx context.Context, accountID, contactFpr, msgID, thre
 	if n.opts.Bus != nil {
 		n.opts.Bus.Publish(messaging.Event{
 			Kind: messaging.EventDelivery, AccountID: accountID,
-			ContactFpr: contactFpr, ThreadID: threadID, Status: status,
+			ContactFpr: contactFpr, ThreadID: threadID, Status: status, MsgID: msgID,
 		})
 	}
 	return nil

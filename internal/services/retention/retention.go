@@ -35,11 +35,18 @@ type Windows interface {
 // (SPEC §7.8); a cursor older than the log is answered as such by wait_for_updates.
 const ChangeLogKept = 7 * 24 * time.Hour
 
+// WebhookDeliveriesKept is how long a webhook delivery row is kept (30 days, the cloud's window
+// for webhook_deliveries): the log of what was posted, which an owner reads to see why a receiver
+// heard nothing.
+const WebhookDeliveriesKept = 30 * 24 * time.Hour
+
 // Run applies retention every SweepInterval, once at startup first.
 //
 // A pass, on the process that leads (leading nil means always; SPEC §11.1), runs in this order:
 // retireLeaves and archiveTrail when non-nil; then, store-wide, the records whose own window
-// has closed (idempotency records, owner sessions, change-log rows older than ChangeLogKept);
+// has closed (idempotency records, owner sessions, change-log rows older than ChangeLogKept,
+// webhook delivery rows older than WebhookDeliveriesKept, and the secret a webhook rotation
+// replaced once it is no longer accepted);
 // then, per account, requests nobody answered within settings.RequestExpiryFor
 // (each audited as contact_expire, and passed to invalidate); then, only when the account's
 // retention window is positive, the message sweep (messaging.Sweeper). A zero window deletes no
@@ -100,6 +107,12 @@ func Run(ctx context.Context, settings Windows, st store.Store,
 		// ever will, and a cursor older than the log is answered as such (wait_for_updates).
 		_, err = st.DeleteChangesBefore(ctx, now-int64(ChangeLogKept/time.Second))
 		report("change log", err)
+		// A webhook's delivery log keeps a month (its rows are in milliseconds), and a secret a
+		// rotation replaced is not kept past the window it was accepted in.
+		_, err = st.DeleteWebhookDeliveriesBefore(ctx, (now-int64(WebhookDeliveriesKept/time.Second))*1000)
+		report("webhook deliveries", err)
+		_, err = st.ForgetExpiredWebhookSecrets(ctx, now*1000)
+		report("webhook secrets", err)
 		accounts, err := st.ListAccounts(ctx)
 		if err != nil {
 			report("accounts", err) // no account's requests, files or messages are swept this pass

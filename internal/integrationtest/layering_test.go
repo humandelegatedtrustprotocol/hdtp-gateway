@@ -77,6 +77,9 @@ var layerRank = map[string]int{
 	"internal/node":                   5,
 	"internal/integrations/providers": 5,
 	"internal/integrations/recipes":   5,
+	// the owner's webhooks, over messaging's change log and delivery statuses and the doors'
+	// refusals; the portal is their door
+	"internal/services/webhooks": 5,
 	// the owner's surfaces: the portal and the owner MCP, which the node must not import
 	"internal/internalui":          6,
 	"internal/internalui/ownermcp": 6,
