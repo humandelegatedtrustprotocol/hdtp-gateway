@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
@@ -418,5 +419,65 @@ func TestTheFirstEndpointStartsTheCursorAtTheNewestChange(t *testing.T) {
 	f.create(t, "https://hooks.example.test/b")
 	if got, _ := f.st.WebhookCursor(ctx, f.mine); got != last+5 {
 		t.Fatalf("a second endpoint moved the cursor to %d, want %d", got, last+5)
+	}
+}
+
+// The cap holds under concurrent creates: two node processes on one store, each adding an endpoint
+// to an account that has EndpointLimit-1, store exactly one and refuse the other. On PostgreSQL
+// (read committed) the count alone would let both through; Create locks the account first. Each
+// round frees the slot again, and every round must hold.
+func TestTheCapHoldsUnderConcurrentCreates(t *testing.T) {
+	for engine, handles := range sharedStores(t, 2) {
+		t.Run(engine, func(t *testing.T) {
+			ctx := context.Background()
+			f := newFixtureOn(t, handles[0], newKeyring(t))
+			other := New(handles[1], f.kr, f.log.audit)
+			other.now = f.svc.now
+			for i := range EndpointLimit - 1 {
+				f.create(t, "https://hooks.example.test/"+strconv.Itoa(i))
+			}
+			f.log.take()
+			for round := range 5 {
+				var wg sync.WaitGroup
+				start := make(chan struct{})
+				made := make([]EndpointView, 2)
+				errs := make([]error, 2)
+				for k, svc := range []*Service{f.svc, other} {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						<-start
+						made[k], _, errs[k] = svc.Create(ctx, f.mine, "https://hooks.example.test/race", nil)
+					}()
+				}
+				close(start)
+				wg.Wait()
+				n, err := f.st.CountWebhookEndpoints(ctx, f.mine)
+				if err != nil {
+					t.Fatal(err)
+				}
+				refused := 0
+				for _, err := range errs {
+					if code, _ := refusal.Of(err); err != nil && code == "conflict" {
+						refused++
+					} else if err != nil {
+						t.Fatalf("round %d: %v", round, err)
+					}
+				}
+				if got := joined(f.log.take()); n != EndpointLimit || refused != 1 ||
+					strings.Count(got, "webhook_create account:"+f.mine+" endpoint_cap") != 1 {
+					t.Fatalf("round %d: %d endpoints stored, %d refused, audit %q; want %d and one endpoint_cap",
+						round, n, refused, got, EndpointLimit)
+				}
+				for _, m := range made {
+					if m.ID != "" {
+						if err := f.svc.Remove(ctx, f.mine, m.ID); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+				f.log.take()
+			}
+		})
 	}
 }

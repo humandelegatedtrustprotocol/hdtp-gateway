@@ -145,7 +145,7 @@ export function Webhooks() {
       <Section title="Endpoints"
         description={<>This node posts this identity's events, signed, to your URL — ids and metadata only.<HelpTip label="About webhooks">
           Every delivery carries ids and metadata — never a message, media or a card — and is signed so you can
-          prove it came from this node. An endpoint is sent what happens from the second it was added; an event from earlier in that same second can reach it too.
+          prove it came from this node. An endpoint is sent what happens from the second it was added; an event from earlier in that same second can reach it too, unless it is the identity's first endpoint.
         </HelpTip></>}
         footer={!opening && !secret && <Button variant="secondary" onClick={() => setOpening(true)}>Add an endpoint</Button>}>
         {opening && (

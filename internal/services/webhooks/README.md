@@ -7,7 +7,7 @@ The node's outbound webhooks: where an account's events are posted, the signing 
 ## What it holds
 
 - `Service` (`New(st, kr, audit)`): `Create`, `List`, `Rotate`, `SetStatus`, `Remove`, `ListDeliveries`, `RecordAttempt`, `SecretsFor`. It is the one implementation under every door: the portal (ruling A) and the dispatcher.
-  - `Create(accountID, url, events)` answers the `EndpointView` and the `whsec_` secret. The secret is in that answer and nowhere else. The URL is stored trimmed, the filter without repeats, the times in unix milliseconds. An account has at most `EndpointLimit` (100) endpoints. The count and the insert are one transaction. The account's first endpoint starts the dispatcher's cursor at the newest change (`StartWebhookCursorAt`), so the dispatcher does not claim the log written before it one change at a time.
+  - `Create(accountID, url, events)` answers the `EndpointView` and the `whsec_` secret. The secret is in that answer and nowhere else. The URL is stored trimmed, the filter without repeats, the times in unix milliseconds. An account has at most `EndpointLimit` (100) endpoints. The count and the insert are one transaction that locks the account first (`LockAccount`), so the cap holds under concurrent creates on either engine (`TestTheCapHoldsUnderConcurrentCreates`). The account's first endpoint starts the dispatcher's cursor at the newest change (`StartWebhookCursorAt`), so the dispatcher does not claim the log written before it one change at a time.
   - `List` returns the account's endpoints, newest first, at most `EndpointLimit` (the cloud's limit).
   - `Rotate` mints a new secret, shown once. The one it replaces stays accepted for `RotationWindow` (24 h). A rotation during a rotation drops the oldest of three. A paused endpoint rotates.
   - `SetStatus("paused" | "active")`: resuming clears the failure run.
@@ -87,7 +87,7 @@ Deliveries are not audited: the delivery log is their record, as in the cloud.
   - `TestAnEndpointIsRegisteredFiltersOnEmittedEventsAndIsShownItsSecretOnce` (no secret in the serialised list, the stored secret sealed, the view's fields, the audit row);
   - `TestRotatingKeepsTheOldSecretAcceptedForADay`, `TestAPausedEndpointRotates`, `TestAnEndpointPausesResumesWithACleanSlateAndIsRemoved`;
   - `TestEveryCallRefusesAMissingAnotherAccountsAndAMalformedTarget` (Building rule 3, with the owner's own calls as the control);
-  - `TestTheListIsNewestFirstAndBounded`, `TestTheEndpointPastTheLimitIsAConflict` (with another account's and a freed slot as the controls);
+  - `TestTheListIsNewestFirstAndBounded`, `TestTheEndpointPastTheLimitIsAConflict` (with another account's and a freed slot as the controls), and `TestTheCapHoldsUnderConcurrentCreates` (two processes on one store race for the last slot, five rounds, on SQLite and on PostgreSQL when `HDTP_TEST_POSTGRES_DSN` is set);
   - `TestTheFirstEndpointStartsTheCursorAtTheNewestChange` (and a second endpoint leaves the cursor where it is).
 - `events_test.go`:
   - `TestAFilterTakesExactlyTheEventsTheNodeSends`;

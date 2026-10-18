@@ -190,9 +190,9 @@ func noEndpoint() error { return refusal.NotFound(refusal.NotFoundDetail, store.
 
 // Create registers an endpoint for the account and returns it with its signing secret, shown this
 // once. The URL is stored trimmed, the filter without repeats. An account that has EndpointLimit
-// endpoints is refused another (conflict). The account's first endpoint starts the dispatcher's
-// cursor at the newest change, so it is not walked through the log written before it, change by
-// change, to reach the first one it may be sent.
+// endpoints is refused another (conflict), however many creates race for the last slot. The
+// account's first endpoint starts the dispatcher's cursor at the newest change, so it is not walked
+// through the log written before it, change by change, to reach the first one it may be sent.
 func (s *Service) Create(ctx context.Context, accountID, rawURL string, events []string) (EndpointView, string, error) {
 	if err := s.account(ctx, accountID); err != nil {
 		return EndpointView{}, "", err
@@ -229,6 +229,11 @@ func (s *Service) Create(ctx context.Context, accountID, rawURL string, events [
 		Status: "active", SecretSealed: sealed, CreatedAt: now, UpdatedAt: now}
 	full := false
 	err = s.store.Atomically(ctx, func(tx store.Store) error {
+		// The account is locked first, so two creates on one store count one after the other and
+		// the cap holds (on SQLite the transaction already runs alone).
+		if err := tx.LockAccount(ctx, accountID); err != nil {
+			return err
+		}
 		n, err := tx.CountWebhookEndpoints(ctx, accountID)
 		if err != nil {
 			return err
