@@ -439,6 +439,7 @@ main.tables{max-width:72rem}
 .ask-kv dt{color:var(--muted)}
 .ask-kv dd{margin:0;overflow-wrap:anywhere}
 .ask-choice{display:flex;flex-direction:column;gap:.35rem}
+.ask-reply .btn{width:100%;height:auto;min-height:var(--ctl-h);padding:.45rem .95rem;white-space:normal;overflow-wrap:anywhere;text-align:left;justify-content:flex-start}
 .ask-own{display:flex;gap:.45rem;align-items:center}
 .ask-own textarea{flex:1 1 auto;min-width:0;max-width:none;min-height:4rem;font-family:inherit;font-size:.92rem}
 .ask-own input{flex:1 1 auto;min-width:0;max-width:none;width:auto;height:var(--ctl-h);padding:0 .7rem;font:inherit;font-size:.92rem;border:1px solid var(--line-2);border-radius:9px;background:var(--bg);color:var(--ink)}

@@ -51,8 +51,9 @@ node.
     portal.
   - The other option is Vercel's json-render (catalog defined in Zod, React renderer). It is a library
     tied to one app, not a protocol.
-- **The node's catalog, the narrowest that serves the story:** Text, Choice (the ready replies),
-  TextField (the "write my own", always last), DateTimeInput, Button.
+- **The node's catalog, the narrowest that serves the story:** Text, Button (the ready replies, one
+  tap each; see Round 2 below), TextField (the "write my own", always last), DateTimeInput, and
+  ChoicePicker for picking one of a list.
   - The portal renders them itself: a small renderer, with no new dependency unless the owner wants
     A2UI's own package (zone Z4).
   - The node validates every A2UI message against the catalog before storing it (rule 11), and refuses
@@ -150,12 +151,12 @@ names. Read from google/A2UI `specification/v0_9_1` (the protocol document, `com
 
   | Component | From | The node's narrowing |
   |---|---|---|
-  | `Column` | basic | the root only; `children` an array of ids (no template) |
-  | `Text` | basic | `text` a literal string; the root's first child is the TLDR |
+  | `Column` | basic | the root only, listed first; `children` an array of ids (no template) |
+  | `Text` | basic | `text` a literal string; the root's first child is the TLDR, listed second |
   | `ChoicePicker` | basic | `variant` `mutuallyExclusive`; 1–3 `options` `{label, value}`; `value` a `{path}` |
   | `TextField` | basic | `label` a literal; `value` a `{path}`; `variant` `shortText` or `longText` |
   | `DateTimeInput` | basic | `value` a `{path}`; `min`, `max`, `label` literals |
-  | `Button` | basic | `child` a Text; `action.event` only, its `context` literals or `{path}` |
+  | `Button` | basic | `child` a Text; `action.event` only, its `context` literals or `{path}`; a ready reply's event is `reply`, its context `{reply: "<text>"}` |
   | `KeyValue` | the node's | `items` `[{label, value}]`, 1–8: the key terms under the TLDR |
 
   No function calls, `checks`, `weight`, `accessibility` or `theme`: the portal implements none of
@@ -168,6 +169,7 @@ names. Read from google/A2UI `specification/v0_9_1` (the protocol document, `com
   surfaceId, sourceComponentId, timestamp, context}}` as the `message` field of `POST
   /asks/{id}/answer`. The node checks it against the stored Button (its literals exactly; each bound
   value against the input bound to that path) and makes the one line, in one function:
+  0. a ready reply's Button (event `reply`): its text is sent: `Ana chose: "…"`;
   1. a non-empty TextField value is sent to the contact as the owner's message: `Ana wrote: "…"`;
   2. else one chosen ChoicePicker value: its option's label is sent: `Ana chose: "…"`;
   3. else a DateTimeInput value: nothing is sent: `Ana picked: …`;
@@ -183,3 +185,18 @@ names. Read from google/A2UI `specification/v0_9_1` (the protocol document, `com
   it, where the first card sent on the first tap: A2UI writes a selection to the data model and sends
   nothing until an action. One tap remains for a Button that reads nothing (`Ana pressed: "Approve"`),
   which sends nothing to the contact.
+
+### Round 2 (2026-10-19, after the agent's probe)
+
+- **One tap.** The two taps above are superseded: each ready reply is its own Button whose event is
+  `reply` and whose context is the reply's text as a literal (`{"reply": "Confirm Wed 15:00"}`), so a
+  tap posts that text, sends it to the contact as the owner's message and answers the ask in one
+  step. "Write my own" stays a TextField and its Send Button. ChoicePicker stays in the catalog
+  (mutually exclusive, picked and then sent); an agent's ready replies are Buttons.
+- **The order in the schema.** The tool schema states what JSON Schema can: `prefixItems` puts the
+  root Column first and a Text second, `contains`/`maxContains` bound the Columns (1), the
+  ChoicePickers and TextFields of an ask (1 each) and its reply Buttons (3), and an ask contains a
+  Button. That the second component is the root's first child, and the references between
+  components, are checked by the node alone. `$schema` names draft 2020-12.
+- **Newest first.** `list_asks` and `GET /api/asks` list newest first in every filter, so the limit of
+  100 keeps the newest; the conversation reverses them to place the cards among its messages.

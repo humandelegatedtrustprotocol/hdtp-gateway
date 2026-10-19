@@ -261,7 +261,8 @@ func (s *Service) Get(ctx context.Context, accountID, id string) (View, error) {
 }
 
 // Filter narrows List: Open to open asks alone, Thread to one thread and Contact to the threads with
-// one contact (each oldest first); with neither, the account's asks and notices, newest first.
+// one contact; with neither, the account's asks and notices. Each is newest first, so a limit keeps
+// the newest.
 // Thread, when given, is the narrower of the two.
 type Filter struct {
 	Open    bool
@@ -389,12 +390,19 @@ func (s *Service) Answer(ctx context.Context, accountID, id string, action []byt
 	return s.close(ctx, a, line, res)
 }
 
-// answerOf makes a pressed Button into the answer line and what is sent to the contact, from the
-// values its context read from the card's data model. What the owner typed comes first, then the
-// ready reply they chose (both sent, as their own message), then the date or time they picked
+// answerOf makes a pressed Button into the answer line and what is sent to the contact. A ready
+// reply's Button is its reply, sent as the owner's own message in one tap. Any other Button answers
+// from the values its context read from the card's data model: what the owner typed comes first,
+// then the option they picked (both sent, as their own message), then the date or time they picked
 // (nothing sent); a Button that reads nothing is its label. A Button whose values are all empty
 // answers nothing.
 func answerOf(sf Surface, p Pressed, who string) (line, send string, err error) {
+	if p.Button.Action.Event.Name == ReplyEvent {
+		// The Button's own literal: Parse held it to a string, and ReadAction the action's to it.
+		var reply string
+		_ = json.Unmarshal(p.Button.Action.Event.Context["reply"], &reply)
+		return AnswerLine(who, "chose", reply), reply, nil
+	}
 	var typed, chosen, when string
 	reads := false
 	for k, want := range p.Button.Action.Event.Context {

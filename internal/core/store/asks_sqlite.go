@@ -58,12 +58,12 @@ func (s *SQLite) ListOpenOwnerAsks(ctx context.Context, accountID string, limit 
 	return ownerAsks(s.q.ListOpenOwnerAsks(ctx, sqlitedb.ListOpenOwnerAsksParams{AccountID: accountID, Limit: int64(limit)}))
 }
 
-// ListThreadOwnerAsks returns up to limit asks and notices of one thread, oldest first.
+// ListThreadOwnerAsks returns up to limit asks and notices of one thread, newest first.
 func (s *SQLite) ListThreadOwnerAsks(ctx context.Context, accountID, threadID string, limit int) ([]OwnerAsk, error) {
 	return ownerAsks(s.q.ListThreadOwnerAsks(ctx, sqlitedb.ListThreadOwnerAsksParams{AccountID: accountID, ThreadID: threadID, Limit: int64(limit)}))
 }
 
-// ListContactOwnerAsks returns up to limit asks and notices of the threads with one contact, oldest
+// ListContactOwnerAsks returns up to limit asks and notices of the threads with one contact, newest
 // first.
 func (s *SQLite) ListContactOwnerAsks(ctx context.Context, accountID, contactFpr string, limit int) ([]OwnerAsk, error) {
 	return ownerAsks(s.q.ListContactOwnerAsks(ctx, sqlitedb.ListContactOwnerAsksParams{AccountID: accountID, ContactFpr: contactFpr, Limit: int64(limit)}))

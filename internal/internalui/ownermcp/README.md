@@ -85,7 +85,7 @@ Registered by `AddParityTools`, each only when its `Extra` field is non-nil:
 
 | Tool | Field | Contract |
 |---|---|---|
-| `export_card` | `Card` | The account's current card with the facts the owner reads it by. |
+| `export_card` | `Card` | The account's current card with the facts the owner reads it by (`contacts.CardFacts`): `card`, `endpoint`, `root_fingerprint`, `kid`, and `display_name`, the card's FN (the account's display name, the one the portal's sidebar shows above its slug; `""` when it has none). |
 | `identity_certificate` | `Certificate` | Certificate state: root, chain, served leaf and dates, renewal due, pending CSR. |
 | `list_passkeys`, `remove_passkey` | `Passkeys`, `RemovePasskey` | List passkeys; remove one by id. Both answer `permission_denied` to a token narrowed to one account (`allowNode`: passkeys belong to the owner, not an account). `remove_passkey` answers `not_found` (`IsError`) for an id that is not a passkey and `bad_request` for the last one. There is no register tool: a token cannot perform a WebAuthn ceremony (SPEC §8.6). |
 | `call_contact` | `CallContact` | One call to a tool on an **active** contact's server, through the node's outbound path; the contact's own switchboard still applies. |
@@ -99,11 +99,11 @@ Registered by `AddAskTools` when `Extra.Asks` is non-nil, each the asks service'
 
 | Tool | Contract |
 |---|---|
-| `ask_owner` | Puts an A2UI v0.9.1 surface for the owner to answer on a thread, about one message of it (`thread_id`, `for_message_id`, `surface`). The input schema carries the catalog's, its definitions under the tool schema's own `$defs` (every `$ref` local); the SDK does not validate against it, `asks.Parse` does, so a refusal is coded: `bad_request`, `too_large` over `asks.MaxSurfaceBytes`, `not_found` for a thread or message the account does not hold, `conflict` while the thread has another open ask or its contact is not active. The same message asked about again answers the same ask. |
+| `ask_owner` | Puts an A2UI v0.9.1 surface for the owner to answer on a thread, about one message of it (`thread_id`, `for_message_id`, `surface`). The input schema, JSON Schema 2020-12 as its `$schema` says (`Draft`), carries the catalog's, its definitions under the tool schema's own `$defs` (every `$ref` local), and states the order and counts JSON Schema can (root first and a Text second by `prefixItems`; one Column, at most three ready replies, one ChoicePicker and one TextField, and a Button, by `contains`); a ready reply is a Button of event `reply` whose context `{reply}` is the text one tap sends; the SDK does not validate against it, `asks.Parse` does, so a refusal is coded: `bad_request`, `too_large` over `asks.MaxSurfaceBytes`, `not_found` for a thread or message the account does not hold, `conflict` while the thread has another open ask or its contact is not active. The same message asked about again answers the same ask. |
 | `notify_owner` | The same for a notice: Text and KeyValue only, status `posted`, no expiry. |
 | `withdraw_ask` | Takes back an open ask; `conflict` once it is answered, expired or withdrawn; `not_found` for an id the account does not hold. |
 | `get_ask` | One ask or notice: status, TLDR, surface, `answer_text` (the one line the owner's answer became). Reading an open ask past its time writes its expiry. |
-| `list_asks` | `{"asks": [...]}`, at most `asks.ListLimit`: newest first, or one thread's (`thread_id`) or one contact's (`contact_fpr`) oldest first; `status` `open` for the asks waiting on the owner, and any other value `bad_request`. |
+| `list_asks` | `{"asks": [...]}`, at most `asks.ListLimit`: newest first, the account's or one thread's (`thread_id`) or one contact's (`contact_fpr`), so the limit keeps the newest; `status` `open` for the asks waiting on the owner, and any other value `bad_request`. |
 
 Registered by `AddWatchTools`:
 

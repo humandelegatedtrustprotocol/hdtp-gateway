@@ -44,19 +44,21 @@ type AskIDArgs struct {
 type ListAsksArgs struct {
 	AccountID string `json:"account_id"`
 	Status    string `json:"status,omitempty" jsonschema:"open for the asks waiting on the owner; omit for every ask and notice"`
-	ThreadID  string `json:"thread_id,omitempty" jsonschema:"one thread's asks and notices, oldest first"`
-	Contact   string `json:"contact_fpr,omitempty" jsonschema:"one contact's asks and notices, oldest first"`
+	ThreadID  string `json:"thread_id,omitempty" jsonschema:"one thread's asks and notices, newest first"`
+	Contact   string `json:"contact_fpr,omitempty" jsonschema:"one contact's asks and notices, newest first"`
 }
 
 // PutSchema is ask_owner's (kind ask) or notify_owner's (kind notice) input schema: the surface is
 // the catalog's own schema for that kind, and the catalog's definitions it refers to are the tool
-// schema's $defs, so every $ref is local to the one document.
+// schema's $defs, so every $ref is local to the one document, and $schema names the draft it is
+// written in (2020-12: prefixItems, contains with maxContains).
 func PutSchema(kind string) *jsonschema.Schema {
 	str := func(about string) *jsonschema.Schema {
 		return &jsonschema.Schema{Type: "string", MinLength: jsonschema.Ptr(1), Description: about}
 	}
 	return &jsonschema.Schema{
-		Type: "object",
+		Schema: Draft,
+		Type:   "object",
 		Properties: map[string]*jsonschema.Schema{
 			"account_id":     str("the account to act on"),
 			"thread_id":      str("the thread the surface goes on, as get_inbox names it"),
@@ -69,15 +71,20 @@ func PutSchema(kind string) *jsonschema.Schema {
 	}
 }
 
+// Draft is the JSON Schema dialect ask_owner's and notify_owner's input schemas are written in.
+const Draft = "https://json-schema.org/draft/2020-12/schema"
+
 // askAbout and noticeAbout are the two tools' descriptions, their numbers read from the catalog.
 var (
 	askAbout = fmt.Sprintf("Ask your owner something only they can decide, as a card on the thread and on their Needs you page: "+
 		"an A2UI %s surface in the node's catalog (A2UI's basic components plus the node's KeyValue; the schema of surface) "+
-		"whose root Column starts with a one-line TLDR Text (at most %d bytes), then what they need to know (Text, KeyValue), "+
-		"then at most one ChoicePicker of up to %d ready replies and a TextField last for writing their own, or a "+
-		"DateTimeInput; each input binds its value to a {path} in the data model, and a Button's action.event.context "+
-		"reads those paths: pressing it is the answer. A ready reply or what they write is sent to the contact as the "+
-		"owner's message (labelled human) and answers the ask; a date, or a button that reads nothing, answers without "+
+		"listing the root Column first and its first child, a one-line TLDR Text (at most %d bytes), second; then what "+
+		"they need to know (Text, KeyValue); then up to %d ready replies, each a Button whose action.event is "+
+		"{\"name\":\"reply\",\"context\":{\"reply\":\"<the text>\"}} so one tap sends it; and a TextField last "+
+		"for writing their own, with the Button that sends it. An input binds its value to a {path} in the data model "+
+		"and a Button's action.event.context reads those paths: pressing it is the answer (a ChoicePicker or a "+
+		"DateTimeInput read this way too). A ready reply or what they write is sent to the contact as the owner's "+
+		"message (labelled human) and answers the ask; a date, or a button that reads nothing, answers without "+
 		"sending. Any other message the owner sends that contact answers it too. One open ask per thread (conflict while "+
 		"one is open); asking again about the same message answers the same ask. It expires after %s. Read the answer "+
 		"with get_ask: answer_text is one line (`Ana chose: \"Confirm Wed 15:00\"`); wait_for_updates lists it as it "+

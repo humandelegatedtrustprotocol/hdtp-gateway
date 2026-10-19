@@ -14,21 +14,24 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/asks"
 )
 
-// askSurface is the story's ask: a TLDR, two ready replies, a field to write one's own and the Send
-// button that reads both.
+// askSurface is the story's ask: a TLDR, two ready replies (each a Button whose one tap sends its
+// text), a field to write one's own and the Send button that reads it.
 const askSurface = `[{"version":"v0.9.1","createSurface":{"surfaceId":"s1","catalogId":"` + asks.CatalogID + `"}},` +
 	`{"version":"v0.9.1","updateComponents":{"surfaceId":"s1","components":[` +
-	`{"id":"root","component":"Column","children":["tldr","pick","own","send"]},` +
+	`{"id":"root","component":"Column","children":["tldr","r1","r2","own","send"]},` +
 	`{"id":"tldr","component":"Text","text":"Bob proposes Wed 15:00 for 30 min."},` +
-	`{"id":"pick","component":"ChoicePicker","options":[{"label":"Confirm Wed 15:00","value":"confirm"},{"label":"Ask for Thu instead","value":"thu"}],"value":{"path":"/reply"}},` +
+	`{"id":"r1-label","component":"Text","text":"Confirm Wed 15:00"},` +
+	`{"id":"r1","component":"Button","child":"r1-label","action":{"event":{"name":"reply","context":{"reply":"Confirm Wed 15:00"}}}},` +
+	`{"id":"r2-label","component":"Text","text":"Ask for Thu instead"},` +
+	`{"id":"r2","component":"Button","child":"r2-label","action":{"event":{"name":"reply","context":{"reply":"Ask for Thu instead"}}}},` +
 	`{"id":"own","component":"TextField","label":"Write my own","value":{"path":"/own"}},` +
 	`{"id":"send-label","component":"Text","text":"Send"},` +
-	`{"id":"send","component":"Button","child":"send-label","action":{"event":{"name":"answer","context":{"reply":{"path":"/reply"},"own":{"path":"/own"}}}}}]}}]`
+	`{"id":"send","component":"Button","child":"send-label","action":{"event":{"name":"answer","context":{"own":{"path":"/own"}}}}}]}}]`
 
-// pressed is the A2UI action the card posts when the owner presses Send, its context as resolved
-// from the card's data model.
-func pressed(button, context string) string {
-	return `{"version":"v0.9.1","action":{"name":"answer","surfaceId":"s1","sourceComponentId":"` + button +
+// pressed is the A2UI action the card posts when the owner presses a Button, its context as
+// resolved from the card's data model (a ready reply's is its literal text).
+func pressed(event, button, context string) string {
+	return `{"version":"v0.9.1","action":{"name":"` + event + `","surfaceId":"s1","sourceComponentId":"` + button +
 		`","timestamp":"2026-10-19T10:00:00Z","context":` + context + `}}`
 }
 
@@ -114,7 +117,7 @@ func TestTheAsksRoutesRefuseWhatTheyMustAndAnswerTheOwnersOwn(t *testing.T) {
 		}
 		return v
 	}
-	choose := as(mine.ID, "message", pressed("send", `{"reply":["confirm"],"own":""}`))
+	choose := as(mine.ID, "message", pressed("reply", "r1", `{"reply":"Confirm Wed 15:00"}`))
 
 	if a := send(http.MethodGet, "/api/asks", as(mine.ID), false, false); a.code != http.StatusUnauthorized {
 		t.Fatalf("a read with no session: %d", a.code)
@@ -133,13 +136,13 @@ func TestTheAsksRoutesRefuseWhatTheyMustAndAnswerTheOwnersOwn(t *testing.T) {
 	}{
 		"an ask that does not exist":              {"/asks/ask_none/answer", choose, http.StatusNotFound, "not_found"},
 		"another account's ask, under mine":       {"/asks/" + theirAsk.ID + "/answer", choose, http.StatusNotFound, "not_found"},
-		"another account's ask, named":            {"/asks/" + theirAsk.ID + "/answer", as(theirs.ID, "message", pressed("send", `{"reply":["confirm"],"own":""}`)), http.StatusNotFound, ""},
+		"another account's ask, named":            {"/asks/" + theirAsk.ID + "/answer", as(theirs.ID, "message", pressed("reply", "r1", `{"reply":"Confirm Wed 15:00"}`)), http.StatusNotFound, ""},
 		"no action":                               {"/asks/" + ask.ID + "/answer", as(mine.ID), http.StatusBadRequest, "bad_request"},
 		"the old form":                            {"/asks/" + ask.ID + "/answer", as(mine.ID, "component", "pick", "value", "Confirm Wed 15:00"), http.StatusBadRequest, "bad_request"},
-		"a reply the ask does not offer":          {"/asks/" + ask.ID + "/answer", as(mine.ID, "message", pressed("send", `{"reply":["fri"],"own":""}`)), http.StatusBadRequest, "bad_request"},
-		"a component the ask does not hold":       {"/asks/" + ask.ID + "/answer", as(mine.ID, "message", pressed("nope", `{}`)), http.StatusBadRequest, "bad_request"},
-		"nothing written in the write-my-own box": {"/asks/" + ask.ID + "/answer", as(mine.ID, "message", pressed("send", `{"reply":[],"own":" "}`)), http.StatusBadRequest, "bad_request"},
-		"an action over its bound": {"/asks/" + ask.ID + "/answer", as(mine.ID, "message", pressed("send", `{"reply":[],"own":"`+strings.Repeat("x", asks.MaxSurfaceBytes)+`"}`)),
+		"a reply the ask does not offer":          {"/asks/" + ask.ID + "/answer", as(mine.ID, "message", pressed("reply", "r1", `{"reply":"Fri instead"}`)), http.StatusBadRequest, "bad_request"},
+		"a component the ask does not hold":       {"/asks/" + ask.ID + "/answer", as(mine.ID, "message", pressed("answer", "nope", `{}`)), http.StatusBadRequest, "bad_request"},
+		"nothing written in the write-my-own box": {"/asks/" + ask.ID + "/answer", as(mine.ID, "message", pressed("answer", "send", `{"own":" "}`)), http.StatusBadRequest, "bad_request"},
+		"an action over its bound": {"/asks/" + ask.ID + "/answer", as(mine.ID, "message", pressed("answer", "send", `{"own":"`+strings.Repeat("x", asks.MaxSurfaceBytes)+`"}`)),
 			http.StatusRequestEntityTooLarge, "too_large"},
 	} {
 		a := send(http.MethodPost, c.path, c.form, true, true)

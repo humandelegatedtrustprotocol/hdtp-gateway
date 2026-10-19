@@ -36,27 +36,45 @@ const (
 	send      = `{"id":"send","component":"Button","child":"send-label","variant":"primary","action":{"event":{"name":"answer","context":{"reply":{"path":"/reply"},"own":{"path":"/own"}}}}}`
 	sendReply = `{"id":"send","component":"Button","child":"send-label","action":{"event":{"name":"answer","context":{"reply":{"path":"/reply"}}}}}`
 	sendWhen  = `{"id":"send","component":"Button","child":"send-label","action":{"event":{"name":"answer","context":{"when":{"path":"/when"}}}}}`
+	sendOwn   = `{"id":"send","component":"Button","child":"send-label","variant":"primary","action":{"event":{"name":"answer","context":{"own":{"path":"/own"}}}}}`
+	// The ready replies: a Button each, its reply the literal one tap sends.
+	confirmLabel = `{"id":"r1-label","component":"Text","text":"Confirm Wed 15:00"}`
+	confirm      = `{"id":"r1","component":"Button","child":"r1-label","action":{"event":{"name":"reply","context":{"reply":"Confirm Wed 15:00"}}}}`
+	thuLabel     = `{"id":"r2-label","component":"Text","text":"Ask for Thu instead"}`
+	thu          = `{"id":"r2","component":"Button","child":"r2-label","action":{"event":{"name":"reply","context":{"reply":"Ask for Thu instead"}}}}`
 )
+
+// replyButton is a ready reply's Button and its label, id n, sending text.
+func replyButton(n, text string) string {
+	return `{"id":"` + n + `-label","component":"Text","text":"` + text + `"},` +
+		`{"id":"` + n + `","component":"Button","child":"` + n + `-label","action":{"event":{"name":"reply","context":{"reply":"` + text + `"}}}}`
+}
 
 func root(children ...string) string {
 	return `{"id":"root","component":"Column","children":["` + strings.Join(children, `","`) + `"]}`
 }
 
-// story is the use-case series' ask: the TLDR, the terms, the ready replies, write my own, Send.
-var story = surfaceOf(root("tldr", "terms", "pick", "own", "send"), tldr, terms, choice, own, sendLabel, send)
+// story is the use-case series' ask: the TLDR, the terms, two ready replies of one tap each, and
+// write my own with its Send.
+var story = surfaceOf(root("tldr", "terms", "r1", "r2", "own", "send"), tldr, terms, confirmLabel, confirm, thuLabel, thu, own, sendLabel, sendOwn)
+
+// pickAsk is an ask whose options the owner picks one of, then sends with what they wrote.
+var pickAsk = surfaceOf(root("tldr", "terms", "pick", "own", "send"), tldr, terms, choice, own, sendLabel, send)
 
 // The valid corpus: each is a surface Parse accepts.
 var validAsks = map[string]string{
 	"the story's ask":          story,
-	"with its data model":      withModel(story, `{"reply":["confirm"],"own":""}`),
+	"the story with its model": withModel(story, `{"own":""}`),
+	"three ready replies":      surfaceOf(root("tldr", "a", "b", "c"), tldr, replyButton("a", "Yes"), replyButton("b", "No"), replyButton("c", "Later")),
+	"a picker and its Send":    pickAsk,
+	"with its data model":      withModel(pickAsk, `{"reply":["confirm"],"own":""}`),
 	"a model nested in bounds": withModel(surfaceOf(root("tldr", "pick", "send"), tldr, strings.Replace(choice, `"/reply"`, `"/a/b/reply"`, 1), sendLabel, strings.Replace(sendReply, `"/reply"`, `"/a/b/reply"`, 1)), `{"a":{"b":{"reply":[]}}}`),
-	"root anywhere":            surfaceOf(tldr, choice, sendLabel, sendReply, root("tldr", "pick", "send")),
 	"a date and a button":      surfaceOf(root("tldr", "when", "ok"), tldr, dateTime, okLabel, button),
 	"a date it sends":          surfaceOf(root("tldr", "when", "send"), tldr, dateTime, sendLabel, sendWhen),
 	"a TextField alone":        surfaceOf(root("tldr", "own", "send"), tldr, own, sendLabel, `{"id":"send","component":"Button","child":"send-label","action":{"event":{"name":"answer","context":{"own":{"path":"/own"}}}}}`),
 	"a date only":              surfaceOf(root("tldr", "d", "ok"), tldr, `{"id":"d","component":"DateTimeInput","enableDate":true,"max":"2026-12-31","value":{"path":"/d"}}`, okLabel, button),
 	"multibyte, in bounds":     surfaceOf(root("t", "ok"), `{"id":"t","component":"Text","text":"`+strings.Repeat("é", 140)+`"}`, okLabel, button),
-	"three ready replies":      surfaceOf(root("tldr", "c", "send"), tldr, `{"id":"c","component":"ChoicePicker","options":[{"label":"a","value":"a"},{"label":"b","value":"b"},{"label":"c","value":"c"}],"value":{"path":"/reply"}}`, sendLabel, sendReply),
+	"three options":            surfaceOf(root("tldr", "c", "send"), tldr, `{"id":"c","component":"ChoicePicker","options":[{"label":"a","value":"a"},{"label":"b","value":"b"},{"label":"c","value":"c"}],"value":{"path":"/reply"}}`, sendLabel, sendReply),
 	"a heading TLDR":           surfaceOf(root("t", "ok"), `{"id":"t","component":"Text","text":"Rent: £1,450","variant":"h3"}`, okLabel, button),
 	"a button with no context": surfaceOf(root("tldr", "ok"), tldr, okLabel, `{"id":"ok","component":"Button","child":"ok-label","action":{"event":{"name":"seen"}}}`),
 }
@@ -76,56 +94,67 @@ type invalidCase struct {
 }
 
 var invalidSurfaces = map[string]invalidCase{
-	"an unknown component":         {surfaceOf(root("tldr", "x", "ok"), tldr, `{"id":"x","component":"Image","url":"https://x.example/a.png"}`, okLabel, button), KindAsk, true, false},
-	"too many ready replies":       {surfaceOf(root("tldr", "c", "send"), tldr, `{"id":"c","component":"ChoicePicker","options":[{"label":"a","value":"a"},{"label":"b","value":"b"},{"label":"c","value":"c"},{"label":"d","value":"d"}],"value":{"path":"/reply"}}`, sendLabel, sendReply), KindAsk, true, false},
-	"no ready reply":               {surfaceOf(root("tldr", "c", "send"), tldr, `{"id":"c","component":"ChoicePicker","options":[],"value":{"path":"/reply"}}`, sendLabel, sendReply), KindAsk, true, false},
-	"an option with no value":      {surfaceOf(root("tldr", "c", "send"), tldr, `{"id":"c","component":"ChoicePicker","options":[{"label":"a"}],"value":{"path":"/reply"}}`, sendLabel, sendReply), KindAsk, true, false},
-	"two options of one value":     {surfaceOf(root("tldr", "c", "send"), tldr, `{"id":"c","component":"ChoicePicker","options":[{"label":"a","value":"x"},{"label":"b","value":"x"}],"value":{"path":"/reply"}}`, sendLabel, sendReply), KindAsk, false, false},
-	"a picker of many":             {surfaceOf(root("tldr", "pick", "send"), tldr, strings.Replace(choice, "mutuallyExclusive", "multipleSelection", 1), sendLabel, sendReply), KindAsk, true, false},
-	"a picker bound to nothing":    {surfaceOf(root("tldr", "pick", "ok"), tldr, strings.Replace(choice, `,"value":{"path":"/reply"}`, "", 1), okLabel, button), KindAsk, true, false},
-	"a literal picker value":       {surfaceOf(root("tldr", "pick", "ok"), tldr, strings.Replace(choice, `{"path":"/reply"}`, `["confirm"]`, 1), okLabel, button), KindAsk, true, false},
-	"a TextField with no label":    {surfaceOf(root("tldr", "own", "ok"), tldr, `{"id":"own","component":"TextField","value":{"path":"/own"}}`, okLabel, button), KindAsk, true, false},
-	"a relative path":              {surfaceOf(root("tldr", "own", "ok"), tldr, strings.Replace(own, `"/own"`, `"own"`, 1), okLabel, button), KindAsk, true, false},
-	"a binding with a function":    {surfaceOf(root("tldr", "own", "ok"), tldr, strings.Replace(own, `{"path":"/own"}`, `{"path":"/own","call":"x"}`, 1), okLabel, button), KindAsk, true, false},
-	"a function call action":       {surfaceOf(root("tldr", "ok"), tldr, okLabel, `{"id":"ok","component":"Button","child":"ok-label","action":{"functionCall":{"call":"openUrl","args":{"url":"https://x.example"}}}}`), KindAsk, true, false},
-	"a context of an object":       {surfaceOf(root("tldr", "ok"), tldr, okLabel, `{"id":"ok","component":"Button","child":"ok-label","action":{"event":{"name":"go","context":{"x":{"a":1}}}}}`), KindAsk, true, false},
-	"a path no input binds":        {surfaceOf(root("tldr", "pick", "send"), tldr, choice, sendLabel, strings.Replace(sendReply, `"/reply"`, `"/elsewhere"`, 1)), KindAsk, false, false},
-	"two inputs on one path":       {surfaceOf(root("tldr", "pick", "own", "send"), tldr, choice, strings.Replace(own, `"/own"`, `"/reply"`, 1), sendLabel, sendReply), KindAsk, false, false},
-	"an input inside another's":    {surfaceOf(root("tldr", "pick", "own", "send"), tldr, choice, strings.Replace(own, `"/own"`, `"/reply/own"`, 1), sendLabel, sendReply), KindAsk, false, false},
-	"an unknown prop":              {surfaceOf(root("tldr", "ok"), `{"id":"tldr","component":"Text","text":"x","color":"red"}`, okLabel, button), KindAsk, true, false},
-	"a check on an input":          {surfaceOf(root("tldr", "own", "ok"), tldr, strings.Replace(own, `"label"`, `"checks":[],"label"`, 1), okLabel, button), KindAsk, true, false},
-	"a wrong version":              {strings.Replace(story, `"v0.9.1"`, `"v0.8"`, 1), KindAsk, true, false},
-	"another catalog":              {strings.Replace(story, CatalogID, "https://a2ui.org/specification/v0_9/basic_catalog.json", 1), KindAsk, true, false},
-	"one message":                  {`[{"version":"v0.9.1","createSurface":{"surfaceId":"s1","catalogId":"` + CatalogID + `"}}]`, KindAsk, true, false},
-	"too many items":               {surfaceOf(root("tldr", "kv", "ok"), tldr, `{"id":"kv","component":"KeyValue","items":[`+strings.TrimSuffix(strings.Repeat(`{"label":"k","value":"v"},`, MaxItems+1), ",")+`]}`, okLabel, button), KindAsk, true, false},
-	"the old rows":                 {surfaceOf(root("tldr", "kv", "ok"), tldr, `{"id":"kv","component":"KeyValue","rows":[{"label":"k","value":"v"}]}`, okLabel, button), KindAsk, true, false},
-	"a ChoicePicker in a notice":   {surfaceOf(root("tldr", "pick"), tldr, choice), KindNotice, true, false},
-	"a Button in a notice":         {surfaceOf(root("tldr", "ok"), tldr, okLabel, button), KindNotice, true, false},
-	"a data model in a notice":     {withModel(surfaceOf(root("tldr"), tldr), `{}`), KindNotice, true, false},
-	"a data model at a path":       {strings.Replace(withModel(story, `{"reply":[]}`), `"updateDataModel":{"surfaceId":"s1"`, `"updateDataModel":{"surfaceId":"s1","path":"/reply"`, 1), KindAsk, true, false},
-	"a data model not an object":   {withModel(story, `["confirm"]`), KindAsk, true, false},
-	"a data model too deep":        {withModel(story, `{"a":{"b":{"c":{"d":{"e":1}}}}}`), KindAsk, false, false},
-	"a choice not an option":       {withModel(story, `{"reply":["maybe"]}`), KindAsk, false, false},
-	"two choices of one":           {withModel(story, `{"reply":["confirm","thu"]}`), KindAsk, false, false},
-	"a text of a number":           {withModel(story, `{"own":3}`), KindAsk, false, false},
-	"a data model of another":      {strings.Replace(withModel(story, `{}`), `"updateDataModel":{"surfaceId":"s1"`, `"updateDataModel":{"surfaceId":"s2"`, 1), KindAsk, false, false},
-	"an oversize payload":          {surfaceOf(root("tldr", "ok"), tldr, okLabel, button, `{"id":"pad","component":"Text","text":"`+strings.Repeat("x", MaxSurfaceBytes)+`"}`), KindAsk, true, true},
-	"a missing TLDR":               {surfaceOf(root("pick", "tldr", "send"), tldr, choice, sendLabel, sendReply), KindAsk, false, false},
-	"a TLDR over its bound":        {surfaceOf(root("t", "ok"), `{"id":"t","component":"Text","text":"`+strings.Repeat("a", MaxTLDRBytes+1)+`"}`, okLabel, button), KindAsk, false, false},
-	"a TLDR over it in bytes":      {surfaceOf(root("t", "ok"), `{"id":"t","component":"Text","text":"`+strings.Repeat("é", MaxTLDRBytes/2+1)+`"}`, okLabel, button), KindAsk, false, false},
-	"no root":                      {surfaceOf(tldr, okLabel, button), KindAsk, false, false},
-	"a Column not root":            {surfaceOf(root("tldr", "col", "ok"), tldr, `{"id":"col","component":"Column","children":["terms"]}`, terms, okLabel, button), KindAsk, false, false},
-	"a TextField not last":         {surfaceOf(root("tldr", "own", "pick", "send"), tldr, own, choice, sendLabel, send), KindAsk, false, false},
-	"two ChoicePickers":            {surfaceOf(root("tldr", "pick", "c2", "send"), tldr, choice, `{"id":"c2","component":"ChoicePicker","options":[{"label":"x","value":"x"}],"value":{"path":"/c2"}}`, sendLabel, sendReply), KindAsk, false, false},
-	"an ask nothing answers":       {surfaceOf(root("tldr", "terms", "pick"), tldr, terms, choice), KindAsk, false, false},
-	"a component placed twice":     {surfaceOf(root("tldr", "ok", "ok"), tldr, okLabel, button), KindAsk, true, false},
-	"a component placed nowhere":   {surfaceOf(root("tldr", "ok"), tldr, okLabel, button, terms), KindAsk, false, false},
-	"a child that is not there":    {surfaceOf(root("tldr", "nope", "ok"), tldr, okLabel, button), KindAsk, false, false},
-	"a Button labelled by a field": {surfaceOf(root("tldr", "ok"), tldr, own, strings.Replace(button, `"child":"ok-label"`, `"child":"own"`, 1)), KindAsk, false, false},
-	"two surfaceIds":               {strings.Replace(story, `"surfaceId":"s1","components"`, `"surfaceId":"s2","components"`, 1), KindAsk, false, false},
-	"a duplicate id":               {surfaceOf(root("tldr", "ok"), tldr, okLabel, button, `{"id":"ok","component":"Text","text":"x"}`), KindAsk, false, false},
-	"a date nothing enabled":       {surfaceOf(root("tldr", "d", "ok"), tldr, `{"id":"d","component":"DateTimeInput","label":"x","value":{"path":"/d"}}`, okLabel, button), KindAsk, false, false},
-	"a bound not ISO":              {surfaceOf(root("tldr", "d", "ok"), tldr, `{"id":"d","component":"DateTimeInput","enableDate":true,"min":"next week","value":{"path":"/d"}}`, okLabel, button), KindAsk, false, false},
+	"an unknown component":          {surfaceOf(root("tldr", "x", "ok"), tldr, `{"id":"x","component":"Image","url":"https://x.example/a.png"}`, okLabel, button), KindAsk, true, false},
+	"too many ready replies":        {surfaceOf(root("tldr", "c", "send"), tldr, `{"id":"c","component":"ChoicePicker","options":[{"label":"a","value":"a"},{"label":"b","value":"b"},{"label":"c","value":"c"},{"label":"d","value":"d"}],"value":{"path":"/reply"}}`, sendLabel, sendReply), KindAsk, true, false},
+	"no ready reply":                {surfaceOf(root("tldr", "c", "send"), tldr, `{"id":"c","component":"ChoicePicker","options":[],"value":{"path":"/reply"}}`, sendLabel, sendReply), KindAsk, true, false},
+	"an option with no value":       {surfaceOf(root("tldr", "c", "send"), tldr, `{"id":"c","component":"ChoicePicker","options":[{"label":"a"}],"value":{"path":"/reply"}}`, sendLabel, sendReply), KindAsk, true, false},
+	"two options of one value":      {surfaceOf(root("tldr", "c", "send"), tldr, `{"id":"c","component":"ChoicePicker","options":[{"label":"a","value":"x"},{"label":"b","value":"x"}],"value":{"path":"/reply"}}`, sendLabel, sendReply), KindAsk, false, false},
+	"a picker of many":              {surfaceOf(root("tldr", "pick", "send"), tldr, strings.Replace(choice, "mutuallyExclusive", "multipleSelection", 1), sendLabel, sendReply), KindAsk, true, false},
+	"a picker bound to nothing":     {surfaceOf(root("tldr", "pick", "ok"), tldr, strings.Replace(choice, `,"value":{"path":"/reply"}`, "", 1), okLabel, button), KindAsk, true, false},
+	"a literal picker value":        {surfaceOf(root("tldr", "pick", "ok"), tldr, strings.Replace(choice, `{"path":"/reply"}`, `["confirm"]`, 1), okLabel, button), KindAsk, true, false},
+	"a TextField with no label":     {surfaceOf(root("tldr", "own", "ok"), tldr, `{"id":"own","component":"TextField","value":{"path":"/own"}}`, okLabel, button), KindAsk, true, false},
+	"a relative path":               {surfaceOf(root("tldr", "own", "ok"), tldr, strings.Replace(own, `"/own"`, `"own"`, 1), okLabel, button), KindAsk, true, false},
+	"a binding with a function":     {surfaceOf(root("tldr", "own", "ok"), tldr, strings.Replace(own, `{"path":"/own"}`, `{"path":"/own","call":"x"}`, 1), okLabel, button), KindAsk, true, false},
+	"a function call action":        {surfaceOf(root("tldr", "ok"), tldr, okLabel, `{"id":"ok","component":"Button","child":"ok-label","action":{"functionCall":{"call":"openUrl","args":{"url":"https://x.example"}}}}`), KindAsk, true, false},
+	"a context of an object":        {surfaceOf(root("tldr", "ok"), tldr, okLabel, `{"id":"ok","component":"Button","child":"ok-label","action":{"event":{"name":"go","context":{"x":{"a":1}}}}}`), KindAsk, true, false},
+	"a path no input binds":         {surfaceOf(root("tldr", "pick", "send"), tldr, choice, sendLabel, strings.Replace(sendReply, `"/reply"`, `"/elsewhere"`, 1)), KindAsk, false, false},
+	"two inputs on one path":        {surfaceOf(root("tldr", "pick", "own", "send"), tldr, choice, strings.Replace(own, `"/own"`, `"/reply"`, 1), sendLabel, sendReply), KindAsk, false, false},
+	"an input inside another's":     {surfaceOf(root("tldr", "pick", "own", "send"), tldr, choice, strings.Replace(own, `"/own"`, `"/reply/own"`, 1), sendLabel, sendReply), KindAsk, false, false},
+	"an unknown prop":               {surfaceOf(root("tldr", "ok"), `{"id":"tldr","component":"Text","text":"x","color":"red"}`, okLabel, button), KindAsk, true, false},
+	"a check on an input":           {surfaceOf(root("tldr", "own", "ok"), tldr, strings.Replace(own, `"label"`, `"checks":[],"label"`, 1), okLabel, button), KindAsk, true, false},
+	"a wrong version":               {strings.Replace(story, `"v0.9.1"`, `"v0.8"`, 1), KindAsk, true, false},
+	"another catalog":               {strings.Replace(story, CatalogID, "https://a2ui.org/specification/v0_9/basic_catalog.json", 1), KindAsk, true, false},
+	"one message":                   {`[{"version":"v0.9.1","createSurface":{"surfaceId":"s1","catalogId":"` + CatalogID + `"}}]`, KindAsk, true, false},
+	"too many items":                {surfaceOf(root("tldr", "kv", "ok"), tldr, `{"id":"kv","component":"KeyValue","items":[`+strings.TrimSuffix(strings.Repeat(`{"label":"k","value":"v"},`, MaxItems+1), ",")+`]}`, okLabel, button), KindAsk, true, false},
+	"the old rows":                  {surfaceOf(root("tldr", "kv", "ok"), tldr, `{"id":"kv","component":"KeyValue","rows":[{"label":"k","value":"v"}]}`, okLabel, button), KindAsk, true, false},
+	"a ChoicePicker in a notice":    {surfaceOf(root("tldr", "pick"), tldr, choice), KindNotice, true, false},
+	"a Button in a notice":          {surfaceOf(root("tldr", "ok"), tldr, okLabel, button), KindNotice, true, false},
+	"a data model in a notice":      {withModel(surfaceOf(root("tldr"), tldr), `{}`), KindNotice, true, false},
+	"a data model at a path":        {strings.Replace(withModel(pickAsk, `{"reply":[]}`), `"updateDataModel":{"surfaceId":"s1"`, `"updateDataModel":{"surfaceId":"s1","path":"/reply"`, 1), KindAsk, true, false},
+	"a data model not an object":    {withModel(pickAsk, `["confirm"]`), KindAsk, true, false},
+	"a data model too deep":         {withModel(pickAsk, `{"a":{"b":{"c":{"d":{"e":1}}}}}`), KindAsk, false, false},
+	"a choice not an option":        {withModel(pickAsk, `{"reply":["maybe"]}`), KindAsk, false, false},
+	"two choices of one":            {withModel(pickAsk, `{"reply":["confirm","thu"]}`), KindAsk, false, false},
+	"a text of a number":            {withModel(pickAsk, `{"own":3}`), KindAsk, false, false},
+	"a data model of another":       {strings.Replace(withModel(pickAsk, `{}`), `"updateDataModel":{"surfaceId":"s1"`, `"updateDataModel":{"surfaceId":"s2"`, 1), KindAsk, false, false},
+	"an oversize payload":           {surfaceOf(root("tldr", "ok"), tldr, okLabel, button, `{"id":"pad","component":"Text","text":"`+strings.Repeat("x", MaxSurfaceBytes)+`"}`), KindAsk, true, true},
+	"a missing TLDR":                {surfaceOf(root("pick", "tldr", "send"), tldr, choice, sendLabel, sendReply), KindAsk, false, false},
+	"a TLDR over its bound":         {surfaceOf(root("t", "ok"), `{"id":"t","component":"Text","text":"`+strings.Repeat("a", MaxTLDRBytes+1)+`"}`, okLabel, button), KindAsk, false, false},
+	"a TLDR over it in bytes":       {surfaceOf(root("t", "ok"), `{"id":"t","component":"Text","text":"`+strings.Repeat("é", MaxTLDRBytes/2+1)+`"}`, okLabel, button), KindAsk, false, false},
+	"no root":                       {surfaceOf(tldr, okLabel, button), KindAsk, true, false},
+	"a Column not root":             {surfaceOf(root("tldr", "col", "ok"), tldr, `{"id":"col","component":"Column","children":["terms"]}`, terms, okLabel, button), KindAsk, true, false},
+	"root not first":                {surfaceOf(tldr, root("tldr", "ok"), okLabel, button), KindAsk, true, false},
+	"root not first, a Text second": {surfaceOf(okLabel, tldr, button, root("tldr", "ok")), KindAsk, true, false},
+	"something else second":         {surfaceOf(root("tldr", "terms", "ok"), terms, tldr, okLabel, button), KindAsk, true, false},
+	"a Text second, not the TLDR":   {surfaceOf(root("tldr", "ok"), okLabel, tldr, button), KindAsk, false, false},
+	"four ready replies":            {surfaceOf(root("tldr", "a", "b", "c", "d"), tldr, replyButton("a", "1"), replyButton("b", "2"), replyButton("c", "3"), replyButton("d", "4")), KindAsk, true, false},
+	"a reply with no text":          {surfaceOf(root("tldr", "r1"), tldr, confirmLabel, strings.Replace(confirm, `"reply":"Confirm Wed 15:00"`, `"reply":" "`, 1)), KindAsk, false, false},
+	"a reply with no context":       {surfaceOf(root("tldr", "r1"), tldr, confirmLabel, strings.Replace(confirm, `,"context":{"reply":"Confirm Wed 15:00"}`, "", 1)), KindAsk, true, false},
+	"a reply bound to a path":       {surfaceOf(root("tldr", "own", "r1"), tldr, own, confirmLabel, strings.Replace(confirm, `"Confirm Wed 15:00"}`, `{"path":"/own"}}`, 1)), KindAsk, true, false},
+	"a reply with another key":      {surfaceOf(root("tldr", "r1"), tldr, confirmLabel, strings.Replace(confirm, `"reply":"Confirm Wed 15:00"`, `"reply":"Confirm Wed 15:00","n":1`, 1)), KindAsk, true, false},
+	"a reply over its bound":        {surfaceOf(root("tldr", "r1"), tldr, confirmLabel, strings.Replace(confirm, `"Confirm Wed 15:00"}`, `"`+strings.Repeat("x", 281)+`"}`, 1)), KindAsk, true, false},
+	"a TextField not last":          {surfaceOf(root("tldr", "own", "pick", "send"), tldr, own, choice, sendLabel, send), KindAsk, false, false},
+	"two ChoicePickers":             {surfaceOf(root("tldr", "pick", "c2", "send"), tldr, choice, `{"id":"c2","component":"ChoicePicker","options":[{"label":"x","value":"x"}],"value":{"path":"/c2"}}`, sendLabel, sendReply), KindAsk, true, false},
+	"two TextFields":                {surfaceOf(root("tldr", "own", "o2", "send"), tldr, own, strings.Replace(strings.Replace(own, `"own"`, `"o2"`, 1), `"/own"`, `"/o2"`, 1), sendLabel, sendOwn), KindAsk, true, false},
+	"an ask nothing answers":        {surfaceOf(root("tldr", "terms", "pick"), tldr, terms, choice), KindAsk, true, false},
+	"a component placed twice":      {surfaceOf(root("tldr", "ok", "ok"), tldr, okLabel, button), KindAsk, true, false},
+	"a component placed nowhere":    {surfaceOf(root("tldr", "ok"), tldr, okLabel, button, terms), KindAsk, false, false},
+	"a child that is not there":     {surfaceOf(root("tldr", "nope", "ok"), tldr, okLabel, button), KindAsk, false, false},
+	"a Button labelled by a field":  {surfaceOf(root("tldr", "ok"), tldr, own, strings.Replace(button, `"child":"ok-label"`, `"child":"own"`, 1)), KindAsk, false, false},
+	"two surfaceIds":                {strings.Replace(story, `"surfaceId":"s1","components"`, `"surfaceId":"s2","components"`, 1), KindAsk, false, false},
+	"a duplicate id":                {surfaceOf(root("tldr", "ok"), tldr, okLabel, button, `{"id":"ok","component":"Text","text":"x"}`), KindAsk, false, false},
+	"a date nothing enabled":        {surfaceOf(root("tldr", "d", "ok"), tldr, `{"id":"d","component":"DateTimeInput","label":"x","value":{"path":"/d"}}`, okLabel, button), KindAsk, false, false},
+	"a bound not ISO":               {surfaceOf(root("tldr", "d", "ok"), tldr, `{"id":"d","component":"DateTimeInput","enableDate":true,"min":"next week","value":{"path":"/d"}}`, okLabel, button), KindAsk, false, false},
 }
 
 // schemaOf is the document an agent is handed for a surface of kind: SurfaceSchema with Defs at its
@@ -224,7 +253,7 @@ func TestANoticeSchemaOffersNothingThatAnswers(t *testing.T) {
 // What the node keeps is what Parse read, root first, its data model with it; reading it again gives
 // the same surface.
 func TestAStoredSurfaceReadsBackAsParsed(t *testing.T) {
-	sf, err := Parse([]byte(withModel(validAsks["root anywhere"], `{"reply":["thu"]}`)), KindAsk)
+	sf, err := Parse([]byte(withModel(validAsks["a picker and its Send"], `{"reply":["thu"],"own":""}`)), KindAsk)
 	if err != nil {
 		t.Fatal(err)
 	}

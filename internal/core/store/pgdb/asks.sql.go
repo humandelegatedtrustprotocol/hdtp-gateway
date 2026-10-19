@@ -288,7 +288,7 @@ func (q *Queries) InsertOwnerAsk(ctx context.Context, arg InsertOwnerAskParams) 
 }
 
 const listContactOwnerAsks = `-- name: ListContactOwnerAsks :many
-SELECT id, account_id, kind, thread_id, contact_fpr, for_msg_id, surface, status, answer_text, created_at, updated_at, expires_at FROM owner_asks WHERE account_id = $1 AND contact_fpr = $2 ORDER BY created_at, id LIMIT $3
+SELECT id, account_id, kind, thread_id, contact_fpr, for_msg_id, surface, status, answer_text, created_at, updated_at, expires_at FROM owner_asks WHERE account_id = $1 AND contact_fpr = $2 ORDER BY created_at DESC, id DESC LIMIT $3
 `
 
 type ListContactOwnerAsksParams struct {
@@ -297,7 +297,7 @@ type ListContactOwnerAsksParams struct {
 	Limit      int32
 }
 
-// The asks and notices of every thread with one contact, oldest first: what the conversation shows.
+// The asks and notices of every thread with one contact, newest first, so a limit keeps the newest: what the conversation shows.
 func (q *Queries) ListContactOwnerAsks(ctx context.Context, arg ListContactOwnerAsksParams) ([]OwnerAsk, error) {
 	rows, err := q.db.Query(ctx, listContactOwnerAsks, arg.AccountID, arg.ContactFpr, arg.Limit)
 	if err != nil {
@@ -461,7 +461,7 @@ func (q *Queries) ListOwnerAsks(ctx context.Context, arg ListOwnerAsksParams) ([
 }
 
 const listThreadOwnerAsks = `-- name: ListThreadOwnerAsks :many
-SELECT id, account_id, kind, thread_id, contact_fpr, for_msg_id, surface, status, answer_text, created_at, updated_at, expires_at FROM owner_asks WHERE account_id = $1 AND thread_id = $2 ORDER BY created_at, id LIMIT $3
+SELECT id, account_id, kind, thread_id, contact_fpr, for_msg_id, surface, status, answer_text, created_at, updated_at, expires_at FROM owner_asks WHERE account_id = $1 AND thread_id = $2 ORDER BY created_at DESC, id DESC LIMIT $3
 `
 
 type ListThreadOwnerAsksParams struct {
@@ -470,7 +470,7 @@ type ListThreadOwnerAsksParams struct {
 	Limit     int32
 }
 
-// The asks and notices of one thread, oldest first.
+// The asks and notices of one thread, newest first, so a limit keeps the newest.
 func (q *Queries) ListThreadOwnerAsks(ctx context.Context, arg ListThreadOwnerAsksParams) ([]OwnerAsk, error) {
 	rows, err := q.db.Query(ctx, listThreadOwnerAsks, arg.AccountID, arg.ThreadID, arg.Limit)
 	if err != nil {

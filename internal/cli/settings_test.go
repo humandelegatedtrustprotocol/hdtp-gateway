@@ -1055,6 +1055,10 @@ func TestOwnerMCPHasTheSpecTools(t *testing.T) {
 	if pinned, err := contacts.ValidateInbound(facts.Card); err != nil || facts.Endpoint != pinned.Endpoint || facts.Root != pinned.Key || facts.Root == "" || facts.Kid == "" {
 		t.Fatalf("export_card facts %+v (%v)", facts, err)
 	}
+	// The name is the card's FN, the account's display name the card was built from.
+	if facts.DisplayName == "" || facts.DisplayName != acct.DisplayName || facts.DisplayName != contacts.CardName(facts.Card) {
+		t.Fatalf("export_card display_name %q, want the card's FN, the account's name %q", facts.DisplayName, acct.DisplayName)
+	}
 
 	// audit_query returns rows and honours its filter
 	res, err = cs.CallTool(ctx, &mcp.CallToolParams{

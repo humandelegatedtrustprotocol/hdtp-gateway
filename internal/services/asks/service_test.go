@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -85,8 +86,8 @@ func act(name, button, context string) []byte {
 		`","timestamp":"2026-10-19T10:00:00Z","context":` + context + `}}`)
 }
 
-// chooseConfirm is the owner picking the first ready reply of the story's ask and pressing Send.
-var chooseConfirm = act("answer", "send", `{"reply":["confirm"],"own":""}`)
+// chooseConfirm is the owner tapping the first ready reply of the story's ask: one tap.
+var chooseConfirm = act("reply", "r1", `{"reply":"Confirm Wed 15:00"}`)
 
 func codeOf(err error) string {
 	code, _ := refusal.Of(err)
@@ -148,9 +149,10 @@ func TestAChosenReadyReplyIsSentAsTheOwnersMessageAndAnswersTheAsk(t *testing.T)
 	}
 }
 
-// The answer line is made in one place from the pressed Button and the values its context read:
-// what the owner typed first (sent), then the ready reply they chose (sent), then a date or time
-// (not sent); a Button that reads nothing is its label (not sent).
+// The answer line is made in one place from the pressed Button: a ready reply is its text (sent);
+// any other Button is the values its context read, what the owner typed first (sent), then the
+// option they picked (sent), then a date or time (not sent); a Button that reads nothing is its
+// label (not sent).
 func TestEveryKindOfAnswerBecomesOneLine(t *testing.T) {
 	cases := []struct {
 		name, surface string
@@ -158,10 +160,12 @@ func TestEveryKindOfAnswerBecomesOneLine(t *testing.T) {
 		line          string
 		sends         string
 	}{
-		{"chosen", validAsks["the story's ask"], chooseConfirm, `Ana chose: "Confirm Wed 15:00"`, "Confirm Wed 15:00"},
-		{"typed", validAsks["the story's ask"], act("answer", "send", `{"reply":[],"own":"  Thu 10:00 works better  "}`), `Ana wrote: "Thu 10:00 works better"`, "Thu 10:00 works better"},
-		{"typed over chosen", validAsks["the story's ask"], act("answer", "send", `{"reply":["thu"],"own":"Thu, but 11:00"}`), `Ana wrote: "Thu, but 11:00"`, "Thu, but 11:00"},
-		{"chosen, nothing typed", validAsks["the story's ask"], act("answer", "send", `{"reply":["thu"],"own":"   "}`), `Ana chose: "Ask for Thu instead"`, "Ask for Thu instead"},
+		{"a ready reply, one tap", validAsks["the story's ask"], chooseConfirm, `Ana chose: "Confirm Wed 15:00"`, "Confirm Wed 15:00"},
+		{"the other ready reply", validAsks["the story's ask"], act("reply", "r2", `{"reply":"Ask for Thu instead"}`), `Ana chose: "Ask for Thu instead"`, "Ask for Thu instead"},
+		{"typed", validAsks["the story's ask"], act("answer", "send", `{"own":"  Thu 10:00 works better  "}`), `Ana wrote: "Thu 10:00 works better"`, "Thu 10:00 works better"},
+		{"picked and sent", validAsks["a picker and its Send"], act("answer", "send", `{"reply":["confirm"],"own":""}`), `Ana chose: "Confirm Wed 15:00"`, "Confirm Wed 15:00"},
+		{"typed over picked", validAsks["a picker and its Send"], act("answer", "send", `{"reply":["thu"],"own":"Thu, but 11:00"}`), `Ana wrote: "Thu, but 11:00"`, "Thu, but 11:00"},
+		{"picked, nothing typed", validAsks["a picker and its Send"], act("answer", "send", `{"reply":["thu"],"own":"   "}`), `Ana chose: "Ask for Thu instead"`, "Ask for Thu instead"},
 		{"a date and time", validAsks["a date it sends"], act("answer", "send", `{"when":"2026-10-22T14:00:00+01:00"}`), "Ana picked: Thu 22 Oct 2026 14:00 +01:00", ""},
 		{"a button", validAsks["a date and a button"], act("approve", "ok", `{"slot":"wed-15","n":1,"firm":true}`), `Ana pressed: "Approve"`, ""},
 		{"a button with no context", validAsks["a button with no context"], act("seen", "ok", `{}`), `Ana pressed: "Approve"`, ""},
@@ -234,17 +238,17 @@ func TestEveryRefusalIsCoded(t *testing.T) {
 		code string
 	}{
 		"not JSON":                      {[]byte("pick=confirm"), "bad_request"},
-		"a reply not offered":           {act("answer", "send", `{"reply":["maybe"],"own":""}`), "bad_request"},
-		"two replies":                   {act("answer", "send", `{"reply":["confirm","thu"],"own":""}`), "bad_request"},
-		"a text of a number":            {act("answer", "send", `{"reply":[],"own":3}`), "bad_request"},
+		"a reply the Button has not":    {act("reply", "r1", `{"reply":"Confirm Thu 09:00"}`), "bad_request"},
+		"another reply's text":          {act("reply", "r1", `{"reply":"Ask for Thu instead"}`), "bad_request"},
+		"a text of a number":            {act("answer", "send", `{"own":3}`), "bad_request"},
 		"a component that is not there": {act("answer", "nope", `{}`), "bad_request"},
-		"a component that answers not":  {act("answer", "pick", `{}`), "bad_request"},
-		"another event":                 {act("other", "send", `{"reply":["confirm"],"own":""}`), "bad_request"},
-		"a key the Button lacks":        {act("answer", "send", `{"reply":["confirm"],"own":"","extra":1}`), "bad_request"},
-		"a key the Button has, missing": {act("answer", "send", `{"reply":["confirm"]}`), "bad_request"},
+		"a component that answers not":  {act("answer", "own", `{}`), "bad_request"},
+		"another event":                 {act("answer", "r1", `{"reply":"Confirm Wed 15:00"}`), "bad_request"},
+		"a key the Button lacks":        {act("reply", "r1", `{"reply":"Confirm Wed 15:00","extra":1}`), "bad_request"},
+		"a key the Button has, missing": {act("reply", "r1", `{}`), "bad_request"},
 		"another surface":               {[]byte(strings.Replace(string(chooseConfirm), `"s1"`, `"s2"`, 1)), "bad_request"},
 		"another version":               {[]byte(strings.Replace(string(chooseConfirm), `"v0.9.1"`, `"v0.9"`, 1)), "bad_request"},
-		"nothing chosen or typed":       {act("answer", "send", `{"reply":[],"own":"   "}`), "bad_request"},
+		"nothing typed":                 {act("answer", "send", `{"own":"   "}`), "bad_request"},
 	} {
 		if _, err := r.svc.Answer(ctx, r.account, v.ID, c.ans); codeOf(err) != c.code {
 			t.Errorf("%s: %v, want %s", name, err, c.code)
@@ -265,6 +269,28 @@ func TestEveryRefusalIsCoded(t *testing.T) {
 	// The control: the owner's own answer goes through.
 	if _, err := r.svc.Answer(ctx, r.account, v.ID, chooseConfirm); err != nil {
 		t.Fatalf("the owner's answer: %v", err)
+	}
+
+	// A picked option is read against the picker, on an ask of its own thread.
+	m, err := r.msg.Record(ctx, r.account, bob, messaging.DirIn, messaging.Input{Origin: messaging.OriginPeer, Sender: messaging.SenderAgent, MsgID: "m8", Text: "another"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := r.svc.Ask(ctx, r.account, m.ThreadID, "m8", []byte(validAsks["a picker and its Send"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, ans := range map[string][]byte{
+		"an option not offered":   act("answer", "send", `{"reply":["maybe"],"own":""}`),
+		"two options":             act("answer", "send", `{"reply":["confirm","thu"],"own":""}`),
+		"nothing picked or typed": act("answer", "send", `{"reply":[],"own":"   "}`),
+	} {
+		if _, err := r.svc.Answer(ctx, r.account, p.ID, ans); codeOf(err) != "bad_request" {
+			t.Errorf("%s: %v, want bad_request", name, err)
+		}
+	}
+	if _, err := r.svc.Answer(ctx, r.account, p.ID, act("answer", "send", `{"reply":["thu"],"own":""}`)); err != nil {
+		t.Fatalf("the picked option's control: %v", err)
 	}
 }
 
@@ -510,6 +536,7 @@ func TestAListNarrowsToOneThread(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	r.clock = r.clock.Add(time.Second)
 	n, err := r.svc.Notify(ctx, r.account, r.thread, "m1", []byte(validNotices["a line"]))
 	if err != nil {
 		t.Fatal(err)
@@ -525,7 +552,7 @@ func TestAListNarrowsToOneThread(t *testing.T) {
 		}
 		return strings.Join(out, ",")
 	}
-	if got, want := ids(Filter{Thread: r.thread}), first.ID+","+n.ID; got != want {
+	if got, want := ids(Filter{Thread: r.thread}), n.ID+","+first.ID; got != want {
 		t.Fatalf("the thread's: %s, want %s", got, want)
 	}
 	if got := ids(Filter{Thread: r.thread, Open: true}); got != first.ID {
@@ -539,5 +566,34 @@ func TestAListNarrowsToOneThread(t *testing.T) {
 	}
 	if got := ids(Filter{Thread: "0123456789abcdef0123456789abcdef"}); got != "" {
 		t.Fatalf("a thread that is not there: %s", got)
+	}
+}
+
+// A list holds at most ListLimit, newest first, so past the limit it is the oldest that are left
+// out: by thread, by contact and of the whole account alike.
+func TestAListPastItsLimitKeepsTheNewest(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	var made []string
+	for i := 0; i <= ListLimit; i++ {
+		r.clock = r.clock.Add(time.Second)
+		id := fmt.Sprintf("n%d", i)
+		if _, err := r.msg.Record(ctx, r.account, bob, messaging.DirIn, messaging.Input{Origin: messaging.OriginPeer, Sender: messaging.SenderAgent, ThreadID: r.thread, MsgID: id, Text: "update " + id}); err != nil {
+			t.Fatal(err)
+		}
+		v, err := r.svc.Notify(ctx, r.account, r.thread, id, []byte(validNotices["a line"]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		made = append(made, v.ID)
+	}
+	for name, f := range map[string]Filter{"thread": {Thread: r.thread}, "contact": {Contact: bob}, "account": {}} {
+		l, err := r.svc.List(ctx, r.account, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(l) != ListLimit || l[0].ID != made[ListLimit] || l[ListLimit-1].ID != made[1] {
+			t.Fatalf("by %s: %d, first %s, last %s; want %d, the newest %s first and %s last", name, len(l), l[0].ID, l[len(l)-1].ID, ListLimit, made[ListLimit], made[1])
+		}
 	}
 }

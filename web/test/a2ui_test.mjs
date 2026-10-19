@@ -61,3 +61,10 @@ test("the card answers with A2UI's client-to-server action, its context read fro
   assert.match(tsSrc, /action: \{ name: b\.action\?\.event\.name, surfaceId: surface\.id, sourceComponentId: b\.id, timestamp: [^,]+, context \}/);
   assert.match(tsSrc, /postForm\(`\/asks\/\$\{encodeURIComponent\(ask\.id\)\}\/answer`, \{ message \}\)/);
 });
+
+test("the card knows a ready reply by the event the node gives it, and posts it as it stands", () => {
+  const node = goSrc.match(/const ReplyEvent = "(\w+)"/);
+  assert.ok(node, "catalog.go declares no ReplyEvent");
+  assert.equal(tsSrc.match(/const REPLY = "(\w+)"/)?.[1], node[1]);
+  assert.match(tsSrc, /if \(c\.action\?\.event\.name === REPLY\)[\s\S]{0,400}onClick=\{\(\) => press\(c\)\}/);
+});

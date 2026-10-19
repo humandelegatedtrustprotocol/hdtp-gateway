@@ -584,7 +584,8 @@ type AskStore interface {
 	GetContactOpenOwnerAsk(ctx context.Context, accountID, contactFpr string) (OwnerAsk, error)
 	// ListOwnerAsks returns up to limit of the account's asks and notices, newest first;
 	// ListOpenOwnerAsks its open asks alone, newest first; ListThreadOwnerAsks those of one
-	// thread and ListContactOwnerAsks those of every thread with one contact, oldest first.
+	// thread and ListContactOwnerAsks those of every thread with one contact, newest first too, so a
+	// limit always keeps the newest.
 	ListOwnerAsks(ctx context.Context, accountID string, limit int) ([]OwnerAsk, error)
 	ListOpenOwnerAsks(ctx context.Context, accountID string, limit int) ([]OwnerAsk, error)
 	ListThreadOwnerAsks(ctx context.Context, accountID, threadID string, limit int) ([]OwnerAsk, error)

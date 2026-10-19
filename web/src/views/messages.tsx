@@ -107,7 +107,8 @@ export function Messages() {
     if (search) params.q = search;
     if (sel) {
       getJSON<{ asks: Ask[] | null }>("/api/asks", { contact: sel })
-        .then((x) => { setCards((x.asks ?? []).filter((a) => a.kind === "notice" || a.status === "open")); setCardsErr(""); })
+        // The node lists them newest first; withCards places them oldest first.
+        .then((x) => { setCards((x.asks ?? []).filter((a) => a.kind === "notice" || a.status === "open").reverse()); setCardsErr(""); })
         .catch((e) => setCardsErr(failureOf(e)));
     } else setCards([]);
     return getJSON<Data>("/api/conversations", params).then((x) => { setD(x); setErr(""); }).catch((e) => setErr(failureOf(e)));

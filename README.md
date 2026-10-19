@@ -153,8 +153,8 @@ The owner MCP is a second surface, separate from the public one, with **39 tools
 on a running node: read the inbox, send to a contact, delete a conversation, approve or reject requests,
 block, unblock and remove contacts, answer a contact waiting at a new address, create, list and revoke invites, set
 permissions, manage integrations, query the audit chain, and ask you to decide: `ask_owner` puts a card with
-ready replies on the conversation and on the portal's Needs you page, and the reply you pick is sent as your own
-message when you press its button (SPEC §8.4). It requires named, revocable bearer tokens on
+ready replies on the conversation and on the portal's Needs you page, and the reply you tap is sent as your own
+message in that one tap (SPEC §8.4). It requires named, revocable bearer tokens on
 every bind, loopback included.
 
 ### Decide what each contact may do

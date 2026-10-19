@@ -34,12 +34,12 @@ SELECT * FROM owner_asks WHERE account_id = ? ORDER BY created_at DESC, id DESC 
 SELECT * FROM owner_asks WHERE account_id = ? AND kind = 'ask' AND status = 'open' ORDER BY created_at DESC, id DESC LIMIT ?;
 
 -- name: ListThreadOwnerAsks :many
--- The asks and notices of one thread, oldest first.
-SELECT * FROM owner_asks WHERE account_id = ? AND thread_id = ? ORDER BY created_at, id LIMIT ?;
+-- The asks and notices of one thread, newest first, so a limit keeps the newest.
+SELECT * FROM owner_asks WHERE account_id = ? AND thread_id = ? ORDER BY created_at DESC, id DESC LIMIT ?;
 
 -- name: ListContactOwnerAsks :many
--- The asks and notices of every thread with one contact, oldest first: what the conversation shows.
-SELECT * FROM owner_asks WHERE account_id = ? AND contact_fpr = ? ORDER BY created_at, id LIMIT ?;
+-- The asks and notices of every thread with one contact, newest first, so a limit keeps the newest: what the conversation shows.
+SELECT * FROM owner_asks WHERE account_id = ? AND contact_fpr = ? ORDER BY created_at DESC, id DESC LIMIT ?;
 
 -- name: CountOpenOwnerAsks :one
 SELECT COUNT(*) FROM owner_asks WHERE account_id = ? AND kind = 'ask' AND status = 'open' AND expires_at > ?;

@@ -4,12 +4,13 @@
 // TLDR Text. The node parsed every surface before it stored it, so this draws what is there and
 // nothing more.
 //
-// The card keeps the surface's data model, seeded from its updateDataModel: each input writes its
-// value at the path it binds, and nothing is sent until the owner presses a Button. The Button's
-// action is then posted to POST /asks/{id}/answer as A2UI's client-to-server action, its context's
-// {path} entries read from the data model; the node makes the one line the agent reads and sends a
-// ready reply or what was written to the contact as the owner's own message. A notice, and an ask
-// that is no longer open, offer nothing to press.
+// A ready reply is a Button whose event is "reply" (asks.ReplyEvent) and whose context is its text:
+// one tap posts it. The card keeps the surface's data model, seeded from its updateDataModel: each
+// input writes its value at the path it binds, and nothing is sent until the owner presses a Button.
+// The Button's action is then posted to POST /asks/{id}/answer as A2UI's client-to-server action, its
+// context's {path} entries read from the data model; the node makes the one line the agent reads and
+// sends a ready reply or what was written to the contact as the owner's own message. A notice, and an
+// ask that is no longer open, offer nothing to press.
 import { useState } from "react";
 import { postForm } from "./api";
 import { Badge, Button, Notice, Toolbar } from "./ui";
@@ -78,6 +79,9 @@ function withOffset(v: string): string {
   return `${v.length === 16 ? v + ":00" : v}${off >= 0 ? "+" : "-"}${hh}:${mm}`;
 }
 
+/** The event of a ready reply's Button (asks.ReplyEvent): its context is the text one tap sends. */
+const REPLY = "reply";
+
 const STATUS: Record<Ask["status"], string> = {
   open: "waiting on you", answered: "answered", expired: "expired unanswered", withdrawn: "withdrawn by your agent", posted: "done for you",
 };
@@ -138,7 +142,7 @@ export function AskCard({ ask, from, onAnswered }: { ask: Ask; from?: string; on
       case "ChoicePicker": {
         const chosen = c.value ? (valueAt(c.value.path) as string[]) : [];
         return (
-          <div key={id} className="ask-choice" role="group" aria-label={c.label ?? "Ready replies"}>
+          <div key={id} className="ask-choice" role="group" aria-label={c.label ?? "Options"}>
             {c.label && <p className="muted">{c.label}</p>}
             <Toolbar>
               {(c.options ?? []).map((o) => (
@@ -174,6 +178,15 @@ export function AskCard({ ask, from, onAnswered }: { ask: Ask; from?: string; on
       }
       case "Button": {
         const label = comps.get(c.child ?? "")?.text ?? c.id;
+        // A ready reply: full width, its label wrapping, so a long one stays inside the card.
+        if (c.action?.event.name === REPLY) {
+          return (
+            <div key={id} className="ask-reply">
+              <Button variant={c.variant === "primary" ? "primary" : "secondary"} disabled={!live || busy !== ""} busy={busy === id}
+                title="Sends this reply to them, as you, in one tap" onClick={() => press(c)}>{label}</Button>
+            </div>
+          );
+        }
         const reads = Object.values(c.action?.event.context ?? {}).filter(isBinding);
         const sends = reads.some((b) => ["ChoicePicker", "TextField"].includes(inputAt(b.path)?.component ?? ""));
         const nothing = reads.length > 0 && reads.every((b) => empty(valueAt(b.path)));

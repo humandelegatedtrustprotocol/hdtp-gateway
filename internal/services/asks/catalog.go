@@ -43,7 +43,8 @@ const (
 	MaxComponents = 20
 	// MaxTLDRBytes is the most the TLDR, the first Text under root, may be.
 	MaxTLDRBytes = 280
-	// MaxOptions is the most ready replies a ChoicePicker offers.
+	// MaxOptions is the most ready replies an ask offers: its reply Buttons, and a ChoicePicker's
+	// options.
 	MaxOptions = 3
 	// MaxItems is the most items a KeyValue holds.
 	MaxItems = 8
@@ -58,6 +59,10 @@ const (
 	maxContextBytes = 280
 	maxPathBytes    = 64
 )
+
+// ReplyEvent names a ready reply's Button: its context is {reply}, the reply's text, and one tap on
+// it sends that text to the contact as the owner's own message.
+const ReplyEvent = "reply"
 
 // The kinds of what a surface is for.
 const (
@@ -110,7 +115,7 @@ type component struct {
 
 // catalog is every component, in the order the schema lists them.
 var catalog = []component{
-	{name: "Column", about: "The root, and only the root (id \"root\"): its children, top to bottom. The first is a Text, the TLDR.",
+	{name: "Column", about: "The root, and only the root (id \"root\"), first in the list: its children, top to bottom. The first is a Text, the TLDR, second in the list.",
 		props: []prop{{name: "children", kind: childrenProp, required: true, max: MaxComponents - 1, about: "The ids of the components under the root, in order."}}},
 	{name: "Text", about: "A line of text. The first child of root is the TLDR: what the owner needs to know, in at most " + strconv.Itoa(MaxTLDRBytes) + " bytes.",
 		props: []prop{
@@ -119,7 +124,7 @@ var catalog = []component{
 		}},
 	{name: "KeyValue", own: true, about: "The node's own component: the key terms, one label and value per item.",
 		props: []prop{{name: "items", kind: itemsProp, required: true, max: MaxItems}}},
-	{name: "ChoicePicker", role: input, about: "Ready replies, one of which the owner picks: its value is written at the bound path, and a Button that sends that path sends the option's label to the contact as the owner's own message.",
+	{name: "ChoicePicker", role: input, about: "Options the owner picks one of: its value is written at the bound path, and a Button whose context reads that path sends the picked option's label to the contact as the owner's own message. Ready replies are reply Buttons instead: one tap each.",
 		props: []prop{
 			{name: "label", kind: textProp, max: maxLabelBytes, about: "What the choice is about."},
 			{name: "variant", kind: enumProp, enum: []string{"mutuallyExclusive"}},
@@ -141,7 +146,7 @@ var catalog = []component{
 			{name: "max", kind: isoProp, about: "ISO 8601."},
 			{name: "label", kind: textProp, max: maxLabelBytes},
 		}},
-	{name: "Button", role: answers, about: "A button whose label is a Text (child). Pressing it answers the ask with its action's context, each {path} read from the data model.",
+	{name: "Button", role: answers, about: "A button whose label is a Text (child). Pressing it answers the ask. A ready reply is a Button whose event is \"" + ReplyEvent + "\" and whose context is {reply: the reply's text}: one tap sends that text to the contact as the owner's own message. Any other Button answers with its context, each {path} read from the data model.",
 		props: []prop{
 			{name: "child", kind: idProp, required: true, about: "The id of the Text that is its label."},
 			{name: "variant", kind: enumProp, enum: []string{"default", "primary", "borderless"}},
@@ -150,16 +155,16 @@ var catalog = []component{
 }
 
 // The code-only rules are what Parse holds that the schema does not: rules over the list of
-// components, not over one of them. Each is a sentence Parse refuses with; catalog_test.go shows each
-// red:
+// components that JSON Schema cannot state, not over one of them. What it can state, the schema
+// states as well: root first in the list and a Text second, at most one root, ChoicePicker and
+// TextField, at most MaxOptions reply Buttons, and a Button in every ask. Each code-only rule is a
+// sentence Parse refuses with; catalog_test.go shows each red:
 //
 //   - the messages name one surfaceId
 //   - component ids are unique
-//   - one component is root, and it is the only Column
 //   - every component but root is placed once: under root, or as a Button's label
-//   - the first child of root is a Text, the TLDR, of at most MaxTLDRBytes
-//   - at most one ChoicePicker and one TextField, and the TextField is the last input under root
-//   - an ask holds a Button, the only thing that answers it
+//   - the first child of root is the Text second in the list, the TLDR, of at most MaxTLDRBytes
+//   - the TextField is the last input under root
 //   - a Button's child is a Text
 //   - each input binds a path of its own, none inside another's
 //   - every path a Button's context reads is one an input binds
@@ -235,12 +240,13 @@ func SurfaceSchema(kind string) *jsonschema.Schema {
 			"version": version(),
 			"updateComponents": {Type: "object", Required: []string{"surfaceId", "components"}, AdditionalProperties: falseSchema(),
 				Properties: map[string]*jsonschema.Schema{
-					"surfaceId":  str(maxIDBytes),
-					"components": {Type: "array", MinItems: ptr(2), MaxItems: ptr(MaxComponents), Items: &jsonschema.Schema{AnyOf: comps}},
+					"surfaceId": str(maxIDBytes),
+					"components": {Type: "array", MinItems: ptr(2), MaxItems: ptr(MaxComponents),
+						PrefixItems: []*jsonschema.Schema{ref("Column"), ref("Text")}, Items: &jsonschema.Schema{AnyOf: comps}, AllOf: listRules(kind)},
 				}},
 		}}
 	what := "An A2UI " + Version + " surface: a createSurface message naming catalogId " + CatalogID +
-		", then an updateComponents message for the same surfaceId. One component has id \"root\", a Column."
+		", then an updateComponents message for the same surfaceId. Its components list the root first, a Column of id \"root\", then the TLDR, the Text that is root's first child."
 	prefix := []*jsonschema.Schema{create, update}
 	most := 2
 	if kind == KindAsk {
@@ -256,17 +262,45 @@ func SurfaceSchema(kind string) *jsonschema.Schema {
 			}}
 		prefix, most = append(prefix, model), 3
 		what += " Optionally a third, updateDataModel for the same surfaceId: the values the inputs start from. " +
-			"Every input binds its value to a {path}; the owner answers by pressing a Button, whose action's context sends the paths it names."
+			"The owner answers by pressing a Button. Each ready reply is a Button of event \"" + ReplyEvent + "\" with context {reply: its text}, sent in one tap; " +
+			"every input binds its value to a {path}, and the Button that sends it names those paths in its context."
 	} else {
 		what += " A notice holds only Text and KeyValue: it tells, and nothing answers it."
 	}
 	return &jsonschema.Schema{Type: "array", Description: what, MinItems: ptr(2), MaxItems: ptr(most), PrefixItems: prefix}
 }
 
+// listRules are the rules over a surface's list of components that JSON Schema can state: at most
+// one root, and on an ask at most one ChoicePicker and one TextField, at most MaxOptions reply
+// Buttons and at least one Button.
+func listRules(kind string) []*jsonschema.Schema {
+	is := func(name string) *jsonschema.Schema {
+		return &jsonschema.Schema{Type: "object", Required: []string{"component"},
+			Properties: map[string]*jsonschema.Schema{"component": {Const: anyPtr(name)}}}
+	}
+	atMost := func(of *jsonschema.Schema, n int) *jsonschema.Schema {
+		return &jsonschema.Schema{Contains: of, MinContains: ptr(0), MaxContains: ptr(n)}
+	}
+	rules := []*jsonschema.Schema{atMost(is("Column"), 1)}
+	if kind != KindAsk {
+		return rules
+	}
+	reply := is("Button")
+	reply.Required = append(reply.Required, "action")
+	reply.Properties["action"] = &jsonschema.Schema{Type: "object", Required: []string{"event"},
+		Properties: map[string]*jsonschema.Schema{"event": {Type: "object", Required: []string{"name"},
+			Properties: map[string]*jsonschema.Schema{"name": {Const: anyPtr(ReplyEvent)}}}}}
+	return append(rules, atMost(is("ChoicePicker"), 1), atMost(is("TextField"), 1), atMost(reply, MaxOptions),
+		&jsonschema.Schema{Contains: is("Button")})
+}
+
 func componentSchema(c component) *jsonschema.Schema {
 	props := map[string]*jsonschema.Schema{
 		"id":        ref("ComponentId"),
 		"component": {Type: "string", Const: anyPtr(c.name)},
+	}
+	if c.name == "Column" {
+		props["id"] = &jsonschema.Schema{Type: "string", Const: anyPtr("root")}
 	}
 	order := []string{"id", "component"}
 	required := []string{"id", "component"}
@@ -318,14 +352,20 @@ func propSchema(p prop) *jsonschema.Schema {
 		value := &jsonschema.Schema{AnyOf: []*jsonschema.Schema{
 			{Type: "string", MaxLength: ptr(maxContextBytes)}, {Type: "number"}, {Type: "boolean"}, ref("DataBinding"),
 		}}
-		s = &jsonschema.Schema{Type: "object", Required: []string{"event"}, AdditionalProperties: falseSchema(),
+		reply := &jsonschema.Schema{Type: "object", Required: []string{"name", "context"}, AdditionalProperties: falseSchema(),
+			Description: "A ready reply: one tap sends context.reply to the contact as the owner's own message.",
 			Properties: map[string]*jsonschema.Schema{
-				"event": {Type: "object", Required: []string{"name"}, AdditionalProperties: falseSchema(),
-					Properties: map[string]*jsonschema.Schema{
-						"name":    {Type: "string", MinLength: ptr(1), MaxLength: ptr(maxKeyBytes)},
-						"context": {Type: "object", MaxProperties: ptr(maxContextKeys), AdditionalProperties: value},
-					}},
+				"name": {Type: "string", Const: anyPtr(ReplyEvent)},
+				"context": {Type: "object", Required: []string{"reply"}, AdditionalProperties: falseSchema(),
+					Properties: map[string]*jsonschema.Schema{"reply": {Type: "string", MinLength: ptr(1), MaxLength: ptr(maxContextBytes)}}},
 			}}
+		other := &jsonschema.Schema{Type: "object", Required: []string{"name"}, AdditionalProperties: falseSchema(),
+			Properties: map[string]*jsonschema.Schema{
+				"name":    {Type: "string", MinLength: ptr(1), MaxLength: ptr(maxKeyBytes), Not: &jsonschema.Schema{Const: anyPtr(ReplyEvent)}},
+				"context": {Type: "object", MaxProperties: ptr(maxContextKeys), AdditionalProperties: value},
+			}}
+		s = &jsonschema.Schema{Type: "object", Required: []string{"event"}, AdditionalProperties: falseSchema(),
+			Properties: map[string]*jsonschema.Schema{"event": {AnyOf: []*jsonschema.Schema{reply, other}}}}
 	}
 	if p.about != "" && s.Ref == "" {
 		s.Description = p.about
@@ -518,9 +558,6 @@ func Parse(raw []byte, kind string) (Surface, error) {
 			return Surface{}, err
 		}
 	}
-	// Root first: what a reader of the stored surface meets first.
-	r := at["root"]
-	s.Components[0], s.Components[r] = s.Components[r], s.Components[0]
 	return s, nil
 }
 
@@ -716,7 +753,7 @@ func checkProp(p prop, v json.RawMessage, path string) error {
 	case itemsProp, optionsProp:
 		what, labelMax := "items, each a label and a value", maxKeyBytes
 		if p.kind == optionsProp {
-			what, labelMax = "ready replies, each a label and a value", maxLabelBytes
+			what, labelMax = "options, each a label and a value", maxLabelBytes
 		}
 		var l []map[string]json.RawMessage
 		if json.Unmarshal(v, &l) != nil || len(l) == 0 {
@@ -778,6 +815,13 @@ func checkProp(p prop, v json.RawMessage, path string) error {
 		var name string
 		if json.Unmarshal(ev["name"], &name) != nil || name == "" || len(name) > maxKeyBytes {
 			return invalid(path+"/event/name", "a name of 1 to %d bytes", maxKeyBytes)
+		}
+		if name == ReplyEvent {
+			var ctx map[string]json.RawMessage
+			if json.Unmarshal(ev["context"], &ctx) != nil || exactKeys(ctx, path+"/event/context", "reply") != nil {
+				return invalid(path+"/event/context", "a ready reply's context is {reply}, the text one tap sends")
+			}
+			return checkText(ctx["reply"], path+"/event/context/reply", maxContextBytes)
 		}
 		if c, ok := ev["context"]; ok {
 			var ctx map[string]json.RawMessage
@@ -882,6 +926,9 @@ func (s Surface) checkTree(kind, base string, at map[string]int) error {
 	if root.Name != "Column" {
 		return invalid(fmt.Sprintf("%s/%d/component", base, r), "root is a Column")
 	}
+	if r != 0 {
+		return invalid(fmt.Sprintf("%s/%d", base, r), "root comes first in the list of components")
+	}
 	placed := map[string]bool{}
 	place := func(path, id string) error {
 		if id == "root" {
@@ -902,7 +949,7 @@ func (s Surface) checkTree(kind, base string, at map[string]int) error {
 			return err
 		}
 	}
-	pickers, fields, buttons := 0, 0, 0
+	pickers, fields, buttons, replies := 0, 0, 0, 0
 	paths := map[string]string{}
 	for i, c := range s.Components {
 		path := fmt.Sprintf("%s/%d", base, i)
@@ -913,6 +960,9 @@ func (s Surface) checkTree(kind, base string, at map[string]int) error {
 			}
 		case "Button":
 			buttons++
+			if c.Action.Event.Name == ReplyEvent {
+				replies++
+			}
 			if err := place(path+"/child", c.Child); err != nil {
 				return err
 			}
@@ -942,11 +992,17 @@ func (s Surface) checkTree(kind, base string, at map[string]int) error {
 	if first.Name != "Text" {
 		return invalid(cpath+"/0", "the first child of root is a Text, the TLDR")
 	}
+	if at[first.ID] != 1 {
+		return invalid(fmt.Sprintf("%s/%d", base, at[first.ID]), "the TLDR, root's first child, comes second in the list, after root")
+	}
 	if len(first.Text) > MaxTLDRBytes {
 		return invalid(fmt.Sprintf("%s/%d/text", base, at[first.ID]), "the TLDR is %d bytes, over the %d it may be", len(first.Text), MaxTLDRBytes)
 	}
 	if pickers > 1 || fields > 1 {
 		return invalid(base, "at most one ChoicePicker and one TextField")
+	}
+	if replies > MaxOptions {
+		return invalid(base, "at most %d ready replies; this has %d", MaxOptions, replies)
 	}
 	field := -1
 	for i, id := range root.Children {

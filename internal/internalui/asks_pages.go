@@ -34,7 +34,7 @@ func askRefusal(w http.ResponseWriter, err error) {
 }
 
 // getAPIAsks serves `GET /api/asks`: the account's asks and notices, newest first, or one thread's
-// (`thread`) or one contact's (`contact`), oldest first; `status=open` for the open asks alone. `open` is how many asks wait on
+// (`thread`) or one contact's (`contact`); `status=open` for the open asks alone. `open` is how many asks wait on
 // the owner, the sidebar's badge.
 func (d AsksDeps) getAPIAsks(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")

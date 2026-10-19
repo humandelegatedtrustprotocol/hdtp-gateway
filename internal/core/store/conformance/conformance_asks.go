@@ -193,17 +193,20 @@ func asks(t *testing.T, newStore Factory) {
 		if got := ids(s.ListOpenOwnerAsks(ctx, a.ID, 10)); len(got) != 1 || got[0] != "ask_1" {
 			t.Fatalf("ListOpenOwnerAsks: %v, want ask_1 alone", got)
 		}
-		if got := ids(s.ListContactOwnerAsks(ctx, a.ID, "sha256:p", 10)); len(got) != 3 || got[0] != "ask_1" || got[2] != "ntc_1" {
-			t.Fatalf("ListContactOwnerAsks: %v, want oldest first", got)
+		if got := ids(s.ListContactOwnerAsks(ctx, a.ID, "sha256:p", 10)); len(got) != 3 || got[0] != "ntc_1" || got[2] != "ask_1" {
+			t.Fatalf("ListContactOwnerAsks: %v, want newest first", got)
+		}
+		if got := ids(s.ListContactOwnerAsks(ctx, a.ID, "sha256:p", 1)); len(got) != 1 || got[0] != "ntc_1" {
+			t.Fatalf("the contact list's limit: %v, want the newest, ntc_1", got)
 		}
 		if got := ids(s.ListContactOwnerAsks(ctx, a.ID, "sha256:other", 10)); len(got) != 0 {
 			t.Fatalf("another contact's: %v", got)
 		}
-		if got := ids(s.ListThreadOwnerAsks(ctx, a.ID, "t1", 10)); len(got) != 2 || got[0] != "ask_1" || got[1] != "ntc_1" {
-			t.Fatalf("ListThreadOwnerAsks: %v, want t1's, oldest first", got)
+		if got := ids(s.ListThreadOwnerAsks(ctx, a.ID, "t1", 10)); len(got) != 2 || got[0] != "ntc_1" || got[1] != "ask_1" {
+			t.Fatalf("ListThreadOwnerAsks: %v, want t1's, newest first", got)
 		}
-		if got := ids(s.ListThreadOwnerAsks(ctx, a.ID, "t1", 1)); len(got) != 1 {
-			t.Fatalf("the thread list's limit: %v", got)
+		if got := ids(s.ListThreadOwnerAsks(ctx, a.ID, "t1", 1)); len(got) != 1 || got[0] != "ntc_1" {
+			t.Fatalf("the thread list's limit: %v, want the newest, ntc_1", got)
 		}
 		if got := ids(s.ListThreadOwnerAsks(ctx, a.ID, "t9", 10)); len(got) != 0 {
 			t.Fatalf("a thread with none: %v", got)

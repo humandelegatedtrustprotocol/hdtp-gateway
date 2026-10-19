@@ -16,18 +16,22 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/asks"
 )
 
-// askSurface is the story's ask as an agent sends it: a TLDR, the terms, two ready replies, a field
-// to write one's own and a Send button that reads both, with the data model they start from.
+// askSurface is the story's ask as an agent sends it: a TLDR, the terms, two ready replies (each a
+// Button whose one tap sends its text), a field to write one's own and the Send button that reads
+// it, with the data model it starts from.
 const askSurface = `[{"version":"v0.9.1","createSurface":{"surfaceId":"s1","catalogId":"` + asks.CatalogID + `"}},` +
 	`{"version":"v0.9.1","updateComponents":{"surfaceId":"s1","components":[` +
-	`{"id":"root","component":"Column","children":["tldr","terms","pick","own","send"]},` +
+	`{"id":"root","component":"Column","children":["tldr","terms","r1","r2","own","send"]},` +
 	`{"id":"tldr","component":"Text","text":"Bob proposes Wed 15:00 for 30 min."},` +
 	`{"id":"terms","component":"KeyValue","items":[{"label":"When","value":"Wed 15:00"}]},` +
-	`{"id":"pick","component":"ChoicePicker","options":[{"label":"Confirm Wed 15:00","value":"confirm"},{"label":"Ask for Thu instead","value":"thu"}],"value":{"path":"/reply"}},` +
+	`{"id":"r1-label","component":"Text","text":"Confirm Wed 15:00"},` +
+	`{"id":"r1","component":"Button","child":"r1-label","variant":"primary","action":{"event":{"name":"reply","context":{"reply":"Confirm Wed 15:00"}}}},` +
+	`{"id":"r2-label","component":"Text","text":"Ask for Thu instead"},` +
+	`{"id":"r2","component":"Button","child":"r2-label","action":{"event":{"name":"reply","context":{"reply":"Ask for Thu instead"}}}},` +
 	`{"id":"own","component":"TextField","label":"Write my own","value":{"path":"/own"}},` +
 	`{"id":"send-label","component":"Text","text":"Send"},` +
-	`{"id":"send","component":"Button","child":"send-label","variant":"primary","action":{"event":{"name":"answer","context":{"reply":{"path":"/reply"},"own":{"path":"/own"}}}}}]}},` +
-	`{"version":"v0.9.1","updateDataModel":{"surfaceId":"s1","value":{"reply":[],"own":""}}}]`
+	`{"id":"send","component":"Button","child":"send-label","action":{"event":{"name":"answer","context":{"own":{"path":"/own"}}}}}]}},` +
+	`{"version":"v0.9.1","updateDataModel":{"surfaceId":"s1","value":{"own":""}}}]`
 
 // noticeSurface is a done-for-you notice: a TLDR and its terms.
 const noticeSurface = `[{"version":"v0.9.1","createSurface":{"surfaceId":"s1","catalogId":"` + asks.CatalogID + `"}},` +
@@ -36,10 +40,9 @@ const noticeSurface = `[{"version":"v0.9.1","createSurface":{"surfaceId":"s1","c
 	`{"id":"tldr","component":"Text","text":"Booked: Wed 15:00 with Bob."},` +
 	`{"id":"terms","component":"KeyValue","items":[{"label":"When","value":"Wed 15:00"}]}]}}]`
 
-// chooseConfirm is the A2UI action the portal sends when the owner picks the first ready reply and
-// presses Send.
-var chooseConfirm = []byte(`{"version":"v0.9.1","action":{"name":"answer","surfaceId":"s1","sourceComponentId":"send",` +
-	`"timestamp":"2026-10-19T10:00:00Z","context":{"reply":["confirm"],"own":""}}}`)
+// chooseConfirm is the A2UI action the portal sends when the owner taps the first ready reply.
+var chooseConfirm = []byte(`{"version":"v0.9.1","action":{"name":"reply","surfaceId":"s1","sourceComponentId":"r1",` +
+	`"timestamp":"2026-10-19T10:00:00Z","context":{"reply":"Confirm Wed 15:00"}}}`)
 
 // oversize is the story's ask with a long text beside its TLDR: past asks.MaxSurfaceBytes once
 // compacted, as a client sends it, and in every other respect an ask the node takes.
@@ -230,8 +233,8 @@ func newAskEnvOn(t *testing.T, a *askEnv, ident auth.Identity) *mcp.ClientSessio
 }
 
 // The schema a client reads for surface is the catalog's own, its definitions at the tool schema's
-// root: one copy, derived where it is enforced. The document resolves on its own, every $ref local,
-// and takes the story's ask whole.
+// root: one copy, derived where it is enforced. The document names its draft (2020-12), resolves on
+// its own, every $ref local, and takes the story's ask whole.
 func TestTheSurfaceSchemaOnTheWireIsTheCatalogs(t *testing.T) {
 	a := newAskEnv(t, owner)
 	tools, err := a.cs.ListTools(context.Background(), nil)
@@ -247,11 +250,15 @@ func TestTheSurfaceSchemaOnTheWireIsTheCatalogs(t *testing.T) {
 		found++
 		raw, _ := json.Marshal(tool.InputSchema)
 		var in struct {
+			Schema     string                     `json:"$schema"`
 			Properties map[string]json.RawMessage `json:"properties"`
 			Defs       json.RawMessage            `json:"$defs"`
 		}
 		if err := json.Unmarshal(raw, &in); err != nil {
 			t.Fatal(err)
+		}
+		if in.Schema != "https://json-schema.org/draft/2020-12/schema" {
+			t.Errorf("%s's input schema names its draft as %q", tool.Name, in.Schema)
 		}
 		same := func(what string, got json.RawMessage, want any) {
 			w, _ := json.Marshal(want)
