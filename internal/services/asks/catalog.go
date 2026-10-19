@@ -6,7 +6,7 @@ package asks
 // a surface is a createSurface message and an updateComponents message, its components a flat list
 // in which one, id "root", is a Column whose children are laid out top to bottom.
 //
-// What a JSON Schema cannot say about a list of components, Parse alone holds; codeOnlyRules names
+// What a JSON Schema cannot say about a list of components, Parse alone holds; the code-only rules below the catalog name
 // each of them, and catalog_test.go holds that every surface Parse accepts the schema accepts too.
 
 import (
@@ -123,21 +123,21 @@ var catalog = []component{
 		}},
 }
 
-// codeOnlyRules are what Parse holds that the schema does not: rules over the list of components,
-// not over one of them. Each is a sentence Parse refuses with; catalog_test.go shows each red.
-var codeOnlyRules = []string{
-	"the two messages name one surfaceId",
-	"component ids are unique",
-	"one component is root, and it is the only Column",
-	"every component but root is placed once: under root, or as a Button's label",
-	"the first child of root is a Text, the TLDR, of at most MaxTLDRBytes",
-	"a TextField is the last child of root",
-	"at most one Choice and one TextField",
-	"an ask holds a component that answers it",
-	"a Button's child is a Text",
-	"a DateTimeInput enables a date, a time or both, and its min and max read as ISO 8601",
-	"lengths are bytes, not characters",
-}
+// The code-only rules are what Parse holds that the schema does not: rules over the list of
+// components, not over one of them. Each is a sentence Parse refuses with; catalog_test.go shows each
+// red:
+//
+//   - the two messages name one surfaceId
+//   - component ids are unique
+//   - one component is root, and it is the only Column
+//   - every component but root is placed once: under root, or as a Button's label
+//   - the first child of root is a Text, the TLDR, of at most MaxTLDRBytes
+//   - a TextField is the last child of root
+//   - at most one Choice and one TextField
+//   - an ask holds a component that answers it
+//   - a Button's child is a Text
+//   - a DateTimeInput enables a date, a time or both, and its min and max read as ISO 8601
+//   - lengths are bytes, not characters
 
 func componentNamed(name string) (component, bool) {
 	for _, c := range catalog {
@@ -657,7 +657,7 @@ func checkID(path, id string) error {
 	return nil
 }
 
-// checkTree holds the rules over the list: codeOnlyRules.
+// checkTree holds the rules over the list: the code-only rules.
 func (s Surface) checkTree(kind, base string, at map[string]int) error {
 	r, ok := at["root"]
 	if !ok {

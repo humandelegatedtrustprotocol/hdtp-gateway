@@ -47,7 +47,7 @@ var validNotices = map[string]string{
 }
 
 // invalid is a surface Parse refuses, and whether the schema refuses it too: false only for the
-// rules codeOnlyRules names.
+// code-only rules catalog.go names.
 type invalidCase struct {
 	surface  string
 	kind     string
@@ -122,7 +122,7 @@ func TestTheSchemaAcceptsEverySurfaceTheNodeAccepts(t *testing.T) {
 }
 
 // What the catalog refuses, Parse refuses, with a path into the surface; the schema refuses it too
-// unless the rule is one codeOnlyRules names, and then the schema lets it through, which is why that
+// unless the rule is one of the code-only rules catalog.go names, and then the schema lets it through, which is why that
 // list exists. An oversize surface is too large, not malformed.
 func TestTheNodeRefusesWhatTheCatalogDoesNotAllow(t *testing.T) {
 	schemas := map[string]*jsonschema.Resolved{KindAsk: resolved(t, KindAsk), KindNotice: resolved(t, KindNotice)}
@@ -141,7 +141,7 @@ func TestTheNodeRefusesWhatTheCatalogDoesNotAllow(t *testing.T) {
 		}
 		schemaErr := schemas[c.kind].Validate(instance(t, c.surface))
 		if c.schema && schemaErr == nil {
-			t.Errorf("%q: the schema accepts what the node refuses (%v): it is a rule the schema should hold, or one to name in codeOnlyRules", name, inv)
+			t.Errorf("%q: the schema accepts what the node refuses (%v): it is a rule the schema should hold, or one to name among catalog.go's code-only rules", name, inv)
 		}
 		if !c.schema && schemaErr != nil {
 			t.Errorf("%q: the schema refuses it (%v); the case says only the node does", name, schemaErr)
