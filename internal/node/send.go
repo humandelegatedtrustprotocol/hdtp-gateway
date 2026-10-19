@@ -57,6 +57,27 @@ func (e notActive) Error() string { return "send: contact is " + e.status + ", n
 // codes it conflict.
 func (e notActive) Is(target error) bool { return target == contacts.ErrWrongState }
 
+// notServing is why a send names an identity this node does not serve. One the store holds is
+// awaiting the certificate its wallet issues, or could not be loaded (both audited at start): that
+// is its state, so a door answers conflict. One the store does not hold is not_found. Both
+// answered internal (#207).
+func (n *Node) notServing(ctx context.Context, accountID string) error {
+	rec, err := n.opts.Store.GetAccountByID(ctx, accountID)
+	if errors.Is(err, store.ErrNotFound) {
+		return refusal.NotFound("send: unknown account", err)
+	}
+	if err != nil {
+		return err
+	}
+	n.mu.RLock()
+	_, awaiting := n.awaiting[rec.Slug]
+	n.mu.RUnlock()
+	if awaiting {
+		return refusal.Conflict("send: "+rec.Slug+" has no certificate yet, so it cannot send: its wallet issues one", nil)
+	}
+	return refusal.Conflict("send: "+rec.Slug+" is not serving on this node", nil)
+}
+
 // SendMessage records an owner-composed message and delivers it to the contact.
 //
 // It returns the recorded result even when delivery fails: the message exists
@@ -67,7 +88,7 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 	acct := n.accounts[accountID]
 	n.mu.RUnlock()
 	if acct == nil {
-		return messaging.Result{}, fmt.Errorf("send: unknown account")
+		return messaging.Result{}, n.notServing(ctx, accountID)
 	}
 	c, err := n.opts.Store.GetContact(ctx, accountID, contactFpr)
 	if errors.Is(err, store.ErrNotFound) {
@@ -136,7 +157,7 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 	acct := n.accounts[accountID]
 	n.mu.RUnlock()
 	if acct == nil {
-		return messaging.Result{}, fmt.Errorf("send: unknown account")
+		return messaging.Result{}, n.notServing(ctx, accountID)
 	}
 	c, err := n.opts.Store.GetContact(ctx, accountID, contactFpr)
 	if errors.Is(err, store.ErrNotFound) {

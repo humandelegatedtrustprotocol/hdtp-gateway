@@ -36,6 +36,10 @@ changelog can be and is not summarized into a fictional release history.
   brings it back; the portal answered 0.5 s after either.
 - `GET /api/invites` sent the stored invite rows, each invite's token hash included (#210). It
   now sends the fields the Invites page reads and no others.
+- A send from an identity the node does not serve (one awaiting its certificate, or one that could
+  not be loaded) answered `internal` on the owner MCP's `send_to_contact` and the portal (#207). It
+  is now `conflict`, naming the identity's state, and an identity the store does not hold is
+  `not_found`.
 
 ### Removed
 

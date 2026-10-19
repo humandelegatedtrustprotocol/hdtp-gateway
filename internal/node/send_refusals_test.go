@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -179,6 +180,50 @@ func TestAPeersRateLimitKeepsItsWait(t *testing.T) {
 		err := peerRefusal(&mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: c.body}}})
 		if why, _ := refusal.Why(err); why != "rate_limited" || err.Error() != c.cause {
 			t.Errorf("%s: why %q, cause %q, want rate_limited and %q", c.body, why, err, c.cause)
+		}
+	}
+}
+
+// #207. A send from an identity this node does not serve answered internal on every door that
+// sends (the owner MCP's send_to_contact, the portal's thread send, both through SendMessage, and
+// SendMedia): "send: unknown account" carried no code. Reproduced over the owner MCP on a node
+// whose send.go was 2170fda's, with an identity created and not yet certified. One awaiting its
+// certificate, or one that could not be loaded, is in a state that refuses the send (conflict); one
+// the store does not hold is not_found. The control is TestASendIsRefusedByCodeForAContactNotHeldOrNotActive's: a
+// served identity gets past this check to the contact's.
+func TestASendFromAnIdentityThisNodeDoesNotServeIsRefusedByCode(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "send.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	waiting, err := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "waiting", DisplayName: "W", Algo: "ed25519"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken, err := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "broken", DisplayName: "B", Algo: "ed25519"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := &Node{opts: Options{Store: st}, awaiting: map[string]struct{}{"waiting": {}}, unavailable: map[string]string{"broken": "x"}}
+	in := messaging.Input{MsgID: "m1", Text: "hi", Origin: messaging.OriginMCP}
+	for _, c := range []struct {
+		name, account, code, detail string
+	}{
+		{"awaiting its certificate", waiting.ID, "conflict", "send: waiting has no certificate yet, so it cannot send: its wallet issues one"},
+		{"not loaded", broken.ID, "conflict", "send: broken is not serving on this node"},
+		{"not held", "nonesuch", "not_found", "send: unknown account"},
+	} {
+		_, err := n.SendMessage(ctx, c.account, "sha256:anyone", in)
+		_, mediaErr := n.SendMedia(ctx, c.account, "sha256:anyone", in, "a.txt", "text/plain", []byte("x"))
+		for door, err := range map[string]error{"SendMessage": err, "SendMedia": mediaErr} {
+			if code, detail := refusal.Of(err); code != c.code || detail != c.detail {
+				t.Errorf("%s, an identity %s: %s %q; want %s %q", door, c.name, code, detail, c.code, c.detail)
+			}
 		}
 	}
 }
