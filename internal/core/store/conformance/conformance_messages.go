@@ -62,6 +62,84 @@ func messages(t *testing.T, newStore Factory) {
 		}
 	})
 
+	// A delivery attempt is claimed, never just written (SPEC §7.1): a claim holds the message until
+	// its next_attempt_at, and is refused while another holds it, once the message is not pending,
+	// and for an inbound row of the same msg_id. Without it a retry sweep reading an old list sent
+	// again a message whose first attempt was under way or had landed (#219).
+	t.Run("AnAttemptIsClaimedOnlyWhilePendingAndDue", func(t *testing.T) {
+		s := migrated(t, newStore)
+		ctx := context.Background()
+		a, _ := s.CreateAccount(ctx, store.CreateAccountParams{Slug: "claim", DisplayName: "Claim", Algo: "p256"})
+		if err := s.InsertThread(ctx, store.Thread{ID: "t1", AccountID: a.ID, ContactFpr: "sha256:p", CreatedAt: 100, LastAt: 100}); err != nil {
+			t.Fatal(err)
+		}
+		for i, dir := range []string{"in", "out"} {
+			if err := s.InsertMessage(ctx, store.Message{
+				ID: fmt.Sprintf("c%d", i), AccountID: a.ID, ContactFpr: "sha256:p", MsgID: "m1", ThreadID: "t1",
+				Direction: dir, Sender: "human", Kind: "text", Body: dir, Status: "pending", CreatedAt: 100,
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		claim := func(now, next int64, counted bool) bool {
+			t.Helper()
+			ok, err := s.ClaimMessageAttempt(ctx, a.ID, "sha256:p", "m1", now, next, counted)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return ok
+		}
+		attempts := func() (int64, int64) {
+			t.Helper()
+			out, err := s.GetMessageByMsgID(ctx, a.ID, "sha256:p", "out", "m1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return out.Attempts, out.NextAttemptAt
+		}
+		// A send's own first attempt: held, not counted until it fails.
+		if !claim(100, 131, false) {
+			t.Fatal("a fresh pending message could not be claimed")
+		}
+		if n, next := attempts(); n != 0 || next != 131 {
+			t.Fatalf("after an uncounted claim: attempts %d, next %d; want 0, 131", n, next)
+		}
+		if claim(130, 160, true) {
+			t.Fatal("a message another attempt holds was claimed again before its hold ended")
+		}
+		if err := s.CountMessageAttempt(ctx, a.ID, "sha256:p", "m1"); err != nil {
+			t.Fatal(err)
+		}
+		if !claim(131, 190, true) {
+			t.Fatal("a message whose hold had ended could not be claimed")
+		}
+		if n, next := attempts(); n != 2 || next != 190 {
+			t.Fatalf("after a failed first attempt and a counted claim: attempts %d, next %d; want 2, 190", n, next)
+		}
+		in, err := s.GetMessageByMsgID(ctx, a.ID, "sha256:p", "in", "m1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if in.Attempts != 0 || in.NextAttemptAt != 0 {
+			t.Fatalf("a claim on the outbound message changed the inbound one: attempts %d, next %d", in.Attempts, in.NextAttemptAt)
+		}
+		if err := s.SetMessageStatus(ctx, a.ID, "sha256:p", "m1", "delivered"); err != nil {
+			t.Fatal(err)
+		}
+		if claim(1000, 1030, true) {
+			t.Fatal("a delivered message was claimed for another attempt")
+		}
+		if err := s.CountMessageAttempt(ctx, a.ID, "sha256:p", "m1"); err != nil {
+			t.Fatal(err)
+		}
+		if n, _ := attempts(); n != 2 {
+			t.Fatalf("a delivered message's attempts were counted again: %d", n)
+		}
+		if ok, err := s.ClaimMessageAttempt(ctx, a.ID, "sha256:p", "absent", 1000, 1030, true); err != nil || ok {
+			t.Fatalf("a message that does not exist: claimed %v, %v", ok, err)
+		}
+	})
+
 	// `expires` is chosen by the SENDER (HDTP §7), so the column has to hold any
 	// plausible epoch value. On Postgres it was INTEGER — 32-bit — where every
 	// other epoch column is BIGINT: a far-future deadline made the INSERT fail

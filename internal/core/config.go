@@ -318,13 +318,13 @@ func Load(path string, lookup func(string) (string, bool)) (*Config, error) {
 		c.ClientCert = ClientCert(v)
 	}
 	if v, ok := lookup("HDTP_INTERNAL_AUTH_ENABLED"); ok {
-		c.InternalAuthEnabled = v == "true" || v == "1"
+		c.InternalAuthEnabled = SettingTrue(v)
 	}
 	if v, ok := lookup("HDTP_LIMIT_CONTACTS"); ok {
 		c.LimitContacts = atoiOrZero(v)
 	}
 	if v, ok := lookup("HDTP_LAN_CONNECTIONS"); ok {
-		b := v == "true" || v == "1"
+		b := SettingTrue(v)
 		lanOpt = &b
 	}
 	// Remember what the environment pinned. The portal may not change these —

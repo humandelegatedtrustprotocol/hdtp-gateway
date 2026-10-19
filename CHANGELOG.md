@@ -23,6 +23,45 @@ changelog can be and is not summarized into a fictional release history.
   access to one (batondeck is private) sets `HDTP_ALLOW_MISSING_SIBLINGS=1`, and the hook prints
   first, one line each, the comparisons that will not run, then runs the gate without them.
 
+### Added
+
+- The owner MCP's `read_thread` gives each message its `message_id`, the message's `msg_id`: the
+  id the change log records and a webhook's `data` carries, so an agent can key its work by
+  message (#208).
+
+### Fixed
+
+- A ticked box on the portal's Settings page saved as false, so **Accept LAN connections** could
+  not be turned on there (#221): the box posts `1`, and the save stored `true` only for a posted
+  `true`. Every boolean knob is now read by one rule, `core.SettingTrue` (`true` or `1`), from the
+  environment, the store and the portal alike.
+- After a crash or a `docker restart` of the node, the compose portal answered nothing until its
+  forwarder was restarted by hand (#204): a restart Compose does not make kept the forwarder in the
+  node's old network. The forwarder now shares the node's processes as well (`pid:
+  "service:hdtp-gateway"`, with `cap_drop: [ALL]`), so it stops with the node and its restart policy
+  brings it back; the portal answered in under 1 s after either (0.49 to 0.76 s, five runs).
+- `GET /api/invites` sent the stored invite rows, each invite's token hash included (#210). It
+  now sends the fields the Invites page reads and no others.
+- A send from an identity the node does not serve (one awaiting its certificate, or one that could
+  not be loaded) answered `internal` on the owner MCP's `send_to_contact` and the portal (#207). It
+  is now `conflict`, naming the identity's state, and an identity the store does not hold is
+  `not_found`.
+- A sent message could be sent twice: once by the send and again by the retry sweep, which
+  audited it `delivered` and then `delivered_on_retry` (#219). The sweep's list showed the message
+  pending with no attempt made while the send's first attempt was still under way, or after it had
+  landed. The receiver dropped the duplicate, so it showed once. Every attempt now claims the
+  message in the store first (`ClaimMessageAttempt`), and only a pending message that is due can be
+  claimed. The send's own attempt holds it for its 30-second budget and one second more, so a
+  first attempt that fails is retried once those 31 seconds have passed. That attempt is counted
+  only when it fails, so the portal shows a message whose first attempt is under way as sending,
+  and one whose first attempt failed as retrying. A send replayed under its `msg_id` while another
+  attempt holds the message is answered `pending`, and nothing is sent.
+- `npm audit` in `web/` reported two high advisories (#213), both in build tools the portal's
+  bundle does not contain: `brace-expansion` 5.0.9 (under ESLint's `minimatch`; GHSA-q2hr-2g5m-vwhr,
+  GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p) and `source-map-js` 1.2.1 (under Vite's `postcss`;
+  GHSA-68fv-2mgg-jv7q). The lockfile now takes 5.0.12 and 1.2.2, inside the ranges already
+  declared; `npm audit` finds none, and `web/dist` builds byte for byte the same.
+
 ### Removed
 
 - The live-only portal scripts under `web/tools/` (`portal-live.mjs`, `portal-oauth-live.mjs`,

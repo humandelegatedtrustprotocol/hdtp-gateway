@@ -43,8 +43,10 @@ func TestConversationTimesAreInstants(t *testing.T) {
 		Direction: "in", Sender: "human", Kind: "text", Status: "delivered", Body: "hello", CreatedAt: now - 7200})
 	mustMsg(t, e.st, store.Message{AccountID: acct.ID, ContactFpr: fpr, ThreadID: th.ID, MsgID: "out1",
 		Direction: "out", Sender: "human", Kind: "text", Status: "pending", Body: "hi", CreatedAt: now - 60})
-	if err := e.st.SetMessageAttempt(ctx, acct.ID, fpr, "out1", 3, now+60); err != nil {
-		t.Fatal(err)
+	for range 3 {
+		if ok, err := e.st.ClaimMessageAttempt(ctx, acct.ID, fpr, "out1", now+60, now+60, true); err != nil || !ok {
+			t.Fatalf("claim: %v %v", ok, err)
+		}
 	}
 
 	q := url.Values{"account": {acct.ID}, "contact": {fpr}}

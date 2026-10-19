@@ -121,7 +121,7 @@ function Group({ title, rows }: { title: string; rows: SettingRow[] }) {
         ].filter(Boolean).join(" · ");
         const tip = [r.help, r.locked && `Locked: ${r.reason}`].filter(Boolean).join(" ");
         const control = r.kind === "bool" ? (
-          <input type="checkbox" name={r.key} value="1" defaultChecked={r.value === "true" || r.value === "1"} disabled={r.locked} />
+          <input type="checkbox" name={r.key} value="1" defaultChecked={r.value === "true"} disabled={r.locked} />
         ) : r.kind === "select" ? (
           <select name={r.key} defaultValue={r.value} disabled={r.locked}>
             {(r.options ?? []).map((o) => <option key={o}>{o}</option>)}

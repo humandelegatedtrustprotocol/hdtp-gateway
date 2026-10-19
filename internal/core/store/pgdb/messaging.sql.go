@@ -9,6 +9,43 @@ import (
 	"context"
 )
 
+const claimMessageAttempt = `-- name: ClaimMessageAttempt :execrows
+UPDATE messages SET attempts = attempts + $1, next_attempt_at = $2
+WHERE account_id = $3 AND contact_fpr = $4 AND msg_id = $5 AND direction = 'out'
+  AND status = 'pending' AND next_attempt_at <= $6
+`
+
+type ClaimMessageAttemptParams struct {
+	Attempts        int64
+	NextAttemptAt   int64
+	AccountID       string
+	ContactFpr      string
+	MsgID           string
+	NextAttemptAt_2 int64
+}
+
+// ClaimMessageAttempt takes the next delivery attempt of an outbound message:
+// it holds the message until next_attempt_at, and adds the given count (0 or 1)
+// to attempts. It changes nothing, and so claims nothing, unless the message is
+// still pending and due, so one attempt is in flight at a time and a sweep
+// reading an old list cannot send again what another attempt is sending or has
+// delivered. Backoff is a function of attempts MADE, so the count has to
+// survive the attempt.
+func (q *Queries) ClaimMessageAttempt(ctx context.Context, arg ClaimMessageAttemptParams) (int64, error) {
+	result, err := q.db.Exec(ctx, claimMessageAttempt,
+		arg.Attempts,
+		arg.NextAttemptAt,
+		arg.AccountID,
+		arg.ContactFpr,
+		arg.MsgID,
+		arg.NextAttemptAt_2,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const conversationHasMessage = `-- name: ConversationHasMessage :one
 SELECT COUNT(*) FROM messages m JOIN threads t ON t.account_id = m.account_id AND t.id = m.thread_id
 WHERE m.account_id = $1 AND t.contact_fpr = $2 AND m.seq = $3
@@ -56,6 +93,28 @@ func (q *Queries) CountMediaNaming(ctx context.Context, arg CountMediaNamingPara
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const countMessageAttempt = `-- name: CountMessageAttempt :execrows
+UPDATE messages SET attempts = attempts + 1
+WHERE account_id = $1 AND contact_fpr = $2 AND msg_id = $3 AND direction = 'out' AND status = 'pending'
+`
+
+type CountMessageAttemptParams struct {
+	AccountID  string
+	ContactFpr string
+	MsgID      string
+}
+
+// CountMessageAttempt counts an attempt its claim did not: a send's own first
+// attempt is counted when it fails, so a message whose first attempt is still
+// under way reads attempts = 0.
+func (q *Queries) CountMessageAttempt(ctx context.Context, arg CountMessageAttemptParams) (int64, error) {
+	result, err := q.db.Exec(ctx, countMessageAttempt, arg.AccountID, arg.ContactFpr, arg.MsgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const deleteBlob = `-- name: DeleteBlob :execrows
@@ -853,36 +912,6 @@ type SetMediaBodyParams struct {
 // A media message's description, rewritten: a URL the owner fetched now names the file it fetched.
 func (q *Queries) SetMediaBody(ctx context.Context, arg SetMediaBodyParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setMediaBody, arg.Body, arg.AccountID, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const setMessageAttempt = `-- name: SetMessageAttempt :execrows
-UPDATE messages SET attempts = $1, next_attempt_at = $2
-WHERE account_id = $3 AND contact_fpr = $4 AND msg_id = $5 AND direction = 'out'
-`
-
-type SetMessageAttemptParams struct {
-	Attempts      int64
-	NextAttemptAt int64
-	AccountID     string
-	ContactFpr    string
-	MsgID         string
-}
-
-// SetMessageAttempt records that a delivery attempt was made and when the next
-// one is due. Backoff is a function of attempts MADE, so the count has to
-// survive the sweep that made it.
-func (q *Queries) SetMessageAttempt(ctx context.Context, arg SetMessageAttemptParams) (int64, error) {
-	result, err := q.db.Exec(ctx, setMessageAttempt,
-		arg.Attempts,
-		arg.NextAttemptAt,
-		arg.AccountID,
-		arg.ContactFpr,
-		arg.MsgID,
-	)
 	if err != nil {
 		return 0, err
 	}

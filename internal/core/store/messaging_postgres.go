@@ -68,19 +68,26 @@ func (s *Postgres) SetMessageStatus(ctx context.Context, accountID, contactFpr, 
 	return nil
 }
 
-// SetMessageAttempt records a delivery attempt and when the next one is due.
-func (s *Postgres) SetMessageAttempt(ctx context.Context, accountID, contactFpr, msgID string, attempts, nextAt int64) error {
-	n, err := s.q.SetMessageAttempt(ctx, pgdb.SetMessageAttemptParams{
-		Attempts: attempts, NextAttemptAt: nextAt,
+// ClaimMessageAttempt takes an outbound message's next delivery attempt, holding it until nextAt
+// and counting it when counted is true.
+func (s *Postgres) ClaimMessageAttempt(ctx context.Context, accountID, contactFpr, msgID string, now, nextAt int64, counted bool) (bool, error) {
+	var add int64
+	if counted {
+		add = 1
+	}
+	n, err := s.q.ClaimMessageAttempt(ctx, pgdb.ClaimMessageAttemptParams{
+		Attempts: add, NextAttemptAt: nextAt, NextAttemptAt_2: now,
 		AccountID: accountID, ContactFpr: contactFpr, MsgID: msgID,
 	})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	return n == 1, err
+}
+
+// CountMessageAttempt counts an attempt its claim did not count.
+func (s *Postgres) CountMessageAttempt(ctx context.Context, accountID, contactFpr, msgID string) error {
+	_, err := s.q.CountMessageAttempt(ctx, pgdb.CountMessageAttemptParams{
+		AccountID: accountID, ContactFpr: contactFpr, MsgID: msgID,
+	})
+	return err
 }
 
 // InsertMessage inserts a message, defaulting its id and an empty kind to "text". A msg_id already

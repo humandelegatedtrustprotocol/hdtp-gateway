@@ -57,6 +57,27 @@ func (e notActive) Error() string { return "send: contact is " + e.status + ", n
 // codes it conflict.
 func (e notActive) Is(target error) bool { return target == contacts.ErrWrongState }
 
+// notServing is why a send names an identity this node does not serve. One the store holds is
+// awaiting the certificate its wallet issues, or could not be loaded (both audited at start): that
+// is its state, so a door answers conflict. One the store does not hold is not_found. Both
+// answered internal (#207).
+func (n *Node) notServing(ctx context.Context, accountID string) error {
+	rec, err := n.opts.Store.GetAccountByID(ctx, accountID)
+	if errors.Is(err, store.ErrNotFound) {
+		return refusal.NotFound("send: unknown account", err)
+	}
+	if err != nil {
+		return err
+	}
+	n.mu.RLock()
+	_, awaiting := n.awaiting[rec.Slug]
+	n.mu.RUnlock()
+	if awaiting {
+		return refusal.Conflict("send: "+rec.Slug+" has no certificate yet, so it cannot send: its wallet issues one", nil)
+	}
+	return refusal.Conflict("send: "+rec.Slug+" is not serving on this node", nil)
+}
+
 // SendMessage records an owner-composed message and delivers it to the contact.
 //
 // It returns the recorded result even when delivery fails: the message exists
@@ -67,7 +88,7 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 	acct := n.accounts[accountID]
 	n.mu.RUnlock()
 	if acct == nil {
-		return messaging.Result{}, fmt.Errorf("send: unknown account")
+		return messaging.Result{}, n.notServing(ctx, accountID)
 	}
 	c, err := n.opts.Store.GetContact(ctx, accountID, contactFpr)
 	if errors.Is(err, store.ErrNotFound) {
@@ -88,6 +109,9 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 	// An idempotent replay of a msg_id already delivered must not send twice.
 	if res.Status == messaging.StatusDelivered {
 		return res, nil
+	}
+	if held, err := n.claimFirstAttempt(ctx, accountID, contactFpr, in.MsgID, core.ToolSendMessage); held || err != nil {
+		return res, err
 	}
 
 	exp := time.Now().Add(store.DefaultMessageExpiry)
@@ -112,7 +136,7 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 		// Why it did not land, not just that it did not: a retry that succeeds
 		// leaves a trail that otherwise explains nothing.
 		n.auditFor(accountID, core.ToolSendMessage, "contact:"+contactFpr+" "+WhyFailed(derr), "undelivered")
-		return res, derr
+		return res, n.firstAttemptFailed(ctx, accountID, contactFpr, in.MsgID, derr)
 	}
 	status := messaging.StatusDelivered
 	// Same reasoning: a delivery that succeeded must be RECORDED as delivered
@@ -136,7 +160,7 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 	acct := n.accounts[accountID]
 	n.mu.RUnlock()
 	if acct == nil {
-		return messaging.Result{}, fmt.Errorf("send: unknown account")
+		return messaging.Result{}, n.notServing(ctx, accountID)
 	}
 	c, err := n.opts.Store.GetContact(ctx, accountID, contactFpr)
 	if errors.Is(err, store.ErrNotFound) {
@@ -155,13 +179,16 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 	if res.Status == messaging.StatusDelivered {
 		return res, nil
 	}
+	if held, err := n.claimFirstAttempt(ctx, accountID, contactFpr, in.MsgID, core.ToolSendMedia); held || err != nil {
+		return res, err
+	}
 	// Same reasoning as SendMessage: the row exists, so delivery is the node's
 	// job and must outlive the caller's request.
 	dctx, cancelDelivery := context.WithTimeout(context.WithoutCancel(ctx), deliveryBudget)
 	defer cancelDelivery()
 	if derr := n.deliverMedia(dctx, accountID, c, in.MsgID, res.ThreadID, string(in.Label()), filename, mime, data); derr != nil {
 		n.auditFor(accountID, core.ToolSendMedia, "contact:"+contactFpr+" "+WhyFailed(derr), "undelivered")
-		return res, derr
+		return res, n.firstAttemptFailed(ctx, accountID, contactFpr, in.MsgID, derr)
 	}
 	if err := n.setStatus(context.WithoutCancel(ctx), accountID, contactFpr, in.MsgID, res.ThreadID, messaging.StatusDelivered); err != nil {
 		return res, err
@@ -169,6 +196,40 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 	n.auditFor(accountID, core.ToolSendMedia, "contact:"+contactFpr, messaging.StatusDelivered)
 	res.Status = messaging.StatusDelivered
 	return res, nil
+}
+
+// firstHold is how long a send's own attempt holds its message: the attempt's whole budget, plus
+// the second a clock read in whole seconds can lose, so the hold never ends before the attempt.
+const firstHold = int64(deliveryBudget/time.Second) + 1
+
+// claimFirstAttempt claims the attempt a send makes on its caller's behalf, holding the message
+// for that attempt's whole budget (firstHold), so the retry sweep can neither send it again while
+// the attempt is under way nor after it has landed. The claim does not count the attempt: a
+// message whose first attempt is still under way reads Attempts 0, which the portal shows as
+// sending, and the attempt is counted when it fails (firstAttemptFailed). held reports that the
+// claim was refused: another attempt holds the message, or it is no longer pending. Nothing is
+// sent then; the message stays as it is and the sweep owns it, and the send answers the recorded
+// result.
+func (n *Node) claimFirstAttempt(ctx context.Context, accountID, contactFpr, msgID, tool string) (held bool, err error) {
+	now := n.now().Unix()
+	claimed, err := n.opts.Store.ClaimMessageAttempt(ctx, accountID, contactFpr, msgID, now, now+firstHold, false)
+	if err != nil {
+		return false, err
+	}
+	if !claimed {
+		n.auditFor(accountID, tool, "contact:"+contactFpr+" msg:"+msgID+" why:another attempt holds it", messaging.StatusPending)
+	}
+	return !claimed, nil
+}
+
+// firstAttemptFailed counts a send's own attempt once it has failed, so the message reads as
+// waiting on the retry sweep (Attempts 1) rather than as still being sent. It returns the
+// delivery's error, joined with the store's if the count could not be written.
+func (n *Node) firstAttemptFailed(ctx context.Context, accountID, contactFpr, msgID string, derr error) error {
+	if err := n.opts.Store.CountMessageAttempt(context.WithoutCancel(ctx), accountID, contactFpr, msgID); err != nil {
+		return errors.Join(derr, err)
+	}
+	return derr
 }
 
 // deliverMedia is one direct attempt at the peer's send_media (HDTP §6.2).
@@ -213,9 +274,7 @@ func (n *Node) retryMedia(ctx context.Context, m store.Message, c store.Contact,
 	if err != nil {
 		return false
 	}
-	attempt := m.Attempts + 1
-	if err := n.opts.Store.SetMessageAttempt(ctx, m.AccountID, m.ContactFpr, m.MsgID,
-		attempt, now+int64(retryDelay(attempt)/time.Second)); err != nil {
+	if !n.claimRetry(ctx, m, now) {
 		return false
 	}
 	if err := n.deliverMedia(ctx, m.AccountID, c, m.MsgID, m.ThreadID, m.Sender, meta.Filename, meta.Mime, data); err != nil {
@@ -353,6 +412,17 @@ func retryDelay(attempts int64) time.Duration {
 // this column existed) is due immediately.
 func retryDue(m store.Message, now int64) bool { return now >= m.NextAttemptAt }
 
+// claimRetry claims the sweep's attempt at m, and reports whether it holds it. The attempt is
+// recorded BEFORE trying, so a delivery that panics or a process that dies mid-send cannot leave
+// the row due on every sweep. The claim is the store's, not the list's: the list was read at the
+// start of the pass, and since then the send that recorded m may have made its own attempt or
+// delivered it, which a claim refuses (#219: a reply delivered, then delivered again on retry).
+func (n *Node) claimRetry(ctx context.Context, m store.Message, now int64) bool {
+	claimed, err := n.opts.Store.ClaimMessageAttempt(ctx, m.AccountID, m.ContactFpr, m.MsgID,
+		now, now+int64(retryDelay(m.Attempts+1)/time.Second), true)
+	return err == nil && claimed
+}
+
 // RetryPending re-attempts undelivered outbound messages and reports how many it
 // delivered and how many it gave up on.
 //
@@ -399,11 +469,7 @@ func (n *Node) RetryPending(ctx context.Context) (delivered, expired int) {
 			MsgID: m.MsgID, ThreadID: m.ThreadID, Text: m.Body,
 			ReplyTo: m.ReplyTo, Sender: messaging.Sender(m.Sender), Origin: messaging.OriginStored,
 		}
-		// Record the attempt BEFORE trying, so a delivery that panics or a
-		// process that dies mid-send cannot leave the row due on every sweep.
-		attempt := m.Attempts + 1
-		if err := n.opts.Store.SetMessageAttempt(ctx, m.AccountID, m.ContactFpr, m.MsgID,
-			attempt, now+int64(retryDelay(attempt)/time.Second)); err != nil {
+		if !n.claimRetry(ctx, m, now) {
 			continue
 		}
 		if err := n.deliverWithExpiry(ctx, m.AccountID, c, in, m.ThreadID,

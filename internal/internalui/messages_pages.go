@@ -622,7 +622,9 @@ func previewOf(ctx context.Context, st store.MessageStore, account string,
 // still in flight (nothing has gone wrong; the first attempt runs inline and
 // has a 30s budget) from one that has already failed and is waiting on the
 // retry sweep. Showing both as "not delivered yet — retrying" made every
-// normal send look like a failure for as long as it took to succeed.
+// normal send look like a failure for as long as it took to succeed. The
+// first attempt is counted only when it fails (node.claimFirstAttempt), so
+// Attempts 0 is that attempt under way and anything more is the sweep's.
 func deliveryState(m store.Message) string {
 	if m.Direction != "out" {
 		return ""

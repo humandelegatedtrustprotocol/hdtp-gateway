@@ -83,6 +83,13 @@ services:
     image: alpine/socat:latest@sha256:82ad20f6f6e29b91ff33b6662d24063522b1378f08fd8569cd3ab412cac13f50
     restart: unless-stopped
     network_mode: "service:hdtp-gateway"
+    # The node's process namespace too, so the forwarder dies with the node and its restart policy
+    # brings it back inside the node's NEW network. A restart the runtime makes (a crash,
+    # `docker restart`) does not go through Compose, and the forwarder kept the old network, where
+    # nothing listens, until it was restarted by hand (#204). With no capabilities, the forwarder's
+    # root cannot signal or trace the node's processes, which run as another user.
+    pid: "service:hdtp-gateway"
+    cap_drop: [ALL]
     # restart: Compose restarts the forwarder whenever Compose restarts the node: it shares the
     # node's network, and after `docker compose restart hdtp-gateway` it answered nothing until it
     # was restarted too (#169).
