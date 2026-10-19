@@ -24,6 +24,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/asks"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/auditsink"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/integrationchain"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/presence"
@@ -75,7 +76,10 @@ type serveRun struct {
 	auditFn func(action, resource, outcome string)
 	ownerFn func(action, resource, outcome string)
 	// hooks is the one webhooks service: the portal's Webhooks page and the dispatcher both call it.
-	hooks   *webhooks.Service
+	hooks *webhooks.Service
+	// asks is the one asks service: the portal's cards and Needs you page, the owner MCP's tools and
+	// the expiry sweep all call it. Built once the node exists, as its answers send through it.
+	asks    *asks.Service
 	auditAs func(kind, action, resource, outcome string)
 	// auditChecked is auditFn for a writer that must know its row was written (the trail archive).
 	auditChecked func(action, resource, outcome string) error
@@ -364,6 +368,7 @@ func (s *serveRun) startNode() error {
 		return err
 	}
 	s.nd = nd
+	s.asks = asks.New(st, bus, nd.SendMessage, s.ownerFn, s.auditFn)
 	return nd.Start(ctx, s.info.Listener)
 }
 
@@ -507,7 +512,7 @@ func (s *serveRun) startBackground(bgCtx context.Context, background *sync.WaitG
 	nd := s.nd
 	// The leases on work only one process on the store may run (SPEC §11.1): taken once before
 	// that work first asks, then kept on a clock of their own.
-	leases := newLeaseKeeper(s.st, s.holder, s.stderr, "retries", "retention", webhooks.LeaseName)
+	leases := newLeaseKeeper(s.st, s.holder, s.stderr, "retries", "retention", webhooks.LeaseName, asks.LeaseName)
 	leases.renew(bgCtx)
 	background.Go(func() { leases.Run(bgCtx) })
 	// What other node processes on this store publish reaches this one's waiters (SPEC §7.8).
@@ -548,6 +553,13 @@ func (s *serveRun) startBackground(bgCtx context.Context, background *sync.WaitG
 	// lease.
 	hooks := webhooks.NewDispatcher(s.hooks, s.bus, leases.leading(webhooks.LeaseName), s.version, s.stderr)
 	background.Go(func() { hooks.Run(bgCtx) })
+
+	// ---- asks: an ask the owner left unanswered expires (internal/services/asks) ----
+	// Read as expired at once by every door; the sweep writes it, audits it as the system and tells
+	// the agent, while this process holds the lease.
+	background.Go(func() {
+		s.asks.Run(bgCtx, leases.leading(asks.LeaseName), func(err error) { fmt.Fprintf(s.stderr, "asks: %v\n", err) })
+	})
 
 	// There is no contact sweep here. There was: every active contact of every account had its
 	// card re-fetched two minutes after start and every six hours after. The owner's rule is that
@@ -636,7 +648,7 @@ func (s *serveRun) internalSurface() http.Handler {
 		},
 	}
 	return internalHandler(ctx, nd, st, setup, s.tokSvc, s.authSvc, s.chain, s.connector, s.agent, s.presence, identityDeps,
-		setStatic, setOAuthClient, s.ownerFn, s.hooks,
+		setStatic, setOAuthClient, s.ownerFn, s.hooks, s.asks,
 		cfg.PublicURL, s.settings.Deps(), authDeps, cfg, s.spawn,
 		func(err error) { fmt.Fprintf(s.stderr, "messaging: %v\n", err) })
 }
