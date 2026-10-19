@@ -46,6 +46,11 @@ changelog can be and is not summarized into a fictional release history.
   not be loaded) answered `internal` on the owner MCP's `send_to_contact` and the portal (#207). It
   is now `conflict`, naming the identity's state, and an identity the store does not hold is
   `not_found`.
+- Every `send_to_contact` an agent made opened a new thread on both nodes (#232). A send without
+  `thread_id` starts a new thread (HDTP §7, as the cloud's does), and nothing the tool said told its
+  caller so: its description named no thread, and `thread_id` had no description. Both now say that
+  a reply or a follow-up names the `thread_id` `get_inbox` lists, or the `ThreadID` the send
+  answered. What a send does is unchanged.
 - A sent message could be sent twice: once by the send and again by the retry sweep, which
   audited it `delivered` and then `delivered_on_retry` (#219). The sweep's list showed the message
   pending with no attempt made while the send's first attempt was still under way, or after it had
