@@ -135,7 +135,7 @@ export function AskCard({ ask, from, onAnswered }: { ask: Ask; from?: string; on
   };
 
   return (
-    <article className={"ask-card " + ask.kind + (live ? " live" : "")} aria-label={ask.kind === "ask" ? "Your agent asks" : "Your agent did"}>
+    <article className={"ask-card " + (ask.kind === "notice" ? "told" : "asked") + (live ? " live" : "")} aria-label={ask.kind === "ask" ? "Your agent asks" : "Your agent did"}>
       <div className="ask-h">
         <Badge tone={live ? "warn" : ask.status === "posted" || ask.status === "answered" ? "ok" : "neutral"}>{ask.kind === "ask" ? "Your agent asks" : "Your agent did"}</Badge>
         {from && <b>{from}</b>}
