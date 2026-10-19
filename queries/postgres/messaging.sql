@@ -104,15 +104,23 @@ SELECT COUNT(*) FROM blobs WHERE hash = $1;
 UPDATE messages SET status = $1 WHERE account_id = $2 AND contact_fpr = $3 AND msg_id = $4 AND direction = 'out';
 
 -- ClaimMessageAttempt takes the next delivery attempt of an outbound message:
--- it counts the attempt and holds the message until next_attempt_at. It changes
--- nothing, and so claims nothing, unless the message is still pending and due,
--- so one attempt is in flight at a time and a sweep reading an old list cannot
--- send again what another attempt is sending or has delivered. Backoff is a
--- function of attempts MADE, so the count has to survive the attempt.
+-- it holds the message until next_attempt_at, and adds the given count (0 or 1)
+-- to attempts. It changes nothing, and so claims nothing, unless the message is
+-- still pending and due, so one attempt is in flight at a time and a sweep
+-- reading an old list cannot send again what another attempt is sending or has
+-- delivered. Backoff is a function of attempts MADE, so the count has to
+-- survive the attempt.
 -- name: ClaimMessageAttempt :execrows
-UPDATE messages SET attempts = attempts + 1, next_attempt_at = $1
-WHERE account_id = $2 AND contact_fpr = $3 AND msg_id = $4 AND direction = 'out'
-  AND status = 'pending' AND next_attempt_at <= $5;
+UPDATE messages SET attempts = attempts + $1, next_attempt_at = $2
+WHERE account_id = $3 AND contact_fpr = $4 AND msg_id = $5 AND direction = 'out'
+  AND status = 'pending' AND next_attempt_at <= $6;
+
+-- CountMessageAttempt counts an attempt its claim did not: a send's own first
+-- attempt is counted when it fails, so a message whose first attempt is still
+-- under way reads attempts = 0.
+-- name: CountMessageAttempt :execrows
+UPDATE messages SET attempts = attempts + 1
+WHERE account_id = $1 AND contact_fpr = $2 AND msg_id = $3 AND direction = 'out' AND status = 'pending';
 
 -- ListPendingOutbound is the retry sweeper's work list (SPEC sec. 7.1): outbound
 -- messages still awaiting delivery, oldest first.

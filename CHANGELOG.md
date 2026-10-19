@@ -51,8 +51,10 @@ changelog can be and is not summarized into a fictional release history.
   pending with no attempt made while the send's first attempt was still under way, or after it had
   landed. The receiver dropped the duplicate, so it showed once. Every attempt now claims the
   message in the store first (`ClaimMessageAttempt`), and only a pending message that is due can be
-  claimed. The send's own attempt holds it for its 30-second budget, so a first attempt that fails
-  is retried once those 30 seconds have passed. A send replayed under its `msg_id` while another
+  claimed. The send's own attempt holds it for its 30-second budget and one second more, so a
+  first attempt that fails is retried once those 31 seconds have passed. That attempt is counted
+  only when it fails, so the portal shows a message whose first attempt is under way as sending,
+  and one whose first attempt failed as retrying. A send replayed under its `msg_id` while another
   attempt holds the message is answered `pending`, and nothing is sent.
 - `npm audit` in `web/` reported two high advisories (#213), both in build tools the portal's
   bundle does not contain: `brace-expansion` 5.0.9 (under ESLint's `minimatch`; GHSA-q2hr-2g5m-vwhr,

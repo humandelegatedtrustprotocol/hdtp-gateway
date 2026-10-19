@@ -2,11 +2,17 @@ package node
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 )
@@ -106,8 +112,9 @@ func TestASweepDuringTheFirstAttemptDoesNotSendTheMessageAgain(t *testing.T) {
 	}
 }
 
-// The control: a first attempt that really fails holds the message only for its budget. Before
-// that the sweep leaves it; just after it, the sweep delivers it, once.
+// The control: a first attempt that really fails holds the message only for its budget, and the
+// second a whole-second clock can lose. Until then the sweep leaves it; just after, the sweep
+// delivers it, once.
 func TestAFailedFirstAttemptIsRetriedOnceItsHoldEnds(t *testing.T) {
 	ctx := context.Background()
 	alina, bharat, dn, clock := pairedForRetry(t)
@@ -128,9 +135,9 @@ func TestAFailedFirstAttemptIsRetriedOnceItsHoldEnds(t *testing.T) {
 		t.Fatalf("the send replayed during the hold reached the receiver %d times", got)
 	}
 
-	clock.advance(deliveryBudget - time.Second)
+	clock.advance(deliveryBudget)
 	if delivered, _ := bharat.n.RetryPending(ctx); delivered != 0 {
-		t.Fatalf("the sweep delivered %d messages while the first attempt's hold lasted", delivered)
+		t.Fatalf("the sweep delivered %d messages at the end of the first attempt's budget, while its hold lasted", delivered)
 	}
 	clock.advance(time.Second)
 	if delivered, _ := bharat.n.RetryPending(ctx); delivered != 1 {
@@ -147,5 +154,69 @@ func TestAFailedFirstAttemptIsRetriedOnceItsHoldEnds(t *testing.T) {
 	}
 	if !alina.received("still there?") {
 		t.Error("the receiver does not hold the message")
+	}
+}
+
+// portalState is the state the portal's conversation answer gives bharat's message msgID: what the
+// inbox draws as a clock (sending) or as "not delivered yet, trying again" (retrying).
+func portalState(bharat *demoNode, contactFpr, msgID string) (string, error) {
+	mux := http.NewServeMux()
+	internalui.MountMessagePages(mux, internalui.MessagesDeps{Store: bharat.st})
+	q := url.Values{"account": {bharat.acct.ID}, "contact": {contactFpr}}
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/api/conversations?"+q.Encode(), nil))
+	var got struct {
+		Messages []struct {
+			Body  string `json:"body"`
+			State string `json:"state"`
+		} `json:"messages"`
+	}
+	if rr.Code != 200 || json.Unmarshal(rr.Body.Bytes(), &got) != nil {
+		return "", fmt.Errorf("/api/conversations: %d %s", rr.Code, rr.Body)
+	}
+	m, err := bharat.st.GetMessageByMsgID(context.Background(), bharat.acct.ID, contactFpr, "out", msgID)
+	if err != nil {
+		return "", err
+	}
+	for _, cm := range got.Messages {
+		if cm.Body == m.Body {
+			return cm.State, nil
+		}
+	}
+	return "", fmt.Errorf("/api/conversations does not hold %s", msgID)
+}
+
+// While a send's first attempt is under way the portal says it is being sent; once that attempt
+// has failed, that it is waiting to be tried again. The attempt's claim counted it before it was
+// made, so every normal send read as a failure for as long as it took to land.
+func TestThePortalShowsAFirstAttemptAsSendingAndAFailedOneAsRetrying(t *testing.T) {
+	ctx := context.Background()
+	alina, bharat, dn, _ := pairedForRetry(t)
+
+	var once sync.Once
+	var during string
+	var duringErr error
+	alina.onAudit(func(string) {
+		once.Do(func() { during, duringErr = portalState(bharat, alina.rootFpr(), "s1") })
+	})
+	if res, err := bharat.n.SendMessage(ctx, bharat.acct.ID, alina.rootFpr(), messaging.Input{MsgID: "s1", Text: "first", Origin: messaging.OriginMCP}); err != nil || res.Status != messaging.StatusDelivered {
+		t.Fatalf("the send: %+v, %v", res, err)
+	}
+	if duringErr != nil {
+		t.Fatal(duringErr)
+	}
+	if during != "sending" {
+		t.Errorf("during the first attempt the portal showed %q, want sending", during)
+	}
+	if got, err := portalState(bharat, alina.rootFpr(), "s1"); err != nil || got != "delivered" {
+		t.Errorf("after it landed the portal showed %q (%v), want delivered", got, err)
+	}
+
+	dn.set(alina.host, "127.0.0.1:1")
+	if _, err := bharat.n.SendMessage(ctx, bharat.acct.ID, alina.rootFpr(), messaging.Input{MsgID: "s2", Text: "second", Origin: messaging.OriginMCP}); err == nil {
+		t.Fatal("a send to an address that does not answer was delivered")
+	}
+	if got, err := portalState(bharat, alina.rootFpr(), "s2"); err != nil || got != "retrying" {
+		t.Errorf("after the first attempt failed the portal showed %q (%v), want retrying", got, err)
 	}
 }

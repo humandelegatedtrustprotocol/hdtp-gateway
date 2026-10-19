@@ -81,29 +81,40 @@ func messages(t *testing.T, newStore Factory) {
 				t.Fatal(err)
 			}
 		}
-		claim := func(now, next int64) bool {
+		claim := func(now, next int64, counted bool) bool {
 			t.Helper()
-			ok, err := s.ClaimMessageAttempt(ctx, a.ID, "sha256:p", "m1", now, next)
+			ok, err := s.ClaimMessageAttempt(ctx, a.ID, "sha256:p", "m1", now, next, counted)
 			if err != nil {
 				t.Fatal(err)
 			}
 			return ok
 		}
-		if !claim(100, 130) {
+		attempts := func() (int64, int64) {
+			t.Helper()
+			out, err := s.GetMessageByMsgID(ctx, a.ID, "sha256:p", "out", "m1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return out.Attempts, out.NextAttemptAt
+		}
+		// A send's own first attempt: held, not counted until it fails.
+		if !claim(100, 131, false) {
 			t.Fatal("a fresh pending message could not be claimed")
 		}
-		if claim(129, 160) {
+		if n, next := attempts(); n != 0 || next != 131 {
+			t.Fatalf("after an uncounted claim: attempts %d, next %d; want 0, 131", n, next)
+		}
+		if claim(130, 160, true) {
 			t.Fatal("a message another attempt holds was claimed again before its hold ended")
 		}
-		if !claim(130, 190) {
-			t.Fatal("a message whose hold had ended could not be claimed")
-		}
-		out, err := s.GetMessageByMsgID(ctx, a.ID, "sha256:p", "out", "m1")
-		if err != nil {
+		if err := s.CountMessageAttempt(ctx, a.ID, "sha256:p", "m1"); err != nil {
 			t.Fatal(err)
 		}
-		if out.Attempts != 2 || out.NextAttemptAt != 190 {
-			t.Fatalf("after two claims: attempts %d, next %d; want 2, 190", out.Attempts, out.NextAttemptAt)
+		if !claim(131, 190, true) {
+			t.Fatal("a message whose hold had ended could not be claimed")
+		}
+		if n, next := attempts(); n != 2 || next != 190 {
+			t.Fatalf("after a failed first attempt and a counted claim: attempts %d, next %d; want 2, 190", n, next)
 		}
 		in, err := s.GetMessageByMsgID(ctx, a.ID, "sha256:p", "in", "m1")
 		if err != nil {
@@ -115,10 +126,16 @@ func messages(t *testing.T, newStore Factory) {
 		if err := s.SetMessageStatus(ctx, a.ID, "sha256:p", "m1", "delivered"); err != nil {
 			t.Fatal(err)
 		}
-		if claim(1000, 1030) {
+		if claim(1000, 1030, true) {
 			t.Fatal("a delivered message was claimed for another attempt")
 		}
-		if ok, err := s.ClaimMessageAttempt(ctx, a.ID, "sha256:p", "absent", 1000, 1030); err != nil || ok {
+		if err := s.CountMessageAttempt(ctx, a.ID, "sha256:p", "m1"); err != nil {
+			t.Fatal(err)
+		}
+		if n, _ := attempts(); n != 2 {
+			t.Fatalf("a delivered message's attempts were counted again: %d", n)
+		}
+		if ok, err := s.ClaimMessageAttempt(ctx, a.ID, "sha256:p", "absent", 1000, 1030, true); err != nil || ok {
 			t.Fatalf("a message that does not exist: claimed %v, %v", ok, err)
 		}
 	})

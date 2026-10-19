@@ -136,7 +136,7 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 		// Why it did not land, not just that it did not: a retry that succeeds
 		// leaves a trail that otherwise explains nothing.
 		n.auditFor(accountID, core.ToolSendMessage, "contact:"+contactFpr+" "+WhyFailed(derr), "undelivered")
-		return res, derr
+		return res, n.firstAttemptFailed(ctx, accountID, contactFpr, in.MsgID, derr)
 	}
 	status := messaging.StatusDelivered
 	// Same reasoning: a delivery that succeeded must be RECORDED as delivered
@@ -188,7 +188,7 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 	defer cancelDelivery()
 	if derr := n.deliverMedia(dctx, accountID, c, in.MsgID, res.ThreadID, string(in.Label()), filename, mime, data); derr != nil {
 		n.auditFor(accountID, core.ToolSendMedia, "contact:"+contactFpr+" "+WhyFailed(derr), "undelivered")
-		return res, derr
+		return res, n.firstAttemptFailed(ctx, accountID, contactFpr, in.MsgID, derr)
 	}
 	if err := n.setStatus(context.WithoutCancel(ctx), accountID, contactFpr, in.MsgID, res.ThreadID, messaging.StatusDelivered); err != nil {
 		return res, err
@@ -198,14 +198,21 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 	return res, nil
 }
 
+// firstHold is how long a send's own attempt holds its message: the attempt's whole budget, plus
+// the second a clock read in whole seconds can lose, so the hold never ends before the attempt.
+const firstHold = int64(deliveryBudget/time.Second) + 1
+
 // claimFirstAttempt claims the attempt a send makes on its caller's behalf, holding the message
-// for that attempt's whole budget (deliveryBudget), so the retry sweep can neither send it again
-// while the attempt is under way nor after it has landed. held reports that the claim was refused:
-// another attempt holds the message, or it is no longer pending. Nothing is sent then; the message
-// stays as it is and the sweep owns it, and the send answers the recorded result.
+// for that attempt's whole budget (firstHold), so the retry sweep can neither send it again while
+// the attempt is under way nor after it has landed. The claim does not count the attempt: a
+// message whose first attempt is still under way reads Attempts 0, which the portal shows as
+// sending, and the attempt is counted when it fails (firstAttemptFailed). held reports that the
+// claim was refused: another attempt holds the message, or it is no longer pending. Nothing is
+// sent then; the message stays as it is and the sweep owns it, and the send answers the recorded
+// result.
 func (n *Node) claimFirstAttempt(ctx context.Context, accountID, contactFpr, msgID, tool string) (held bool, err error) {
 	now := n.now().Unix()
-	claimed, err := n.opts.Store.ClaimMessageAttempt(ctx, accountID, contactFpr, msgID, now, now+int64(deliveryBudget/time.Second))
+	claimed, err := n.opts.Store.ClaimMessageAttempt(ctx, accountID, contactFpr, msgID, now, now+firstHold, false)
 	if err != nil {
 		return false, err
 	}
@@ -213,6 +220,16 @@ func (n *Node) claimFirstAttempt(ctx context.Context, accountID, contactFpr, msg
 		n.auditFor(accountID, tool, "contact:"+contactFpr+" msg:"+msgID+" why:another attempt holds it", messaging.StatusPending)
 	}
 	return !claimed, nil
+}
+
+// firstAttemptFailed counts a send's own attempt once it has failed, so the message reads as
+// waiting on the retry sweep (Attempts 1) rather than as still being sent. It returns the
+// delivery's error, joined with the store's if the count could not be written.
+func (n *Node) firstAttemptFailed(ctx context.Context, accountID, contactFpr, msgID string, derr error) error {
+	if err := n.opts.Store.CountMessageAttempt(context.WithoutCancel(ctx), accountID, contactFpr, msgID); err != nil {
+		return errors.Join(derr, err)
+	}
+	return derr
 }
 
 // deliverMedia is one direct attempt at the peer's send_media (HDTP §6.2).
@@ -402,7 +419,7 @@ func retryDue(m store.Message, now int64) bool { return now >= m.NextAttemptAt }
 // delivered it, which a claim refuses (#219: a reply delivered, then delivered again on retry).
 func (n *Node) claimRetry(ctx context.Context, m store.Message, now int64) bool {
 	claimed, err := n.opts.Store.ClaimMessageAttempt(ctx, m.AccountID, m.ContactFpr, m.MsgID,
-		now, now+int64(retryDelay(m.Attempts+1)/time.Second))
+		now, now+int64(retryDelay(m.Attempts+1)/time.Second), true)
 	return err == nil && claimed
 }
 
