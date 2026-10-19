@@ -10,6 +10,35 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+### Added
+
+- Outbound webhooks, ported from BatonDeck (#209). An owner registers an endpoint on the portal's
+  *Webhooks* page, the one door (no owner MCP tool or CLI command touches one). The page also
+  rotates, pauses, resumes and removes an endpoint, and shows its delivery log. The node posts
+  `message.received`, `message.delivered`, `message.failed`, `media.received`, `request.pending`,
+  `request.answered` and `call.made` as the cloud's envelope (ids only, never content), signed in
+  the cloud's grammar under `X-HDTP-Signature`. Each event gets one attempt, never retried, with a
+  10 s timeout. 20 failures in a row pause the endpoint until the owner resumes it, and a rotated
+  secret stays accepted for 24 h. Unlike the cloud, `http://`, loopback, LAN and IP-literal URLs
+  are allowed, since only the owner can register one. The differences from the cloud are listed in
+  `internal/services/webhooks/README.md`.
+- The webhooks' parity with the cloud, held by `internal/services/webhooks/cloud_parity_test.go`,
+  which reads the sibling batondeck checkout. It checks:
+  - the subscribable names, less a named list the node does not emit;
+  - each event's data, or a named subset of it;
+  - the envelope, the signature and the constants;
+  - the refusals the node shares with the cloud, in the cloud's words;
+  - the endpoint and delivery views.
+
+  Every difference the webhooks README lists is checked by that test, and the test fails on a
+  difference it checks that the README does not list.
+- README: "Wake your agent with a webhook", with a receiver's verifier in Go and in JavaScript.
+  Both are read out of the README and run against what the node signs
+  (`readme_snippets_test.go`). The harness scenario
+  `TestAContactsMessageWakesTheOwnersAgentWithASignedWebhook` (`make harness`) runs one `serve`
+  process: a contact sends a message, and a receiver on loopback gets a signed `message.received`
+  and verifies it.
+
 ### Changed
 
 - **Breaking, owner MCP and portal answers** (one shape per operation, Building rule 1):

@@ -3,7 +3,8 @@
 // sharing one store, behind a round-robin proxy — once on one SQLite data dir, once on one
 // Postgres database with a data dir each. Hermetic: no Docker, no network beyond loopback. The
 // Postgres half runs where HDTP_TEST_POSTGRES_DSN names a server (the pre-push hook starts one),
-// and says it skipped where none is.
+// and says it skipped where none is. It also holds the webhooks' scenario (webhook_test.go): one
+// `serve` process posting a signed message.received to a receiver on loopback.
 package multiprocess
 
 import (
