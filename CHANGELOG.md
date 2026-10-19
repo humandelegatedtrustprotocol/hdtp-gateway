@@ -29,6 +29,11 @@ changelog can be and is not summarized into a fictional release history.
   not be turned on there (#221): the box posts `1`, and the save stored `true` only for a posted
   `true`. Every boolean knob is now read by one rule, `core.SettingTrue` (`true` or `1`), from the
   environment, the store and the portal alike.
+- After a crash or a `docker restart` of the node, the compose portal answered nothing until its
+  forwarder was restarted by hand (#204): a restart Compose does not make kept the forwarder in the
+  node's old network. The forwarder now shares the node's processes as well (`pid:
+  "service:hdtp-gateway"`, with `cap_drop: [ALL]`), so it stops with the node and its restart policy
+  brings it back; the portal answered 0.5 s after either.
 
 ### Removed
 

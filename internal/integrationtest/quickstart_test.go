@@ -81,10 +81,30 @@ func TestQuickstartCommandsAreServedByTheImageAndCompose(t *testing.T) {
 // The portal forwarder shares the node's network (network_mode service:hdtp-gateway), and after
 // `docker compose restart hdtp-gateway` it answered nothing until it was restarted too (#169). `restart: true` under its depends_on entry asks
 // Compose to restart it whenever Compose restarts the node (`docker compose restart hdtp-gateway`).
-// Whether Compose does the same after the runtime restarts a node that crashed is not measured here.
+// A restart the runtime makes (a crash, `docker restart`) does not go through Compose (#204): the
+// forwarder shares the node's process namespace too, so it dies with the node and its own restart
+// policy starts it again in the node's new network, and it holds no capabilities, so it cannot
+// signal or trace the node. Measured on Docker 29.8.2 on 2026-10-19 (docs/quickstart.md § 4).
 func TestThePortalForwarderRestartsWithTheNode(t *testing.T) {
 	root := repoRoot(t)
-	dep := at(readYAML(t, filepath.Join(root, "compose.yaml")), "services", "portal", "depends_on", "hdtp-gateway")
+	portal := at(readYAML(t, filepath.Join(root, "compose.yaml")), "services", "portal")
+	for _, c := range []struct {
+		key  string
+		want any
+		why  string
+	}{
+		{"network_mode", "service:hdtp-gateway", "the node's portal binds the container's loopback, which only its own network reaches"},
+		{"pid", "service:hdtp-gateway", "after a crash or `docker restart` the forwarder keeps the node's old network, where nothing listens, unless it dies with the node"},
+		{"restart", "unless-stopped", "the forwarder that died with the node is started again only by its own restart policy"},
+	} {
+		if got := at(portal, c.key); got != c.want {
+			t.Errorf("compose.yaml: the portal's %s is %v, want %v: %s", c.key, got, c.want, c.why)
+		}
+	}
+	if got, _ := at(portal, "cap_drop").([]any); !reflect.DeepEqual(got, []any{"ALL"}) {
+		t.Errorf("compose.yaml: the portal's cap_drop is %v, want [ALL]: it shares the node's processes, and its root must not signal or trace them", got)
+	}
+	dep := at(portal, "depends_on", "hdtp-gateway")
 	if dep == nil {
 		t.Fatal("compose.yaml: the portal service does not depend on hdtp-gateway")
 	}
