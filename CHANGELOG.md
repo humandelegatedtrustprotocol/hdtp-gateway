@@ -46,6 +46,14 @@ changelog can be and is not summarized into a fictional release history.
   not be loaded) answered `internal` on the owner MCP's `send_to_contact` and the portal (#207). It
   is now `conflict`, naming the identity's state, and an identity the store does not hold is
   `not_found`.
+- A sent message could be sent twice: once by the send and again by the retry sweep, which
+  audited it `delivered` and then `delivered_on_retry` (#219). The sweep's list showed the message
+  pending with no attempt made while the send's first attempt was still under way, or after it had
+  landed. The receiver dropped the duplicate, so it showed once. Every attempt now claims the
+  message in the store first (`ClaimMessageAttempt`), and only a pending message that is due can be
+  claimed. The send's own attempt holds it for its 30-second budget, so a first attempt that fails
+  is retried once those 30 seconds have passed. A send replayed under its `msg_id` while another
+  attempt holds the message is answered `pending`, and nothing is sent.
 
 ### Removed
 

@@ -110,6 +110,9 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 	if res.Status == messaging.StatusDelivered {
 		return res, nil
 	}
+	if held, err := n.claimFirstAttempt(ctx, accountID, contactFpr, in.MsgID, core.ToolSendMessage); held || err != nil {
+		return res, err
+	}
 
 	exp := time.Now().Add(store.DefaultMessageExpiry)
 	if in.ExpiresAt > 0 {
@@ -176,6 +179,9 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 	if res.Status == messaging.StatusDelivered {
 		return res, nil
 	}
+	if held, err := n.claimFirstAttempt(ctx, accountID, contactFpr, in.MsgID, core.ToolSendMedia); held || err != nil {
+		return res, err
+	}
 	// Same reasoning as SendMessage: the row exists, so delivery is the node's
 	// job and must outlive the caller's request.
 	dctx, cancelDelivery := context.WithTimeout(context.WithoutCancel(ctx), deliveryBudget)
@@ -190,6 +196,23 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 	n.auditFor(accountID, core.ToolSendMedia, "contact:"+contactFpr, messaging.StatusDelivered)
 	res.Status = messaging.StatusDelivered
 	return res, nil
+}
+
+// claimFirstAttempt claims the attempt a send makes on its caller's behalf, holding the message
+// for that attempt's whole budget (deliveryBudget), so the retry sweep can neither send it again
+// while the attempt is under way nor after it has landed. held reports that the claim was refused:
+// another attempt holds the message, or it is no longer pending. Nothing is sent then; the message
+// stays as it is and the sweep owns it, and the send answers the recorded result.
+func (n *Node) claimFirstAttempt(ctx context.Context, accountID, contactFpr, msgID, tool string) (held bool, err error) {
+	now := n.now().Unix()
+	claimed, err := n.opts.Store.ClaimMessageAttempt(ctx, accountID, contactFpr, msgID, now, now+int64(deliveryBudget/time.Second))
+	if err != nil {
+		return false, err
+	}
+	if !claimed {
+		n.auditFor(accountID, tool, "contact:"+contactFpr+" msg:"+msgID+" why:another attempt holds it", messaging.StatusPending)
+	}
+	return !claimed, nil
 }
 
 // deliverMedia is one direct attempt at the peer's send_media (HDTP §6.2).
@@ -234,9 +257,7 @@ func (n *Node) retryMedia(ctx context.Context, m store.Message, c store.Contact,
 	if err != nil {
 		return false
 	}
-	attempt := m.Attempts + 1
-	if err := n.opts.Store.SetMessageAttempt(ctx, m.AccountID, m.ContactFpr, m.MsgID,
-		attempt, now+int64(retryDelay(attempt)/time.Second)); err != nil {
+	if !n.claimRetry(ctx, m, now) {
 		return false
 	}
 	if err := n.deliverMedia(ctx, m.AccountID, c, m.MsgID, m.ThreadID, m.Sender, meta.Filename, meta.Mime, data); err != nil {
@@ -374,6 +395,17 @@ func retryDelay(attempts int64) time.Duration {
 // this column existed) is due immediately.
 func retryDue(m store.Message, now int64) bool { return now >= m.NextAttemptAt }
 
+// claimRetry claims the sweep's attempt at m, and reports whether it holds it. The attempt is
+// recorded BEFORE trying, so a delivery that panics or a process that dies mid-send cannot leave
+// the row due on every sweep. The claim is the store's, not the list's: the list was read at the
+// start of the pass, and since then the send that recorded m may have made its own attempt or
+// delivered it, which a claim refuses (#219: a reply delivered, then delivered again on retry).
+func (n *Node) claimRetry(ctx context.Context, m store.Message, now int64) bool {
+	claimed, err := n.opts.Store.ClaimMessageAttempt(ctx, m.AccountID, m.ContactFpr, m.MsgID,
+		now, now+int64(retryDelay(m.Attempts+1)/time.Second))
+	return err == nil && claimed
+}
+
 // RetryPending re-attempts undelivered outbound messages and reports how many it
 // delivered and how many it gave up on.
 //
@@ -420,11 +452,7 @@ func (n *Node) RetryPending(ctx context.Context) (delivered, expired int) {
 			MsgID: m.MsgID, ThreadID: m.ThreadID, Text: m.Body,
 			ReplyTo: m.ReplyTo, Sender: messaging.Sender(m.Sender), Origin: messaging.OriginStored,
 		}
-		// Record the attempt BEFORE trying, so a delivery that panics or a
-		// process that dies mid-send cannot leave the row due on every sweep.
-		attempt := m.Attempts + 1
-		if err := n.opts.Store.SetMessageAttempt(ctx, m.AccountID, m.ContactFpr, m.MsgID,
-			attempt, now+int64(retryDelay(attempt)/time.Second)); err != nil {
+		if !n.claimRetry(ctx, m, now) {
 			continue
 		}
 		if err := n.deliverWithExpiry(ctx, m.AccountID, c, in, m.ThreadID,

@@ -100,11 +100,12 @@ interface.
   return it when the row is not there. Four shapes are not that: `AuditAnchor` returns the zero
   `AuditAnchorRow` with a nil error when nothing was archived; `GetAccountSealedKey` returns nil bytes with
   a nil error for an account with no key; `OwnerPresenceSeenAt` returns 0 when the agent never asked; and
-  `TakeLease` returns false, not an error, when another holder has the lease. A caller
+  `TakeLease` returns false, not an error, when another holder has the lease, as `ClaimMessageAttempt` does
+  when the message is not pending and due, or is not there. A caller
   outside this package asks the question with it, because `database/sql` may not be imported outside the
   store.
 - Some writes report an absent row with `ErrNotFound` (or an error wrapping it): `DeleteOwner`,
-  `RemoveMembership`, `ClearContactHandshake`, `SetMessageStatus`, `SetMessageAttempt`, `RevokeInvite`,
+  `RemoveMembership`, `ClearContactHandshake`, `SetMessageStatus`, `RevokeInvite`,
   `UpdateAccountSeal`, and the integration writes. Others report it with a plain error that does not wrap
   it (`"store: account %s not found"`, `"store: leaf %s not found"`, `"store: contact not found"`,
   `"store: token missing or already revoked"`): `SetAccountRoot`, `SetAccountLeafKey`,

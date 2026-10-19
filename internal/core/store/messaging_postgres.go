@@ -68,19 +68,13 @@ func (s *Postgres) SetMessageStatus(ctx context.Context, accountID, contactFpr, 
 	return nil
 }
 
-// SetMessageAttempt records a delivery attempt and when the next one is due.
-func (s *Postgres) SetMessageAttempt(ctx context.Context, accountID, contactFpr, msgID string, attempts, nextAt int64) error {
-	n, err := s.q.SetMessageAttempt(ctx, pgdb.SetMessageAttemptParams{
-		Attempts: attempts, NextAttemptAt: nextAt,
+// ClaimMessageAttempt takes an outbound message's next delivery attempt, holding it until nextAt.
+func (s *Postgres) ClaimMessageAttempt(ctx context.Context, accountID, contactFpr, msgID string, now, nextAt int64) (bool, error) {
+	n, err := s.q.ClaimMessageAttempt(ctx, pgdb.ClaimMessageAttemptParams{
+		NextAttemptAt: nextAt, NextAttemptAt_2: now,
 		AccountID: accountID, ContactFpr: contactFpr, MsgID: msgID,
 	})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	return n == 1, err
 }
 
 // InsertMessage inserts a message, defaulting its id and an empty kind to "text". A msg_id already

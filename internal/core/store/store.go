@@ -1011,9 +1011,13 @@ type MessageStore interface {
 	// an outbound row is `pending` until the peer actually accepts it (§7.1).
 	SetMessageStatus(ctx context.Context, accountID, contactFpr, msgID, status string) error
 
-	// SetMessageAttempt records that a delivery attempt was made and when the
-	// next one is due. Outbound rows only, like SetMessageStatus.
-	SetMessageAttempt(ctx context.Context, accountID, contactFpr, msgID string, attempts, nextAt int64) error
+	// ClaimMessageAttempt takes the next delivery attempt of an outbound message
+	// (SPEC §7.1): it counts the attempt and holds the message until nextAt. It
+	// claims, and reports true, only while the message is pending and due at now
+	// (next_attempt_at <= now), so one attempt is in flight at a time and a
+	// delivered message is never attempted again. Outbound rows only, like
+	// SetMessageStatus.
+	ClaimMessageAttempt(ctx context.Context, accountID, contactFpr, msgID string, now, nextAt int64) (bool, error)
 
 	// ListPendingOutbound returns outbound messages still awaiting delivery,
 	// oldest first, across every account (SPEC §7.1).
