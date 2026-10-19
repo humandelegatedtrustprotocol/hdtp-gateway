@@ -18,8 +18,8 @@ import (
 // readmeHowTo is the README's how-to a receiver follows.
 const readmeHowTo = "### Wake your agent with a webhook"
 
-// readmeSnippet is the one fenced block of lang in the README's how-to.
-func readmeSnippet(t *testing.T, lang string) string {
+// readmeHowToText is the README's how-to, to the next heading of its level.
+func readmeHowToText(t *testing.T) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", "..", "..", "README.md"))
 	if err != nil {
@@ -34,6 +34,13 @@ func readmeSnippet(t *testing.T, lang string) string {
 	if j := strings.Index(s, "\n### "); j >= 0 {
 		s = s[:j]
 	}
+	return s
+}
+
+// readmeSnippet is the one fenced block of lang in the README's how-to.
+func readmeSnippet(t *testing.T, lang string) string {
+	t.Helper()
+	s := readmeHowToText(t)
 	blocks := regexp.MustCompile("(?s)\n```"+lang+"\n(.*?)\n```\n").FindAllStringSubmatch(s, -1)
 	if len(blocks) != 1 {
 		t.Fatalf("the README's how-to has %d ```%s blocks, want 1", len(blocks), lang)
@@ -202,4 +209,25 @@ func TestTheREADMEsJSVerifierAcceptsWhatTheNodeSignsAndNothingElse(t *testing.T)
 		t.Fatalf("node runs the README's verifier: %v\n%s", err, stderr)
 	}
 	checkVerdicts(t, "JavaScript", cases, out)
+}
+
+// The how-to names every event a filter takes, and no name the node does not send, so its list
+// cannot fall behind the table.
+func TestTheREADMEsHowToNamesEveryEventTheNodeSends(t *testing.T) {
+	s := readmeHowToText(t)
+	sent := Subscribable()
+	for _, n := range sent {
+		if !strings.Contains(s, "`"+n+"`") {
+			t.Errorf("the README's how-to does not name %s, which the node sends", n)
+		}
+	}
+	named := map[string]bool{}
+	for _, m := range regexp.MustCompile("`([a-z]+\\.[a-z_]+)`").FindAllStringSubmatch(s, -1) {
+		named[m[1]] = true
+	}
+	for n := range named {
+		if !strings.HasPrefix(n, "data.") && !slices.Contains(sent, n) {
+			t.Errorf("the README's how-to names %s, which the node does not send", n)
+		}
+	}
 }

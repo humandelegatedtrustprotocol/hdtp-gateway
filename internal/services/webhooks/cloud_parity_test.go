@@ -108,7 +108,7 @@ func cloudSubscribable(t *testing.T) ([]string, map[string][]string) {
 
 // cloudOnly is every name the cloud sends and the node does not (README, Divergences, **Events**):
 // the change row does not say which of them happened, or the node has no such fact. nodeOnly is
-// every name the node sends and the cloud does not: none.
+// every name the node sends and the cloud does not: the owner asks', which the cloud does not have.
 var (
 	cloudOnly = []string{
 		"contact.requested", "contact.accepted", "contact.rejected", "contact.removed", "contact.limit_reached",
@@ -117,7 +117,7 @@ var (
 		"identity.certified", "identity.renewed", "identity.imported", "identity.expiring",
 		"contact.new_address", "contact.address_pending", "contact.renewed",
 	}
-	nodeOnly = []string{}
+	nodeOnly = []string{"ask.answered", "ask.expired"}
 )
 
 // dataSubset is every name whose data is a strict subset of the cloud's, and the keys left out
@@ -139,10 +139,12 @@ var sampleEvents = map[string]messaging.Event{
 	"request.pending":   {Kind: messaging.EventPending, Ref: "pr-1", ContactFpr: "sha256:a"},
 	"request.answered":  {Kind: messaging.EventAnswered, Ref: "pr-1"},
 	"call.made":         {Kind: messaging.EventCall, Ref: core.ToolBookSlot, ContactFpr: "sha256:a"},
+	"ask.answered":      {Kind: messaging.EventAsk, Status: messaging.AskAnswered, Ref: "ask-1", ThreadID: "th1"},
+	"ask.expired":       {Kind: messaging.EventAsk, Status: messaging.AskExpired, Ref: "ask-1", ThreadID: "th1"},
 }
 
-// The names a filter takes are the cloud's, in the cloud's order, less the cloud-only list; every
-// name either host emits is in exactly one of: both, cloudOnly, nodeOnly.
+// The names a filter takes, less the node-only list, are the cloud's, in the cloud's order, less
+// the cloud-only list; every name either host emits is in exactly one of: both, cloudOnly, nodeOnly.
 func TestTheSubscribableNamesAreTheCloudsLessANamedList(t *testing.T) {
 	theirs, _ := cloudSubscribable(t)
 	ours := Subscribable()
@@ -152,8 +154,9 @@ func TestTheSubscribableNamesAreTheCloudsLessANamedList(t *testing.T) {
 			both = append(both, n)
 		}
 	}
-	if !slices.Equal(ours, both) {
-		t.Errorf("the node offers %v; the cloud's names less cloudOnly are %v", ours, both)
+	shared := slices.DeleteFunc(slices.Clone(ours), func(n string) bool { return slices.Contains(nodeOnly, n) })
+	if !slices.Equal(shared, both) {
+		t.Errorf("the node offers %v less nodeOnly %v; the cloud's names less cloudOnly are %v", ours, nodeOnly, both)
 	}
 	for _, n := range cloudOnly {
 		if !slices.Contains(theirs, n) {
@@ -176,7 +179,8 @@ func TestTheSubscribableNamesAreTheCloudsLessANamedList(t *testing.T) {
 }
 
 // Each name carries the cloud's data keys, or a subset of them the dataSubset list names; never a
-// key the cloud does not declare.
+// key the cloud does not declare. A node-only name has no cloud keys to compare with; it still needs
+// a sample the table sends, so it is not offered without data.
 func TestEachNamesDataIsTheCloudsOrANamedSubset(t *testing.T) {
 	_, theirs := cloudSubscribable(t)
 	for _, m := range emitted {
@@ -188,6 +192,12 @@ func TestEachNamesDataIsTheCloudsOrANamedSubset(t *testing.T) {
 		data, ok := m.data(e)
 		if !ok {
 			t.Errorf("the sample event for %s is not one the table sends as it", m.name)
+			continue
+		}
+		if slices.Contains(nodeOnly, m.name) {
+			if len(data) == 0 {
+				t.Errorf("%s, a node-only name, carries no data", m.name)
+			}
 			continue
 		}
 		var keys []string
@@ -712,6 +722,11 @@ var divergences = map[string]func(t *testing.T, bullet string){
 			}
 			if !named {
 				t.Errorf("cloudOnly names %s, which the README's Events entry does not", n)
+			}
+		}
+		for _, n := range nodeOnly {
+			if !slices.Contains(families, n) || !strings.Contains(bullet, "the node's alone") {
+				t.Errorf("nodeOnly names %s, which the README's Events entry does not name as the node's alone", n)
 			}
 		}
 		for n := range dataSubset {

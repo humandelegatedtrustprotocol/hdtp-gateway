@@ -174,8 +174,11 @@ Each event is one `POST` of a small JSON body. It carries ids, never a message's
 
 The events are `message.received`, `media.received`, `message.delivered`, `message.failed`,
 `request.pending`, `request.answered` and `call.made`, with BatonDeck's names, envelope and
-signature grammar; only the headers' prefix differs (`X-HDTP-` where BatonDeck's is `X-BatonDeck-`). `identity` is the account id every owner MCP tool takes:
-on `message.received`, call `read_thread` with it and `data.thread_id`. The headers are
+signature grammar; only the headers' prefix differs (`X-HDTP-` where BatonDeck's is `X-BatonDeck-`).
+Two are the node's alone: `ask.answered` and `ask.expired`, when the owner answers an ask your agent
+put or it expires unanswered. `identity` is the account id every owner MCP tool takes: on
+`message.received`, call `read_thread` with it and `data.thread_id`; on `ask.answered`, `get_ask`
+with `data.ask_id`. The headers are
 `X-HDTP-Event-Id`, `X-HDTP-Event-Type`, `X-HDTP-Delivery` (the delivery log's row) and
 `X-HDTP-Signature: t=<seconds>,v1=<hex>`. The `v1` is the HMAC-SHA256, keyed by the whole secret
 (`whsec_` included), of `<t>.<the raw body>`. While a rotated secret is still accepted (24 hours)
@@ -242,6 +245,8 @@ that was down misses that event: have your agent call `get_inbox` (and `list_pen
 starts and now and then, and treat the webhook as the wake, not the record. Twenty failures in a row
 pause the endpoint until you resume it on the same page, which also shows each endpoint's delivery
 log. Both snippets are run by the node's tests against what the node signs.
+[hdtp-gateway-agent](https://github.com/humandelegatedtrustprotocol/hdtp-gateway-agent) is an
+open-source agent that works this way: woken by the node's webhook, it answers contacts through the owner MCP.
 
 ### Decide what each contact may do
 
