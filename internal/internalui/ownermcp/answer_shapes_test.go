@@ -36,23 +36,25 @@ func keysOf(t *testing.T, text string) []string {
 }
 
 // #234. send_to_contact answered messaging.Result as it was, in Go's field names (ThreadID,
-// Status), where every other owner tool answers snake_case; the error of a message recorded and not
-// delivered carried the same two names. Both answers name exactly thread_id and status now, the
+// Status) and with no message id, where every other owner tool answers snake_case; the error of a
+// message recorded and not delivered carried the same two names. Both answers name exactly status,
+// message_id and thread_id now (the message_id the msg_id the message was recorded under), the
 // description names the answer by those keys, and nothing in tools/list says ThreadID.
-func TestSendToContactAnswersThreadIDAndStatus(t *testing.T) {
+func TestSendToContactAnswersStatusMessageIDAndThreadID(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)
 	text, isErr := callJSON(t, cs, "send_to_contact", map[string]any{
 		"account_id": e.acctA, "contact_fpr": "sha256:alina", "msg_id": "m1", "text": "hi"})
-	if got := keysOf(t, text); isErr || !reflect.DeepEqual(got, []string{"status", "thread_id"}) {
-		t.Fatalf("a recorded send answered %s (IsError %v), want exactly thread_id and status", text, isErr)
+	if got := keysOf(t, text); isErr || !reflect.DeepEqual(got, []string{"message_id", "status", "thread_id"}) {
+		t.Fatalf("a recorded send answered %s (IsError %v), want exactly status, message_id and thread_id", text, isErr)
 	}
 	var sent struct {
-		ThreadID string `json:"thread_id"`
-		Status   string `json:"status"`
+		Status    string `json:"status"`
+		MessageID string `json:"message_id"`
+		ThreadID  string `json:"thread_id"`
 	}
-	if err := json.Unmarshal([]byte(text), &sent); err != nil || sent.ThreadID == "" || sent.Status == "" {
+	if err := json.Unmarshal([]byte(text), &sent); err != nil || sent.ThreadID == "" || sent.Status == "" || sent.MessageID != "m1" {
 		t.Fatalf("a recorded send answered %s", text)
 	}
 	if msgs, err := e.deps.Msg.Thread(ctx, e.acctA, sent.ThreadID); err != nil || len(msgs) != 1 {
@@ -67,9 +69,9 @@ func TestSendToContactAnswersThreadIDAndStatus(t *testing.T) {
 	srv := NewServerWithExtra(d, Extra{Log: func(string, string, string) {}}, auth.Identity{OwnerID: e.owner})
 	text, isErr = callParityResult(t, ctx, srv, "send_to_contact", map[string]any{
 		"account_id": e.acctA, "contact_fpr": "sha256:c", "msg_id": "m2", "text": "hi"})
-	if got := keysOf(t, text); !isErr || !reflect.DeepEqual(got, []string{"code", "detail", "status", "thread_id"}) ||
-		!strings.Contains(text, `"thread_id":"t1"`) {
-		t.Fatalf("a recorded, undelivered send answered %s (IsError %v), want code, detail, thread_id and status", text, isErr)
+	if got := keysOf(t, text); !isErr || !reflect.DeepEqual(got, []string{"code", "detail", "message_id", "status", "thread_id"}) ||
+		!strings.Contains(text, `"thread_id":"t1"`) || !strings.Contains(text, `"message_id":"m2"`) {
+		t.Fatalf("a recorded, undelivered send answered %s (IsError %v), want code, detail, status, message_id and thread_id", text, isErr)
 	}
 
 	tools, err := cs.ListTools(ctx, nil)
@@ -84,7 +86,7 @@ func TestSendToContactAnswersThreadIDAndStatus(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(raw), "ThreadID") || !strings.Contains(tl.Description, "Answers {thread_id, status}") {
+		if strings.Contains(string(raw), "ThreadID") || !strings.Contains(tl.Description, "Answers {status, message_id, thread_id}") {
 			t.Errorf("send_to_contact's listing names the answer by the old keys, or not by thread_id: %s", raw)
 		}
 		return
@@ -220,5 +222,29 @@ func TestTheInviteRowIsTheCloudsLessItsLinkAndWithItsGrant(t *testing.T) {
 	}
 	if !strings.Contains(text, `"url":"https://alina.example/i/`) {
 		t.Errorf("create_invite's link is not at this node's address: %s", text)
+	}
+}
+
+// Building rule 1 for a send: send_to_contact answers what the cloud's sendMessage answers
+// (batondeck gateway/src/api/v1/routes/conversations.ts, which the cloud's owner MCP's send
+// publishes as its outputSchema), key for key. The cloud's keys are read from its source, so a
+// key either side adds or drops that the other does not turns this red.
+func TestSendToContactAnswersWhatTheCloudsSendMessageAnswers(t *testing.T) {
+	routes := string(testid.SiblingFile(t, "batondeck", "gateway/src/api/v1/routes/conversations.ts", "send_to_contact's answer is unchecked against the cloud's"))
+	send := regexp.MustCompile(`(?s)operationId: 'sendMessage'.*?response: z\.object\(\{([^}]*)\}\)`).FindStringSubmatch(routes)
+	if send == nil {
+		t.Fatal("conversations.ts declares no sendMessage response")
+	}
+	var cloud []string
+	for _, m := range regexp.MustCompile(`(\w+): z\.`).FindAllStringSubmatch(send[1], -1) {
+		cloud = append(cloud, m[1])
+	}
+	sort.Strings(cloud)
+	e := newEnv(t)
+	cs, _ := connect(t, e, auth.Identity{OwnerID: e.owner}, nil)
+	text, isErr := callJSON(t, cs, "send_to_contact", map[string]any{
+		"account_id": e.acctA, "contact_fpr": "sha256:alina", "msg_id": "m1", "text": "hi"})
+	if got := keysOf(t, text); isErr || len(cloud) == 0 || !reflect.DeepEqual(got, cloud) {
+		t.Errorf("send_to_contact answered %s (keys %v); the cloud's sendMessage answers %v", text, got, cloud)
 	}
 }

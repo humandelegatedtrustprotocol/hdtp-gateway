@@ -13,10 +13,12 @@ changelog can be and is not summarized into a fictional release history.
 ### Changed
 
 - **Breaking, owner MCP and portal answers** (one shape per operation, Building rule 1):
-  - `send_to_contact` answers `{thread_id, status}`, where it answered `messaging.Result` in Go's
-    field names, `{ThreadID, Status}`; a message recorded and not delivered is a tool error
-    carrying `code`, `detail`, `thread_id` and `status`, where it carried `ThreadID` and `Status`
-    (#234). A client that read `ThreadID` reads `thread_id`.
+  - `send_to_contact` answers `{status, message_id, thread_id}`, the cloud's `sendMessage`
+    answer, where it answered `messaging.Result` in Go's field names, `{ThreadID, Status}`, with no
+    message id; `message_id` is the `msg_id` the message was recorded under, the id `read_thread`,
+    the change log and the webhook envelope carry for it. A message recorded and not delivered is
+    a tool error carrying `code`, `detail`, `status`, `message_id` and `thread_id`, where it
+    carried `ThreadID` and `Status` (#234). A client that read `ThreadID` reads `thread_id`.
   - `list_invites` answers `{invites: [...]}`, where it answered a bare array; each invite's id is
     `id`, where it was `invite_id`, and `revoked_at` is null while the invite is live, where it was
     left out (#225). `revoke_invite` still takes it as `invite_id`.

@@ -372,7 +372,7 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 		Annotations: public.Hints(false, true, true, false)},
 		ot.deleteThreadTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "send_to_contact", Description: "Send a message to a contact, labeled agent (SPEC §7.1). A message without thread_id starts a new thread, under topic if one is given, so a reply or a follow-up names its thread: the thread_id get_inbox lists, or the thread_id this tool answered for the thread's first message. A thread_id of another contact's thread is refused (bad_request) and nothing is recorded. Answers {thread_id, status}: the thread the message is on and the message's status; a message recorded and not delivered is a tool error carrying both beside its code",
+	mcp.AddTool(s, &mcp.Tool{Name: "send_to_contact", Description: "Send a message to a contact, labeled agent (SPEC §7.1). A message without thread_id starts a new thread, under topic if one is given, so a reply or a follow-up names its thread: the thread_id get_inbox lists, or the thread_id this tool answered for the thread's first message. A thread_id of another contact's thread is refused (bad_request) and nothing is recorded. Answers {status, message_id, thread_id}, as the cloud's send does: the message's status, its message_id (the msg_id it was recorded under, as read_thread names it) and the thread it is on; a message recorded and not delivered is a tool error carrying all three beside its code",
 		Annotations: public.Hints(false, false, false, true)},
 		ot.sendToContactTool)
 
@@ -683,16 +683,19 @@ func (ot ownerTools) deleteThreadTool(ctx context.Context, req *mcp.CallToolRequ
 	return r, nil, err
 }
 
-// sendAnswer is what send_to_contact answers, projected from messaging.Result (Building rule 10):
-// the thread the message is on, which a follow-up names as its thread_id, and the message's status.
-// It answered the Result as it was, in Go's field names, until #234.
+// sendAnswer is what send_to_contact answers, the cloud's sendMessage answer (Building rule 1),
+// projected (Building rule 10): the message's status; its message_id, the msg_id it was recorded
+// under, which read_thread, the change log and the webhook envelope carry for it (#208); and the
+// thread it is on, which a follow-up names as its thread_id. It answered messaging.Result as it
+// was, in Go's field names and with no message id, until #234.
 type sendAnswer struct {
-	ThreadID string `json:"thread_id"`
-	Status   string `json:"status"`
+	Status    string `json:"status"`
+	MessageID string `json:"message_id"`
+	ThreadID  string `json:"thread_id"`
 }
 
-func sendAnswerOf(res messaging.Result) sendAnswer {
-	return sendAnswer{ThreadID: res.ThreadID, Status: res.Status}
+func sendAnswerOf(msgID string, res messaging.Result) sendAnswer {
+	return sendAnswer{Status: res.Status, MessageID: msgID, ThreadID: res.ThreadID}
 }
 
 // sendRefusal is a message recorded and not delivered: the code and detail every refusal carries,
@@ -724,13 +727,13 @@ func (ot ownerTools) sendToContactTool(ctx context.Context, req *mcp.CallToolReq
 		// Recorded and not delivered: the message exists and the retry sweep goes on with it, so
 		// the answer carries the recorded result beside the code.
 		code, detail := refusal.Of(err)
-		r, jerr := errorResult(sendRefusal{Code: code, Detail: detail, sendAnswer: sendAnswerOf(res)})
+		r, jerr := errorResult(sendRefusal{Code: code, Detail: detail, sendAnswer: sendAnswerOf(in.MsgID, res)})
 		return r, nil, jerr
 	}
 	if err != nil {
 		return fail(err)
 	}
-	r, err := jsonResult(sendAnswerOf(res))
+	r, err := jsonResult(sendAnswerOf(in.MsgID, res))
 	return r, nil, err
 }
 

@@ -17,7 +17,7 @@ import (
 // answer's own encoding rather than written here.
 func resultThreadKey(t *testing.T) string {
 	t.Helper()
-	raw, err := json.Marshal(sendAnswerOf(messaging.Result{ThreadID: "the-thread"}))
+	raw, err := json.Marshal(sendAnswerOf("the-message", messaging.Result{ThreadID: "the-thread"}))
 	if err != nil {
 		t.Fatal(err)
 	}
