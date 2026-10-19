@@ -248,3 +248,68 @@ func TestTheSurfaceSchemaOnTheWireIsTheCatalogs(t *testing.T) {
 		t.Fatalf("found %d of ask_owner and notify_owner", found)
 	}
 }
+
+// The agent's MCP client, @mastra/mcp 2.4.1, drops a listed tool with only a warning when its input
+// schema is more than 128 subschemas deep or holds more than 10000 of them (dist/index.js,
+// getJsonSchemaComplexityError, which walks the subschema keywords and does not follow $ref). Every
+// owner tool, the asks' surface included, stays at a tenth of both.
+func TestEveryOwnerToolsSchemaIsWellInsideTheAgentClientsBounds(t *testing.T) {
+	a := newAskEnv(t, owner)
+	tools, err := a.cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, tool := range tools.Tools {
+		raw, _ := json.Marshal(tool.InputSchema)
+		var s any
+		if err := json.Unmarshal(raw, &s); err != nil {
+			t.Fatal(err)
+		}
+		nodes, depth := schemaSize(s, 0)
+		if nodes > 1000 || depth > 12 {
+			t.Errorf("%s's input schema holds %d subschemas, %d deep: over a tenth of what the agent's client keeps", tool.Name, nodes, depth)
+		}
+		if tool.Name == "ask_owner" || tool.Name == "notify_owner" {
+			seen++
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("listed %d of ask_owner and notify_owner", seen)
+	}
+}
+
+// schemaSize counts a schema's subschemas and its deepest one (the root at 0), by the keywords the
+// agent's client walks.
+func schemaSize(v any, d int) (nodes, depth int) {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return 0, 0
+	}
+	nodes, depth = 1, d
+	add := func(c any) {
+		n, dd := schemaSize(c, d+1)
+		nodes += n
+		depth = max(depth, dd)
+	}
+	for _, k := range []string{"$defs", "definitions", "properties", "patternProperties", "dependentSchemas", "dependencies"} {
+		if sub, ok := m[k].(map[string]any); ok {
+			for _, c := range sub {
+				add(c)
+			}
+		}
+	}
+	for _, k := range []string{"prefixItems", "allOf", "anyOf", "oneOf", "items"} {
+		if sub, ok := m[k].([]any); ok {
+			for _, c := range sub {
+				add(c)
+			}
+		}
+	}
+	for _, k := range []string{"additionalProperties", "unevaluatedProperties", "additionalItems", "unevaluatedItems", "items", "contains", "propertyNames", "not", "if", "then", "else", "contentSchema"} {
+		if c, ok := m[k]; ok {
+			add(c)
+		}
+	}
+	return nodes, depth
+}
