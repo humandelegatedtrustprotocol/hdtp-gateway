@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
@@ -15,15 +16,30 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/asks"
 )
 
-// askSurface is the story's ask as an agent sends it: a TLDR, the terms, two ready replies and a
-// field to write one's own.
+// askSurface is the story's ask as an agent sends it: a TLDR, the terms, two ready replies, a field
+// to write one's own and a Send button that reads both, with the data model they start from.
 const askSurface = `[{"version":"v0.9.1","createSurface":{"surfaceId":"s1","catalogId":"` + asks.CatalogID + `"}},` +
 	`{"version":"v0.9.1","updateComponents":{"surfaceId":"s1","components":[` +
-	`{"id":"root","component":"Column","children":["tldr","terms","pick","own"]},` +
+	`{"id":"root","component":"Column","children":["tldr","terms","pick","own","send"]},` +
 	`{"id":"tldr","component":"Text","text":"Bob proposes Wed 15:00 for 30 min."},` +
-	`{"id":"terms","component":"KeyValue","rows":[{"label":"When","value":"Wed 15:00"}]},` +
-	`{"id":"pick","component":"Choice","options":[{"label":"Confirm Wed 15:00"},{"label":"Ask for Thu instead"}]},` +
-	`{"id":"own","component":"TextField","label":"Write my own"}]}}]`
+	`{"id":"terms","component":"KeyValue","items":[{"label":"When","value":"Wed 15:00"}]},` +
+	`{"id":"pick","component":"ChoicePicker","options":[{"label":"Confirm Wed 15:00","value":"confirm"},{"label":"Ask for Thu instead","value":"thu"}],"value":{"path":"/reply"}},` +
+	`{"id":"own","component":"TextField","label":"Write my own","value":{"path":"/own"}},` +
+	`{"id":"send-label","component":"Text","text":"Send"},` +
+	`{"id":"send","component":"Button","child":"send-label","variant":"primary","action":{"event":{"name":"answer","context":{"reply":{"path":"/reply"},"own":{"path":"/own"}}}}}]}},` +
+	`{"version":"v0.9.1","updateDataModel":{"surfaceId":"s1","value":{"reply":[],"own":""}}}]`
+
+// noticeSurface is a done-for-you notice: a TLDR and its terms.
+const noticeSurface = `[{"version":"v0.9.1","createSurface":{"surfaceId":"s1","catalogId":"` + asks.CatalogID + `"}},` +
+	`{"version":"v0.9.1","updateComponents":{"surfaceId":"s1","components":[` +
+	`{"id":"root","component":"Column","children":["tldr","terms"]},` +
+	`{"id":"tldr","component":"Text","text":"Booked: Wed 15:00 with Bob."},` +
+	`{"id":"terms","component":"KeyValue","items":[{"label":"When","value":"Wed 15:00"}]}]}}]`
+
+// chooseConfirm is the A2UI action the portal sends when the owner picks the first ready reply and
+// presses Send.
+var chooseConfirm = []byte(`{"version":"v0.9.1","action":{"name":"answer","surfaceId":"s1","sourceComponentId":"send",` +
+	`"timestamp":"2026-10-19T10:00:00Z","context":{"reply":["confirm"],"own":""}}}`)
 
 // oversize is the story's ask with a long text beside its TLDR: past asks.MaxSurfaceBytes once
 // compacted, as a client sends it, and in every other respect an ask the node takes.
@@ -99,12 +115,18 @@ func TestAnAgentAsksItsOwnerAndReadsTheAnswer(t *testing.T) {
 	if !strings.Contains(listed, v.ID) {
 		t.Fatalf("list_asks open: %s", listed)
 	}
+	if listed, _ := callJSON(t, a.cs, "list_asks", map[string]any{"account_id": a.acctA, "thread_id": a.thread}); !strings.Contains(listed, v.ID) {
+		t.Fatalf("list_asks of its thread: %s", listed)
+	}
+	if listed, _ := callJSON(t, a.cs, "list_asks", map[string]any{"account_id": a.acctA, "thread_id": "0123456789abcdef0123456789abcdef"}); strings.Contains(listed, v.ID) {
+		t.Fatalf("list_asks of another thread: %s", listed)
+	}
 	cursor, _ := callJSON(t, a.cs, "wait_for_updates", map[string]any{"account_id": a.acctA})
 	var c struct{ Cursor int64 }
 	_ = json.Unmarshal([]byte(cursor), &c)
 
 	// The owner taps a ready reply on the portal, which answers through the same service.
-	if _, err := a.svc.Answer(ctx, a.acctA, v.ID, asks.Answer{Component: "pick", Value: "Confirm Wed 15:00"}); err != nil {
+	if _, err := a.svc.Answer(ctx, a.acctA, v.ID, chooseConfirm); err != nil {
 		t.Fatal(err)
 	}
 	waited, _ := callJSON(t, a.cs, "wait_for_updates", map[string]any{"account_id": a.acctA, "since": c.Cursor, "timeout_sec": 1})
@@ -133,10 +155,7 @@ func TestEveryAskToolRefusesByCode(t *testing.T) {
 	if _, err := a.deps.Msg.Record(ctx, a.acctA, "sha256:bob", messaging.DirIn, messaging.Input{Origin: messaging.OriginPeer, Sender: messaging.SenderAgent, MsgID: "m2", ThreadID: a.thread, Text: "or Thu?"}); err != nil {
 		t.Fatal(err)
 	}
-	notice := strings.Replace(strings.Replace(askSurface, `"pick","own"`, `"terms2"`, 1),
-		`{"id":"pick","component":"Choice","options":[{"label":"Confirm Wed 15:00"},{"label":"Ask for Thu instead"}]},`+
-			`{"id":"own","component":"TextField","label":"Write my own"}`, `{"id":"terms2","component":"Text","text":"Booked."}`, 1)
-	if text, isErr := a.put(t, "notify_owner", a.acctA, a.thread, "m1", notice); isErr || !strings.Contains(text, `"status":"posted"`) {
+	if text, isErr := a.put(t, "notify_owner", a.acctA, a.thread, "m1", noticeSurface); isErr || !strings.Contains(text, `"status":"posted"`) {
 		t.Fatalf("the control, a notice: %s", text)
 	}
 	if text, isErr := a.put(t, "ask_owner", a.acctA, a.thread, "m1", askSurface); isErr {
@@ -210,8 +229,9 @@ func newAskEnvOn(t *testing.T, a *askEnv, ident auth.Identity) *mcp.ClientSessio
 	return cs
 }
 
-// The schema a client reads for surface is the catalog's own: one copy, derived where it is
-// enforced.
+// The schema a client reads for surface is the catalog's own, its definitions at the tool schema's
+// root: one copy, derived where it is enforced. The document resolves on its own, every $ref local,
+// and takes the story's ask whole.
 func TestTheSurfaceSchemaOnTheWireIsTheCatalogs(t *testing.T) {
 	a := newAskEnv(t, owner)
 	tools, err := a.cs.ListTools(context.Background(), nil)
@@ -228,20 +248,37 @@ func TestTheSurfaceSchemaOnTheWireIsTheCatalogs(t *testing.T) {
 		raw, _ := json.Marshal(tool.InputSchema)
 		var in struct {
 			Properties map[string]json.RawMessage `json:"properties"`
+			Defs       json.RawMessage            `json:"$defs"`
 		}
 		if err := json.Unmarshal(raw, &in); err != nil {
 			t.Fatal(err)
 		}
-		want, _ := json.Marshal(asks.Schema(kind))
-		var gotV, wantV any
-		if err := json.Unmarshal(in.Properties["surface"], &gotV); err != nil {
+		same := func(what string, got json.RawMessage, want any) {
+			w, _ := json.Marshal(want)
+			var gotV, wantV any
+			if err := json.Unmarshal(got, &gotV); err != nil {
+				t.Fatalf("%s's %s: %v", tool.Name, what, err)
+			}
+			_ = json.Unmarshal(w, &wantV)
+			if !reflect.DeepEqual(gotV, wantV) {
+				t.Errorf("%s's %s on the wire is not the catalog's:\n%s\nwant\n%s", tool.Name, what, got, w)
+			}
+		}
+		same("surface schema", in.Properties["surface"], asks.SurfaceSchema(kind))
+		same("$defs", in.Defs, asks.Defs(kind))
+		var doc jsonschema.Schema
+		if err := json.Unmarshal(raw, &doc); err != nil {
 			t.Fatal(err)
 		}
-		if err := json.Unmarshal(want, &wantV); err != nil {
-			t.Fatal(err)
+		resolved, err := doc.Resolve(nil)
+		if err != nil {
+			t.Fatalf("%s's input schema does not resolve on its own: %v", tool.Name, err)
 		}
-		if !reflect.DeepEqual(gotV, wantV) {
-			t.Errorf("%s's surface schema on the wire is not the catalog's:\n%s\nwant\n%s", tool.Name, in.Properties["surface"], want)
+		surface := map[string]string{asks.KindAsk: askSurface, asks.KindNotice: noticeSurface}[kind]
+		var args any
+		_ = json.Unmarshal([]byte(`{"account_id":"a","thread_id":"t","for_message_id":"m","surface":`+surface+`}`), &args)
+		if err := resolved.Validate(args); err != nil {
+			t.Errorf("%s's input schema refuses the story's %s: %v", tool.Name, kind, err)
 		}
 	}
 	if found != 2 {

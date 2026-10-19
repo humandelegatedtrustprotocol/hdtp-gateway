@@ -231,13 +231,17 @@ func (s *Service) inThread(ctx context.Context, accountID string, th store.Threa
 	return false
 }
 
-// storedSurface is the surface as the node keeps it: the two messages, root first, rebuilt from
-// what Parse read, so nothing Parse did not read is kept.
+// storedSurface is the surface as the node keeps it: its messages, root first, rebuilt from what
+// Parse read, so nothing Parse did not read is kept.
 func storedSurface(sf Surface) []any {
-	return []any{
+	msgs := []any{
 		map[string]any{"version": Version, "createSurface": map[string]any{"surfaceId": sf.ID, "catalogId": CatalogID}},
 		map[string]any{"version": Version, "updateComponents": map[string]any{"surfaceId": sf.ID, "components": sf.Components}},
 	}
+	if sf.Model != nil {
+		msgs = append(msgs, map[string]any{"version": Version, "updateDataModel": map[string]any{"surfaceId": sf.ID, "value": sf.Model}})
+	}
+	return msgs
 }
 
 // Get returns one of the account's asks or notices.
@@ -256,10 +260,12 @@ func (s *Service) Get(ctx context.Context, accountID, id string) (View, error) {
 	return s.view(a, now.Unix()), nil
 }
 
-// Filter narrows List: Open to open asks alone, Contact to the threads with one contact (oldest
-// first); with neither, the account's asks and notices, newest first.
+// Filter narrows List: Open to open asks alone, Thread to one thread and Contact to the threads with
+// one contact (each oldest first); with neither, the account's asks and notices, newest first.
+// Thread, when given, is the narrower of the two.
 type Filter struct {
 	Open    bool
+	Thread  string
 	Contact string
 }
 
@@ -273,6 +279,8 @@ func (s *Service) List(ctx context.Context, accountID string, f Filter) ([]View,
 	var rows []store.OwnerAsk
 	var err error
 	switch {
+	case f.Thread != "":
+		rows, err = s.store.ListThreadOwnerAsks(ctx, accountID, f.Thread, ListLimit)
 	case f.Contact != "":
 		rows, err = s.store.ListContactOwnerAsks(ctx, accountID, f.Contact, ListLimit)
 	case f.Open:
@@ -287,7 +295,7 @@ func (s *Service) List(ctx context.Context, accountID string, f Filter) ([]View,
 	out := make([]View, 0, len(rows))
 	for _, a := range rows {
 		v := s.view(a, now)
-		if f.Open && v.Status != StatusOpen {
+		if (f.Open && v.Status != StatusOpen) || (f.Contact != "" && v.Contact != f.Contact) {
 			continue
 		}
 		out = append(out, v)
@@ -344,17 +352,11 @@ func (s *Service) open(ctx context.Context, accountID, id string) (store.OwnerAs
 	return a, nil
 }
 
-// Answer is what the owner did on an open ask: Component is the id of the component they acted on,
-// Value what it holds (a ready reply's label, the text typed, the date or time picked as ISO 8601;
-// nothing for a Button).
-type Answer struct {
-	Component string
-	Value     string
-}
-
-// Answer answers an open ask. A ready reply or typed text is sent to the contact first, as the
-// owner's message, under the ask's id as its msg_id, so answering twice sends once.
-func (s *Service) Answer(ctx context.Context, accountID, id string, ans Answer) (View, error) {
+// Answer answers an open ask with action, the A2UI client-to-server message the portal sends when
+// the owner presses one of its Buttons (ReadAction). What it sends is made into the answer line in
+// one place (answerOf); a ready reply or typed text is sent to the contact first, as the owner's
+// message, under the ask's id as its msg_id, so answering twice sends once.
+func (s *Service) Answer(ctx context.Context, accountID, id string, action []byte) (View, error) {
 	res := resource(accountID, "ask:"+id)
 	a, err := s.open(ctx, accountID, id)
 	if err != nil {
@@ -364,42 +366,17 @@ func (s *Service) Answer(ctx context.Context, accountID, id string, ans Answer) 
 	if err != nil {
 		return View{}, err
 	}
-	c, ok := sf.Find(ans.Component)
-	if spec, _ := componentNamed(c.Name); !ok || !spec.interactive {
-		return View{}, s.refused(auditAnswer, res, refusal.BadRequest("no component by that id answers this ask", nil))
+	pressed, err := sf.ReadAction(action)
+	if err != nil {
+		return View{}, s.refused(auditAnswer, res, refusal.BadRequest(err.Error(), nil))
 	}
 	who, err := s.ownerName(ctx, accountID)
 	if err != nil {
 		return View{}, err
 	}
-	var line, send string
-	switch c.Name {
-	case "Choice":
-		chosen := ""
-		for _, o := range c.Options {
-			if o.Label == ans.Value {
-				chosen = o.Label
-			}
-		}
-		if chosen == "" {
-			return View{}, s.refused(auditAnswer, res, refusal.BadRequest("that is not one of the ready replies", nil))
-		}
-		line, send = AnswerLine(who, "chose", chosen), chosen
-	case "TextField":
-		text := strings.TrimSpace(ans.Value)
-		if text == "" {
-			return View{}, s.refused(auditAnswer, res, refusal.BadRequest("nothing was written", nil))
-		}
-		line, send = AnswerLine(who, "wrote", text), text
-	case "DateTimeInput":
-		when, err := picked(c, ans.Value)
-		if err != nil {
-			return View{}, s.refused(auditAnswer, res, err)
-		}
-		line = who + " picked: " + when
-	case "Button":
-		label, _ := sf.Find(c.Child)
-		line = AnswerLine(who, "pressed", label.Text)
+	line, send, err := answerOf(sf, pressed, who)
+	if err != nil {
+		return View{}, s.refused(auditAnswer, res, err)
 	}
 	if send != "" {
 		_, err := s.send(ctx, accountID, a.ContactFpr, messaging.Input{MsgID: a.ID, ThreadID: a.ThreadID, Text: send,
@@ -410,6 +387,52 @@ func (s *Service) Answer(ctx context.Context, accountID, id string, ans Answer) 
 		}
 	}
 	return s.close(ctx, a, line, res)
+}
+
+// answerOf makes a pressed Button into the answer line and what is sent to the contact, from the
+// values its context read from the card's data model. What the owner typed comes first, then the
+// ready reply they chose (both sent, as their own message), then the date or time they picked
+// (nothing sent); a Button that reads nothing is its label. A Button whose values are all empty
+// answers nothing.
+func answerOf(sf Surface, p Pressed, who string) (line, send string, err error) {
+	var typed, chosen, when string
+	reads := false
+	for k, want := range p.Button.Action.Event.Context {
+		path, ok := bound(want)
+		if !ok {
+			continue
+		}
+		reads = true
+		in, _ := sf.boundTo(path)
+		v, err := sf.inputValue(in, p.Context[k])
+		if err != nil {
+			return "", "", refusal.BadRequest(k+": "+err.Error(), nil)
+		}
+		switch in.Name {
+		case "TextField":
+			typed = strings.TrimSpace(v)
+		case "ChoicePicker":
+			chosen = v
+		case "DateTimeInput":
+			if v != "" {
+				if when, err = picked(in, v); err != nil {
+					return "", "", err
+				}
+			}
+		}
+	}
+	switch {
+	case typed != "":
+		return AnswerLine(who, "wrote", typed), typed, nil
+	case chosen != "":
+		return AnswerLine(who, "chose", chosen), chosen, nil
+	case when != "":
+		return who + " picked: " + when, "", nil
+	case !reads:
+		label, _ := sf.Find(p.Button.Child)
+		return AnswerLine(who, "pressed", label.Text), "", nil
+	}
+	return "", "", refusal.BadRequest("nothing was chosen, written or picked", nil)
 }
 
 // close records the answer line on an open ask, once.

@@ -6,10 +6,10 @@ package ownermcp
 // (internal/services/asks), the one the portal's card and its Needs you page answer through; this
 // door only translates.
 //
-// ask_owner and notify_owner publish the catalog's JSON Schema (asks.Schema) as their surface
-// argument's schema, and do not let the SDK validate against it: asks.Parse does, so a refusal is
-// coded (bad_request, too_large) like every other refusal of this surface rather than the SDK's
-// free text.
+// ask_owner and notify_owner publish the catalog's JSON Schema as their surface argument's schema,
+// its components' schemas under the tool schema's own $defs (asks.Defs), and do not let the SDK
+// validate against it: asks.Parse does, so a refusal is coded (bad_request, too_large) like every
+// other refusal of this surface rather than the SDK's free text.
 
 import (
 	"context"
@@ -44,11 +44,13 @@ type AskIDArgs struct {
 type ListAsksArgs struct {
 	AccountID string `json:"account_id"`
 	Status    string `json:"status,omitempty" jsonschema:"open for the asks waiting on the owner; omit for every ask and notice"`
+	ThreadID  string `json:"thread_id,omitempty" jsonschema:"one thread's asks and notices, oldest first"`
 	Contact   string `json:"contact_fpr,omitempty" jsonschema:"one contact's asks and notices, oldest first"`
 }
 
 // PutSchema is ask_owner's (kind ask) or notify_owner's (kind notice) input schema: the surface is
-// the catalog's own schema for that kind.
+// the catalog's own schema for that kind, and the catalog's definitions it refers to are the tool
+// schema's $defs, so every $ref is local to the one document.
 func PutSchema(kind string) *jsonschema.Schema {
 	str := func(about string) *jsonschema.Schema {
 		return &jsonschema.Schema{Type: "string", MinLength: jsonschema.Ptr(1), Description: about}
@@ -59,8 +61,9 @@ func PutSchema(kind string) *jsonschema.Schema {
 			"account_id":     str("the account to act on"),
 			"thread_id":      str("the thread the surface goes on, as get_inbox names it"),
 			"for_message_id": str("the message in the thread it is about, as read_thread names it; asking twice about one message is one " + kind),
-			"surface":        asks.Schema(kind),
+			"surface":        asks.SurfaceSchema(kind),
 		},
+		Defs:                 asks.Defs(kind),
 		Required:             []string{"account_id", "thread_id", "for_message_id", "surface"},
 		AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	}
@@ -69,18 +72,20 @@ func PutSchema(kind string) *jsonschema.Schema {
 // askAbout and noticeAbout are the two tools' descriptions, their numbers read from the catalog.
 var (
 	askAbout = fmt.Sprintf("Ask your owner something only they can decide, as a card on the thread and on their Needs you page: "+
-		"an A2UI %s surface (the schema of surface) whose root Column starts with a one-line TLDR Text (at most %d bytes), "+
-		"then what they need to know (Text, KeyValue), then at most one Choice of up to %d ready replies and a TextField "+
-		"last for writing their own, or a DateTimeInput or Buttons. A ready reply or what they write is sent to the contact "+
-		"as the owner's message (labelled human) and answers the ask; a date or a button answers without sending. Any "+
-		"other message the owner sends that contact answers it too. One open ask per thread (conflict while one is open); "+
-		"asking again about the same message answers the same ask. It expires after %s. Read the answer with get_ask: "+
-		"answer_text is one line (`Ana chose: \"Confirm Wed 15:00\"`); wait_for_updates lists it as it moves. At most %d "+
-		"bytes and %d components (too_large, bad_request).",
+		"an A2UI %s surface in the node's catalog (A2UI's basic components plus the node's KeyValue; the schema of surface) "+
+		"whose root Column starts with a one-line TLDR Text (at most %d bytes), then what they need to know (Text, KeyValue), "+
+		"then at most one ChoicePicker of up to %d ready replies and a TextField last for writing their own, or a "+
+		"DateTimeInput; each input binds its value to a {path} in the data model, and a Button's action.event.context "+
+		"reads those paths: pressing it is the answer. A ready reply or what they write is sent to the contact as the "+
+		"owner's message (labelled human) and answers the ask; a date, or a button that reads nothing, answers without "+
+		"sending. Any other message the owner sends that contact answers it too. One open ask per thread (conflict while "+
+		"one is open); asking again about the same message answers the same ask. It expires after %s. Read the answer "+
+		"with get_ask: answer_text is one line (`Ana chose: \"Confirm Wed 15:00\"`); wait_for_updates lists it as it "+
+		"moves. At most %d bytes and %d components (too_large, bad_request).",
 		asks.Version, asks.MaxTLDRBytes, asks.MaxOptions, asks.Lifetime, asks.MaxSurfaceBytes, asks.MaxComponents)
 	noticeAbout = fmt.Sprintf("Tell your owner something done for them, as a card on the thread: an A2UI %s surface "+
-		"like ask_owner's with nothing to answer (Text and KeyValue only), a TLDR Text first. It does not expire and "+
-		"holds no thread; telling twice about one message is one notice.", asks.Version)
+		"like ask_owner's with nothing to answer (Text and KeyValue only, no data model), a TLDR Text first. It does not "+
+		"expire and holds no thread; telling twice about one message is one notice.", asks.Version)
 )
 
 // AddAskTools registers the asks tools when the node serves asks (Extra.Asks).
@@ -104,7 +109,7 @@ func AddAskTools(s *mcp.Server, d Deps, e Extra, ident auth.Identity, allow func
 		Annotations: public.Hints(true, false, true, false)},
 		ot.getAskTool)
 	mcp.AddTool(s, &mcp.Tool{Name: "list_asks",
-		Description: fmt.Sprintf("This account's asks and notices, newest first, at most %d: each with its status and answer_text. status open lists the asks waiting on the owner; contact_fpr one contact's, oldest first", asks.ListLimit),
+		Description: fmt.Sprintf("This account's asks and notices, newest first, at most %d: each with its status and answer_text. status open lists the asks waiting on the owner; thread_id one thread's and contact_fpr one contact's, oldest first", asks.ListLimit),
 		Annotations: public.Hints(true, false, true, false)},
 		ot.listAsksTool)
 }
@@ -164,7 +169,7 @@ func (ot ownerTools) listAsksTool(ctx context.Context, req *mcp.CallToolRequest,
 	if a.Status != "" && a.Status != asks.StatusOpen {
 		return fail(refusal.BadRequest("status is open, or omitted for every ask and notice", nil))
 	}
-	l, err := ot.e.Asks.List(ctx, a.AccountID, asks.Filter{Open: a.Status == asks.StatusOpen, Contact: a.Contact})
+	l, err := ot.e.Asks.List(ctx, a.AccountID, asks.Filter{Open: a.Status == asks.StatusOpen, Thread: a.ThreadID, Contact: a.Contact})
 	if err != nil {
 		return fail(err)
 	}

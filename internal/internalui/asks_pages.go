@@ -6,6 +6,7 @@ package internalui
 // service writes the audit rows, so these handlers write none.
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
@@ -32,8 +33,8 @@ func askRefusal(w http.ResponseWriter, err error) {
 	apiJSONStatus(w, pageStatus(err), map[string]any{"error": code, "detail": detail})
 }
 
-// getAPIAsks serves `GET /api/asks`: the account's asks and notices, newest first, or one contact's
-// (`contact`), oldest first; `status=open` for the open asks alone. `open` is how many asks wait on
+// getAPIAsks serves `GET /api/asks`: the account's asks and notices, newest first, or one thread's
+// (`thread`) or one contact's (`contact`), oldest first; `status=open` for the open asks alone. `open` is how many asks wait on
 // the owner, the sidebar's badge.
 func (d AsksDeps) getAPIAsks(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")
@@ -42,7 +43,8 @@ func (d AsksDeps) getAPIAsks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	account := accountParam(r)
-	list, err := d.Asks.List(r.Context(), account, asks.Filter{Open: status == asks.StatusOpen, Contact: r.URL.Query().Get("contact")})
+	list, err := d.Asks.List(r.Context(), account, asks.Filter{Open: status == asks.StatusOpen,
+		Thread: r.URL.Query().Get("thread"), Contact: r.URL.Query().Get("contact")})
 	if err != nil {
 		askRefusal(w, err)
 		return
@@ -55,12 +57,16 @@ func (d AsksDeps) getAPIAsks(w http.ResponseWriter, r *http.Request) {
 	apiJSON(w, map[string]any{"asks": list, "open": open})
 }
 
-// postAsksIDAnswer serves `POST /asks/{id}/answer`: `component`, the id of the component the owner
-// answered with, and `value`, what they chose or wrote (a Choice's option, a TextField's text, a
-// DateTimeInput's ISO value; nothing for a Button). It answers the ask as it now is.
+// postAsksIDAnswer serves `POST /asks/{id}/answer`: `message`, the A2UI client-to-server action
+// the card sends when the owner presses one of the ask's Buttons, its context resolved from the
+// card's data model. It answers the ask as it now is. The field is bounded as a surface is.
 func (d AsksDeps) postAsksIDAnswer(w http.ResponseWriter, r *http.Request) {
-	v, err := d.Asks.Answer(r.Context(), accountParam(r), r.PathValue("id"),
-		asks.Answer{Component: r.PostFormValue("component"), Value: r.PostFormValue("value")})
+	msg := r.PostFormValue("message")
+	if len(msg) > asks.MaxSurfaceBytes {
+		askRefusal(w, refusal.TooLarge(fmt.Sprintf("the action is %d bytes, over the %d it may be", len(msg), asks.MaxSurfaceBytes), nil))
+		return
+	}
+	v, err := d.Asks.Answer(r.Context(), accountParam(r), r.PathValue("id"), []byte(msg))
 	if err != nil {
 		askRefusal(w, err)
 		return

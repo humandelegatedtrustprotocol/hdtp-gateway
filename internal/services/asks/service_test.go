@@ -78,6 +78,16 @@ func (r *rig) ask(surface string) View {
 	return v
 }
 
+// act is the A2UI action the portal sends when the owner presses button, its event name, with
+// context resolved from the card's data model.
+func act(name, button, context string) []byte {
+	return []byte(`{"version":"v0.9.1","action":{"name":"` + name + `","surfaceId":"s1","sourceComponentId":"` + button +
+		`","timestamp":"2026-10-19T10:00:00Z","context":` + context + `}}`)
+}
+
+// chooseConfirm is the owner picking the first ready reply of the story's ask and pressing Send.
+var chooseConfirm = act("answer", "send", `{"reply":["confirm"],"own":""}`)
+
 func codeOf(err error) string {
 	code, _ := refusal.Of(err)
 	return code
@@ -93,7 +103,7 @@ func TestAChosenReadyReplyIsSentAsTheOwnersMessageAndAnswersTheAsk(t *testing.T)
 		v.ExpiresAt != r.clock.Add(Lifetime).Unix() {
 		t.Fatalf("the ask: %+v", v)
 	}
-	got, err := r.svc.Answer(ctx, r.account, v.ID, Answer{Component: "pick", Value: "Confirm Wed 15:00"})
+	got, err := r.svc.Answer(ctx, r.account, v.ID, chooseConfirm)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +123,7 @@ func TestAChosenReadyReplyIsSentAsTheOwnersMessageAndAnswersTheAsk(t *testing.T)
 		t.Fatalf("Get: %+v %v", read, err)
 	}
 	// Answering again is refused, and sends nothing.
-	if _, err := r.svc.Answer(ctx, r.account, v.ID, Answer{Component: "pick", Value: "Confirm Wed 15:00"}); codeOf(err) != "conflict" {
+	if _, err := r.svc.Answer(ctx, r.account, v.ID, chooseConfirm); codeOf(err) != "conflict" {
 		t.Fatalf("a second answer: %v", err)
 	}
 	if len(r.sent) != 1 {
@@ -138,20 +148,24 @@ func TestAChosenReadyReplyIsSentAsTheOwnersMessageAndAnswersTheAsk(t *testing.T)
 	}
 }
 
-// What the owner types in the ask's TextField is sent and answers; a date or a button answers and
-// sends nothing.
+// The answer line is made in one place from the pressed Button and the values its context read:
+// what the owner typed first (sent), then the ready reply they chose (sent), then a date or time
+// (not sent); a Button that reads nothing is its label (not sent).
 func TestEveryKindOfAnswerBecomesOneLine(t *testing.T) {
 	cases := []struct {
 		name, surface string
-		ans           Answer
+		ans           []byte
 		line          string
-		sends         bool
+		sends         string
 	}{
-		{"typed", validAsks["the story's ask"], Answer{"own", "  Thu 10:00 works better  "}, `Ana wrote: "Thu 10:00 works better"`, true},
-		{"a date and time", validAsks["a date and a button"], Answer{"when", "2026-10-22T14:00:00+01:00"}, "Ana picked: Thu 22 Oct 2026 14:00 +01:00", false},
-		{"a button", validAsks["a date and a button"], Answer{"ok", ""}, `Ana pressed: "Approve"`, false},
-		{"a date", validAsks["a date only"], Answer{"d", "2026-11-03"}, "Ana picked: Tue 3 Nov 2026", false},
-		{"a line break stays one line", validAsks["a TextField alone"], Answer{"own", "yes\nbut later"}, `Ana wrote: "yes\nbut later"`, true},
+		{"chosen", validAsks["the story's ask"], chooseConfirm, `Ana chose: "Confirm Wed 15:00"`, "Confirm Wed 15:00"},
+		{"typed", validAsks["the story's ask"], act("answer", "send", `{"reply":[],"own":"  Thu 10:00 works better  "}`), `Ana wrote: "Thu 10:00 works better"`, "Thu 10:00 works better"},
+		{"typed over chosen", validAsks["the story's ask"], act("answer", "send", `{"reply":["thu"],"own":"Thu, but 11:00"}`), `Ana wrote: "Thu, but 11:00"`, "Thu, but 11:00"},
+		{"chosen, nothing typed", validAsks["the story's ask"], act("answer", "send", `{"reply":["thu"],"own":"   "}`), `Ana chose: "Ask for Thu instead"`, "Ask for Thu instead"},
+		{"a date and time", validAsks["a date it sends"], act("answer", "send", `{"when":"2026-10-22T14:00:00+01:00"}`), "Ana picked: Thu 22 Oct 2026 14:00 +01:00", ""},
+		{"a button", validAsks["a date and a button"], act("approve", "ok", `{"slot":"wed-15","n":1,"firm":true}`), `Ana pressed: "Approve"`, ""},
+		{"a button with no context", validAsks["a button with no context"], act("seen", "ok", `{}`), `Ana pressed: "Approve"`, ""},
+		{"a line break stays one line", validAsks["a TextField alone"], act("answer", "send", `{"own":"yes\nbut later"}`), `Ana wrote: "yes\nbut later"`, "yes\nbut later"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -164,8 +178,8 @@ func TestEveryKindOfAnswerBecomesOneLine(t *testing.T) {
 			if got.AnswerText != c.line {
 				t.Fatalf("line %q, want %q", got.AnswerText, c.line)
 			}
-			if c.sends != (len(r.sent) == 1) {
-				t.Fatalf("sent %+v, want a send: %v", r.sent, c.sends)
+			if c.sends == "" && len(r.sent) != 0 || c.sends != "" && (len(r.sent) != 1 || r.sent[0].Text != c.sends) {
+				t.Fatalf("sent %+v, want %q", r.sent, c.sends)
 			}
 		})
 	}
@@ -196,13 +210,13 @@ func TestEveryRefusalIsCoded(t *testing.T) {
 			_, err := r.svc.Ask(ctx, r.account, r.thread, "m1", []byte(invalidSurfaces["an oversize payload"].surface))
 			return err
 		}, "too_large"},
-		"a Choice in a notice": {func() error {
+		"a ChoicePicker in a notice": {func() error {
 			_, err := r.svc.Notify(ctx, r.account, r.thread, "m1", good)
 			return err
 		}, "bad_request"},
 		"no ids":            {func() error { _, err := r.svc.Ask(ctx, r.account, "", "", good); return err }, "bad_request"},
 		"an unknown ask":    {func() error { _, err := r.svc.Get(ctx, r.account, "ask_none"); return err }, "not_found"},
-		"answer none":       {func() error { _, err := r.svc.Answer(ctx, r.account, "ask_none", Answer{"pick", "x"}); return err }, "not_found"},
+		"answer none":       {func() error { _, err := r.svc.Answer(ctx, r.account, "ask_none", chooseConfirm); return err }, "not_found"},
 		"withdraw none":     {func() error { _, err := r.svc.Withdraw(ctx, r.account, "ask_none"); return err }, "not_found"},
 		"list another node": {func() error { _, err := r.svc.List(ctx, "acct_none", Filter{}); return err }, "not_found"},
 	} {
@@ -216,13 +230,21 @@ func TestEveryRefusalIsCoded(t *testing.T) {
 
 	v := r.ask(string(good))
 	for name, c := range map[string]struct {
-		ans  Answer
+		ans  []byte
 		code string
 	}{
-		"a reply not offered":           {Answer{"pick", "Something else"}, "bad_request"},
-		"a component that is not there": {Answer{"nope", "x"}, "bad_request"},
-		"a component that answers not":  {Answer{"terms", "x"}, "bad_request"},
-		"nothing typed":                 {Answer{"own", "   "}, "bad_request"},
+		"not JSON":                      {[]byte("pick=confirm"), "bad_request"},
+		"a reply not offered":           {act("answer", "send", `{"reply":["maybe"],"own":""}`), "bad_request"},
+		"two replies":                   {act("answer", "send", `{"reply":["confirm","thu"],"own":""}`), "bad_request"},
+		"a text of a number":            {act("answer", "send", `{"reply":[],"own":3}`), "bad_request"},
+		"a component that is not there": {act("answer", "nope", `{}`), "bad_request"},
+		"a component that answers not":  {act("answer", "pick", `{}`), "bad_request"},
+		"another event":                 {act("other", "send", `{"reply":["confirm"],"own":""}`), "bad_request"},
+		"a key the Button lacks":        {act("answer", "send", `{"reply":["confirm"],"own":"","extra":1}`), "bad_request"},
+		"a key the Button has, missing": {act("answer", "send", `{"reply":["confirm"]}`), "bad_request"},
+		"another surface":               {[]byte(strings.Replace(string(chooseConfirm), `"s1"`, `"s2"`, 1)), "bad_request"},
+		"another version":               {[]byte(strings.Replace(string(chooseConfirm), `"v0.9.1"`, `"v0.9"`, 1)), "bad_request"},
+		"nothing chosen or typed":       {act("answer", "send", `{"reply":[],"own":"   "}`), "bad_request"},
 	} {
 		if _, err := r.svc.Answer(ctx, r.account, v.ID, c.ans); codeOf(err) != c.code {
 			t.Errorf("%s: %v, want %s", name, err, c.code)
@@ -231,7 +253,7 @@ func TestEveryRefusalIsCoded(t *testing.T) {
 	if _, err := r.svc.Get(ctx, other.ID, v.ID); codeOf(err) != "not_found" {
 		t.Fatalf("another account's Get: %v", err)
 	}
-	if _, err := r.svc.Answer(ctx, other.ID, v.ID, Answer{"pick", "Confirm Wed 15:00"}); codeOf(err) != "not_found" {
+	if _, err := r.svc.Answer(ctx, other.ID, v.ID, chooseConfirm); codeOf(err) != "not_found" {
 		t.Fatalf("another account's answer: %v", err)
 	}
 	if _, err := r.svc.Withdraw(ctx, other.ID, v.ID); codeOf(err) != "not_found" {
@@ -241,7 +263,7 @@ func TestEveryRefusalIsCoded(t *testing.T) {
 		t.Fatalf("a refused answer sent: %+v", r.sent)
 	}
 	// The control: the owner's own answer goes through.
-	if _, err := r.svc.Answer(ctx, r.account, v.ID, Answer{"pick", "Confirm Wed 15:00"}); err != nil {
+	if _, err := r.svc.Answer(ctx, r.account, v.ID, chooseConfirm); err != nil {
 		t.Fatalf("the owner's answer: %v", err)
 	}
 }
@@ -266,7 +288,7 @@ func TestOneOpenAskPerThreadAndWithdrawFreesIt(t *testing.T) {
 	if err != nil || w.Status != StatusWithdrawn {
 		t.Fatalf("withdraw: %+v %v", w, err)
 	}
-	if _, err := r.svc.Answer(ctx, r.account, first.ID, Answer{"pick", "Confirm Wed 15:00"}); codeOf(err) != "conflict" {
+	if _, err := r.svc.Answer(ctx, r.account, first.ID, chooseConfirm); codeOf(err) != "conflict" {
 		t.Fatalf("an answer to a withdrawn ask: %v", err)
 	}
 	if _, err := r.svc.Withdraw(ctx, r.account, first.ID); codeOf(err) != "conflict" {
@@ -310,7 +332,7 @@ func TestAnAskExpiresOnTheClock(t *testing.T) {
 	if n, _ := r.svc.ExpireDue(ctx); n != 0 {
 		t.Fatalf("a second sweep expired %d", n)
 	}
-	if _, err := r.svc.Answer(ctx, r.account, v.ID, Answer{"pick", "Confirm Wed 15:00"}); codeOf(err) != "conflict" {
+	if _, err := r.svc.Answer(ctx, r.account, v.ID, chooseConfirm); codeOf(err) != "conflict" {
 		t.Fatalf("an answer after expiry: %v", err)
 	}
 	if len(r.sent) != 0 {
@@ -449,7 +471,7 @@ func TestANoticeIsPostedAndStays(t *testing.T) {
 	if got, _ := r.svc.Get(ctx, r.account, n.ID); got.Status != StatusPosted {
 		t.Fatalf("a notice after ten lifetimes: %s", got.Status)
 	}
-	if _, err := r.svc.Answer(ctx, r.account, n.ID, Answer{"tldr", ""}); codeOf(err) != "conflict" {
+	if _, err := r.svc.Answer(ctx, r.account, n.ID, act("x", "tldr", `{}`)); codeOf(err) != "conflict" {
 		t.Fatalf("an answer to a notice: %v", err)
 	}
 	if _, err := r.svc.Withdraw(ctx, r.account, n.ID); codeOf(err) != "conflict" {
@@ -471,5 +493,51 @@ func TestDeletingAThreadDeletesItsAsks(t *testing.T) {
 	}
 	if _, err := r.svc.Get(ctx, r.account, v.ID); !errors.Is(err, store.ErrNotFound) && codeOf(err) != "not_found" {
 		t.Fatalf("the deleted thread's ask: %v", err)
+	}
+}
+
+// A list narrows to one thread, and to its open asks; a thread with another contact's filter, or a
+// thread that is not there, lists nothing.
+func TestAListNarrowsToOneThread(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	first := r.ask(validAsks["the story's ask"])
+	other, err := r.msg.Record(ctx, r.account, bob, messaging.DirIn, messaging.Input{Origin: messaging.OriginPeer, Sender: messaging.SenderAgent, MsgID: "m7", Text: "another topic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := r.svc.Ask(ctx, r.account, other.ThreadID, "m7", []byte(validAsks["the story's ask"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := r.svc.Notify(ctx, r.account, r.thread, "m1", []byte(validNotices["a line"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := func(f Filter) string {
+		l, err := r.svc.List(ctx, r.account, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, v := range l {
+			out = append(out, v.ID)
+		}
+		return strings.Join(out, ",")
+	}
+	if got, want := ids(Filter{Thread: r.thread}), first.ID+","+n.ID; got != want {
+		t.Fatalf("the thread's: %s, want %s", got, want)
+	}
+	if got := ids(Filter{Thread: r.thread, Open: true}); got != first.ID {
+		t.Fatalf("the thread's open: %s, want %s", got, first.ID)
+	}
+	if got := ids(Filter{Thread: other.ThreadID}); got != second.ID {
+		t.Fatalf("the other thread's: %s", got)
+	}
+	if got := ids(Filter{Thread: r.thread, Contact: "sha256:someone-else"}); got != "" {
+		t.Fatalf("a thread under another contact's filter: %s", got)
+	}
+	if got := ids(Filter{Thread: "0123456789abcdef0123456789abcdef"}); got != "" {
+		t.Fatalf("a thread that is not there: %s", got)
 	}
 }

@@ -99,11 +99,11 @@ Registered by `AddAskTools` when `Extra.Asks` is non-nil, each the asks service'
 
 | Tool | Contract |
 |---|---|
-| `ask_owner` | Puts an A2UI v0.9.1 surface for the owner to answer on a thread, about one message of it (`thread_id`, `for_message_id`, `surface`). The input schema carries the catalog's; the SDK does not validate against it, `asks.Parse` does, so a refusal is coded: `bad_request`, `too_large` over `asks.MaxSurfaceBytes`, `not_found` for a thread or message the account does not hold, `conflict` while the thread has another open ask or its contact is not active. The same message asked about again answers the same ask. |
+| `ask_owner` | Puts an A2UI v0.9.1 surface for the owner to answer on a thread, about one message of it (`thread_id`, `for_message_id`, `surface`). The input schema carries the catalog's, its definitions under the tool schema's own `$defs` (every `$ref` local); the SDK does not validate against it, `asks.Parse` does, so a refusal is coded: `bad_request`, `too_large` over `asks.MaxSurfaceBytes`, `not_found` for a thread or message the account does not hold, `conflict` while the thread has another open ask or its contact is not active. The same message asked about again answers the same ask. |
 | `notify_owner` | The same for a notice: Text and KeyValue only, status `posted`, no expiry. |
 | `withdraw_ask` | Takes back an open ask; `conflict` once it is answered, expired or withdrawn; `not_found` for an id the account does not hold. |
 | `get_ask` | One ask or notice: status, TLDR, surface, `answer_text` (the one line the owner's answer became). Reading an open ask past its time writes its expiry. |
-| `list_asks` | `{"asks": [...]}`, at most `asks.ListLimit`: newest first, or one contact's (`contact_fpr`) oldest first; `status` `open` for the asks waiting on the owner, and any other value `bad_request`. |
+| `list_asks` | `{"asks": [...]}`, at most `asks.ListLimit`: newest first, or one thread's (`thread_id`) or one contact's (`contact_fpr`) oldest first; `status` `open` for the asks waiting on the owner, and any other value `bad_request`. |
 
 Registered by `AddWatchTools`:
 

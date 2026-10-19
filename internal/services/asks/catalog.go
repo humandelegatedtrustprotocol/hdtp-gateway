@@ -2,9 +2,16 @@ package asks
 
 // The node's A2UI catalog: the components an agent may compose an ask or a notice from, written once.
 // Schema (the owner MCP tools' input schema) and Parse (what the node stores) are both read from
-// the table below, so the two cannot name different components or props. A2UI v0.9.1 (a2ui.org):
-// a surface is a createSurface message and an updateComponents message, its components a flat list
-// in which one, id "root", is a Column whose children are laid out top to bottom.
+// the table below, so the two cannot name different components or props.
+//
+// A2UI v0.9.1 (google/A2UI, specification/v0_9_1): a surface is a createSurface message naming its
+// catalog, an updateComponents message whose components are a flat list in which one, id "root", is
+// the root, and optionally an updateDataModel message with the values its inputs start from. The
+// catalog is the node's own, as A2UI provides for, named by CatalogID: six of the basic catalog's
+// components under their names and with their properties' shapes, narrowed to what the portal draws,
+// and KeyValue, the node's own. catalog_test.go validates every surface Parse takes against A2UI's
+// own message schema in a catalog of the basic components and this KeyValue. Every input binds its value to a path in the
+// data model; a Button's action names the paths it sends, and pressing it is the answer (Resolve).
 //
 // What a JSON Schema cannot say about a list of components, Parse alone holds; the code-only rules below the catalog name
 // each of them, and catalog_test.go holds that every surface Parse accepts the schema accepts too.
@@ -26,7 +33,7 @@ const Version = "v0.9.1"
 
 // CatalogID names this catalog in a surface's createSurface. It is an identifier, as A2UI's
 // catalogId is, and need not resolve.
-const CatalogID = "https://hdtp.dev/a2ui/v0.9.1/owner-catalog.json"
+const CatalogID = "https://hdtp.dev/a2ui/v0_9_1/catalogs/owner/catalog.json"
 
 // The bounds of a surface, in bytes as read: rule 11.
 const (
@@ -36,10 +43,12 @@ const (
 	MaxComponents = 20
 	// MaxTLDRBytes is the most the TLDR, the first Text under root, may be.
 	MaxTLDRBytes = 280
-	// MaxOptions is the most ready replies a Choice offers.
+	// MaxOptions is the most ready replies a ChoicePicker offers.
 	MaxOptions = 3
-	// MaxRows is the most rows a KeyValue holds.
-	MaxRows         = 8
+	// MaxItems is the most items a KeyValue holds.
+	MaxItems = 8
+	// MaxModelDepth is how deeply the data model's value may nest, its object counted as 1.
+	MaxModelDepth   = 4
 	maxIDBytes      = 64
 	maxTextBytes    = 2000
 	maxLabelBytes   = 280
@@ -47,6 +56,7 @@ const (
 	maxContextKeys  = 8
 	maxISOBytes     = 40
 	maxContextBytes = 280
+	maxPathBytes    = 64
 )
 
 // The kinds of what a surface is for.
@@ -59,14 +69,16 @@ const (
 type propKind int
 
 const (
-	textProp    propKind = iota // a string of at most max bytes
-	enumProp                    // one of enum
-	idProp                      // a component id
-	idsProp                     // a list of component ids, at most max
-	rowsProp                    // [{label, value}], 1..max
-	optionsProp                 // [{label}], 1..max
-	boolProp                    // true or false
-	actionProp                  // {event: {name, context?}}, the context's values literal
+	textProp     propKind = iota // a literal string of at most max bytes
+	enumProp                     // one of enum
+	idProp                       // a component id (A2UI's ComponentId)
+	childrenProp                 // a list of component ids, at most max (A2UI's ChildList, as an array)
+	itemsProp                    // [{label, value}], 1..max: KeyValue's
+	optionsProp                  // [{label, value}], 1..max, values distinct: ChoicePicker's
+	boolProp                     // true or false
+	isoProp                      // an ISO 8601 date, time or date-time, literal
+	bindingProp                  // {path}: A2UI's DataBinding, an absolute JSON Pointer
+	actionProp                   // {event: {name, context?}}, the context's values literals or bindings
 )
 
 type prop struct {
@@ -78,44 +90,58 @@ type prop struct {
 	about    string
 }
 
+// role is what a component does on an ask.
+type role int
+
+const (
+	shows   role = iota // tells: Text, KeyValue, the root
+	input               // binds a value the owner sets: ChoicePicker, TextField, DateTimeInput
+	answers             // sends the answer: Button
+)
+
 type component struct {
 	name  string
 	about string
 	props []prop
-	// interactive says it answers an ask: an ask needs one, and a notice may hold none.
-	interactive bool
+	role  role
+	// own says the component is the node's, not the basic catalog's.
+	own bool
 }
 
 // catalog is every component, in the order the schema lists them.
 var catalog = []component{
-	{name: "Column", about: "The root, and only the root (id \"root\"): its children, top to bottom. The first is a Text, the TLDR; a TextField, if there is one, is last.",
-		props: []prop{{name: "children", kind: idsProp, required: true, max: MaxComponents - 1, about: "The ids of the components under the root, in order."}}},
+	{name: "Column", about: "The root, and only the root (id \"root\"): its children, top to bottom. The first is a Text, the TLDR.",
+		props: []prop{{name: "children", kind: childrenProp, required: true, max: MaxComponents - 1, about: "The ids of the components under the root, in order."}}},
 	{name: "Text", about: "A line of text. The first child of root is the TLDR: what the owner needs to know, in at most " + strconv.Itoa(MaxTLDRBytes) + " bytes.",
 		props: []prop{
-			{name: "text", kind: textProp, required: true, max: maxTextBytes},
+			{name: "text", kind: textProp, required: true, max: maxTextBytes, about: "Literal text."},
 			{name: "variant", kind: enumProp, enum: []string{"h1", "h2", "h3", "h4", "h5", "caption", "body"}},
 		}},
-	{name: "KeyValue", about: "The key terms, one label and value per row.",
-		props: []prop{{name: "rows", kind: rowsProp, required: true, max: MaxRows}}},
-	{name: "Choice", interactive: true, about: "Ready replies: choosing one sends its label to the contact as the owner's own message.",
+	{name: "KeyValue", own: true, about: "The node's own component: the key terms, one label and value per item.",
+		props: []prop{{name: "items", kind: itemsProp, required: true, max: MaxItems}}},
+	{name: "ChoicePicker", role: input, about: "Ready replies, one of which the owner picks: its value is written at the bound path, and a Button that sends that path sends the option's label to the contact as the owner's own message.",
 		props: []prop{
 			{name: "label", kind: textProp, max: maxLabelBytes, about: "What the choice is about."},
+			{name: "variant", kind: enumProp, enum: []string{"mutuallyExclusive"}},
 			{name: "options", kind: optionsProp, required: true, max: MaxOptions},
+			{name: "value", kind: bindingProp, required: true, about: "Where the chosen value is written: a list of at most one option's value."},
 		}},
-	{name: "TextField", interactive: true, about: "Write my own: what the owner types is sent to the contact as their own message. Always last.",
+	{name: "TextField", role: input, about: "Write my own: what the owner types is written at the bound path; a Button that sends that path sends it to the contact as their own message. The last input under root.",
 		props: []prop{
-			{name: "label", kind: textProp, max: maxLabelBytes},
+			{name: "label", kind: textProp, required: true, max: maxLabelBytes},
+			{name: "value", kind: bindingProp, required: true},
 			{name: "variant", kind: enumProp, enum: []string{"shortText", "longText"}},
 		}},
-	{name: "DateTimeInput", interactive: true, about: "A date, a time or both, picked by the owner; it answers the ask and sends nothing.",
+	{name: "DateTimeInput", role: input, about: "A date, a time or both, picked by the owner and written at the bound path; a Button that sends it answers the ask and sends nothing to the contact.",
 		props: []prop{
-			{name: "label", kind: textProp, max: maxLabelBytes},
+			{name: "value", kind: bindingProp, required: true},
 			{name: "enableDate", kind: boolProp},
 			{name: "enableTime", kind: boolProp},
-			{name: "min", kind: textProp, max: maxISOBytes, about: "ISO 8601."},
-			{name: "max", kind: textProp, max: maxISOBytes, about: "ISO 8601."},
+			{name: "min", kind: isoProp, about: "ISO 8601."},
+			{name: "max", kind: isoProp, about: "ISO 8601."},
+			{name: "label", kind: textProp, max: maxLabelBytes},
 		}},
-	{name: "Button", interactive: true, about: "A button whose label is a Text (child); pressing it answers the ask and sends nothing.",
+	{name: "Button", role: answers, about: "A button whose label is a Text (child). Pressing it answers the ask with its action's context, each {path} read from the data model.",
 		props: []prop{
 			{name: "child", kind: idProp, required: true, about: "The id of the Text that is its label."},
 			{name: "variant", kind: enumProp, enum: []string{"default", "primary", "borderless"}},
@@ -127,16 +153,19 @@ var catalog = []component{
 // components, not over one of them. Each is a sentence Parse refuses with; catalog_test.go shows each
 // red:
 //
-//   - the two messages name one surfaceId
+//   - the messages name one surfaceId
 //   - component ids are unique
 //   - one component is root, and it is the only Column
 //   - every component but root is placed once: under root, or as a Button's label
 //   - the first child of root is a Text, the TLDR, of at most MaxTLDRBytes
-//   - a TextField is the last child of root
-//   - at most one Choice and one TextField
-//   - an ask holds a component that answers it
+//   - at most one ChoicePicker and one TextField, and the TextField is the last input under root
+//   - an ask holds a Button, the only thing that answers it
 //   - a Button's child is a Text
-//   - a DateTimeInput enables a date, a time or both, and its min and max read as ISO 8601
+//   - each input binds a path of its own, none inside another's
+//   - every path a Button's context reads is one an input binds
+//   - a DateTimeInput enables a date, a time or both
+//   - the data model nests at most MaxModelDepth deep, and what it holds at an input's path is a
+//     value that input could have written
 //   - lengths are bytes, not characters
 
 func componentNamed(name string) (component, bool) {
@@ -149,16 +178,42 @@ func componentNamed(name string) (component, bool) {
 }
 
 // allowedIn says whether a component may be part of a surface of kind: a notice tells, and holds
-// nothing that answers.
-func (c component) allowedIn(kind string) bool { return kind == KindAsk || !c.interactive }
+// nothing to set and nothing that answers.
+func (c component) allowedIn(kind string) bool { return kind == KindAsk || c.role == shows }
 
-// Schema is the JSON Schema of a surface of kind: the `surface` argument of ask_owner (KindAsk) and
-// notify_owner (KindNotice).
-func Schema(kind string) *jsonschema.Schema {
+// ref is a local reference to one of Defs' schemas.
+func ref(name string) *jsonschema.Schema { return &jsonschema.Schema{Ref: "#/$defs/" + name} }
+
+// Defs are the schemas a surface of kind refers to, by local reference: A2UI's ComponentId, ChildList
+// and DataBinding, and one per component. They belong at the root of the document that holds
+// SurfaceSchema, as `$defs`.
+func Defs(kind string) map[string]*jsonschema.Schema {
+	defs := map[string]*jsonschema.Schema{
+		"ComponentId": {Type: "string", MinLength: ptr(1), MaxLength: ptr(maxIDBytes)},
+		"ChildList": {Type: "array", MinItems: ptr(1), MaxItems: ptr(MaxComponents - 1), UniqueItems: true,
+			Items: ref("ComponentId")},
+		"DataBinding": {Type: "object", Required: []string{"path"}, AdditionalProperties: falseSchema(),
+			Description: "A path in the surface's data model: an absolute JSON Pointer.",
+			Properties: map[string]*jsonschema.Schema{
+				"path": {Type: "string", Pattern: "^/", MinLength: ptr(2), MaxLength: ptr(maxPathBytes)},
+			}},
+	}
+	for _, c := range catalog {
+		if c.allowedIn(kind) {
+			defs[c.name] = componentSchema(c)
+		}
+	}
+	return defs
+}
+
+// SurfaceSchema is the JSON Schema of a surface of kind: the `surface` argument of ask_owner
+// (KindAsk) and notify_owner (KindNotice). Its references are to Defs, which the document that
+// holds it carries at its root.
+func SurfaceSchema(kind string) *jsonschema.Schema {
 	var comps []*jsonschema.Schema
 	for _, c := range catalog {
 		if c.allowedIn(kind) {
-			comps = append(comps, componentSchema(c))
+			comps = append(comps, ref(c.name))
 		}
 	}
 	str := func(max int) *jsonschema.Schema {
@@ -181,23 +236,36 @@ func Schema(kind string) *jsonschema.Schema {
 			"updateComponents": {Type: "object", Required: []string{"surfaceId", "components"}, AdditionalProperties: falseSchema(),
 				Properties: map[string]*jsonschema.Schema{
 					"surfaceId":  str(maxIDBytes),
-					"components": {Type: "array", MinItems: ptr(2), MaxItems: ptr(MaxComponents), Items: &jsonschema.Schema{OneOf: comps}},
+					"components": {Type: "array", MinItems: ptr(2), MaxItems: ptr(MaxComponents), Items: &jsonschema.Schema{AnyOf: comps}},
 				}},
 		}}
 	what := "An A2UI " + Version + " surface: a createSurface message naming catalogId " + CatalogID +
 		", then an updateComponents message for the same surfaceId. One component has id \"root\", a Column."
+	prefix := []*jsonschema.Schema{create, update}
+	most := 2
 	if kind == KindAsk {
-		what += " An ask holds at least one of Choice, TextField, DateTimeInput or Button."
+		model := &jsonschema.Schema{Type: "object", Required: []string{"version", "updateDataModel"}, AdditionalProperties: falseSchema(),
+			Properties: map[string]*jsonschema.Schema{
+				"version": version(),
+				"updateDataModel": {Type: "object", Required: []string{"surfaceId", "value"}, AdditionalProperties: falseSchema(),
+					Properties: map[string]*jsonschema.Schema{
+						"surfaceId": str(maxIDBytes),
+						"path":      {Type: "string", Const: anyPtr("/"), Description: "The whole data model; omit it or give \"/\"."},
+						"value":     {Type: "object", Description: "The data model the inputs start from, by their paths."},
+					}},
+			}}
+		prefix, most = append(prefix, model), 3
+		what += " Optionally a third, updateDataModel for the same surfaceId: the values the inputs start from. " +
+			"Every input binds its value to a {path}; the owner answers by pressing a Button, whose action's context sends the paths it names."
 	} else {
 		what += " A notice holds only Text and KeyValue: it tells, and nothing answers it."
 	}
-	return &jsonschema.Schema{Type: "array", Description: what, MinItems: ptr(2), MaxItems: ptr(2),
-		PrefixItems: []*jsonschema.Schema{create, update}}
+	return &jsonschema.Schema{Type: "array", Description: what, MinItems: ptr(2), MaxItems: ptr(most), PrefixItems: prefix}
 }
 
 func componentSchema(c component) *jsonschema.Schema {
 	props := map[string]*jsonschema.Schema{
-		"id":        {Type: "string", MinLength: ptr(1), MaxLength: ptr(maxIDBytes)},
+		"id":        ref("ComponentId"),
 		"component": {Type: "string", Const: anyPtr(c.name)},
 	}
 	order := []string{"id", "component"}
@@ -215,6 +283,13 @@ func componentSchema(c component) *jsonschema.Schema {
 
 func propSchema(p prop) *jsonschema.Schema {
 	var s *jsonschema.Schema
+	labelled := func(labelMax int) *jsonschema.Schema {
+		return &jsonschema.Schema{Type: "object", Required: []string{"label", "value"}, AdditionalProperties: falseSchema(),
+			Properties: map[string]*jsonschema.Schema{
+				"label": {Type: "string", MinLength: ptr(1), MaxLength: ptr(labelMax)},
+				"value": {Type: "string", MinLength: ptr(1), MaxLength: ptr(maxLabelBytes)},
+			}}
+	}
 	switch p.kind {
 	case textProp:
 		s = &jsonschema.Schema{Type: "string", MinLength: ptr(1), MaxLength: ptr(p.max)}
@@ -225,37 +300,36 @@ func propSchema(p prop) *jsonschema.Schema {
 		}
 		s = &jsonschema.Schema{Type: "string", Enum: e}
 	case idProp:
-		s = &jsonschema.Schema{Type: "string", MinLength: ptr(1), MaxLength: ptr(maxIDBytes)}
-	case idsProp:
-		s = &jsonschema.Schema{Type: "array", MinItems: ptr(1), MaxItems: ptr(p.max), UniqueItems: true,
-			Items: &jsonschema.Schema{Type: "string", MinLength: ptr(1), MaxLength: ptr(maxIDBytes)}}
-	case rowsProp:
-		s = &jsonschema.Schema{Type: "array", MinItems: ptr(1), MaxItems: ptr(p.max), Items: &jsonschema.Schema{
-			Type: "object", Required: []string{"label", "value"}, AdditionalProperties: falseSchema(),
-			Properties: map[string]*jsonschema.Schema{
-				"label": {Type: "string", MinLength: ptr(1), MaxLength: ptr(maxKeyBytes)},
-				"value": {Type: "string", MinLength: ptr(1), MaxLength: ptr(maxLabelBytes)},
-			}}}
+		s = ref("ComponentId")
+	case childrenProp:
+		s = ref("ChildList")
+	case itemsProp:
+		s = &jsonschema.Schema{Type: "array", MinItems: ptr(1), MaxItems: ptr(p.max), Items: labelled(maxKeyBytes)}
 	case optionsProp:
-		s = &jsonschema.Schema{Type: "array", MinItems: ptr(1), MaxItems: ptr(p.max), Items: &jsonschema.Schema{
-			Type: "object", Required: []string{"label"}, AdditionalProperties: falseSchema(),
-			Properties: map[string]*jsonschema.Schema{
-				"label": {Type: "string", MinLength: ptr(1), MaxLength: ptr(maxLabelBytes), Description: "The reply itself, as it is sent."},
-			}}}
+		s = &jsonschema.Schema{Type: "array", MinItems: ptr(1), MaxItems: ptr(p.max), Items: labelled(maxLabelBytes),
+			Description: "Each option's label is the reply itself, as it is sent; its value is what the data model holds when it is chosen."}
 	case boolProp:
 		s = &jsonschema.Schema{Type: "boolean"}
+	case isoProp:
+		s = &jsonschema.Schema{Type: "string", MinLength: ptr(1), MaxLength: ptr(maxISOBytes)}
+	case bindingProp:
+		s = ref("DataBinding")
 	case actionProp:
-		literal := &jsonschema.Schema{Types: []string{"string", "number", "boolean"}}
+		value := &jsonschema.Schema{AnyOf: []*jsonschema.Schema{
+			{Type: "string", MaxLength: ptr(maxContextBytes)}, {Type: "number"}, {Type: "boolean"}, ref("DataBinding"),
+		}}
 		s = &jsonschema.Schema{Type: "object", Required: []string{"event"}, AdditionalProperties: falseSchema(),
 			Properties: map[string]*jsonschema.Schema{
 				"event": {Type: "object", Required: []string{"name"}, AdditionalProperties: falseSchema(),
 					Properties: map[string]*jsonschema.Schema{
 						"name":    {Type: "string", MinLength: ptr(1), MaxLength: ptr(maxKeyBytes)},
-						"context": {Type: "object", MaxProperties: ptr(maxContextKeys), AdditionalProperties: literal},
+						"context": {Type: "object", MaxProperties: ptr(maxContextKeys), AdditionalProperties: value},
 					}},
 			}}
 	}
-	s.Description = p.about
+	if p.about != "" && s.Ref == "" {
+		s.Description = p.about
+	}
 	return s
 }
 
@@ -263,10 +337,12 @@ func ptr(n int) *int                  { return &n }
 func anyPtr(v any) *any               { return &v }
 func falseSchema() *jsonschema.Schema { return &jsonschema.Schema{Not: &jsonschema.Schema{}} }
 
-// Surface is a surface Parse accepted: its id and its components, root first.
+// Surface is a surface Parse accepted: its id, its components, root first, and its data model.
 type Surface struct {
 	ID         string
 	Components []Component
+	// Model is the data model the inputs start from; nil when the surface sent none.
+	Model map[string]any
 }
 
 // Component is one component of a surface, with the props its kind may carry.
@@ -277,8 +353,9 @@ type Component struct {
 	Text       string   `json:"text,omitempty"`
 	Variant    string   `json:"variant,omitempty"`
 	Label      string   `json:"label,omitempty"`
-	Rows       []Row    `json:"rows,omitempty"`
-	Options    []Option `json:"options,omitempty"`
+	Items      []Item   `json:"items,omitempty"`
+	Options    []Item   `json:"options,omitempty"`
+	Value      *Binding `json:"value,omitempty"`
 	EnableDate bool     `json:"enableDate,omitempty"`
 	EnableTime bool     `json:"enableTime,omitempty"`
 	Min        string   `json:"min,omitempty"`
@@ -287,18 +364,19 @@ type Component struct {
 	Action     *Action  `json:"action,omitempty"`
 }
 
-// Row is one row of a KeyValue.
-type Row struct {
+// Item is one item of a KeyValue, or one option of a ChoicePicker: its label is what the owner reads
+// (and, for an option, the reply that is sent), its value what the data model holds.
+type Item struct {
 	Label string `json:"label"`
 	Value string `json:"value"`
 }
 
-// Option is one ready reply of a Choice: its label is the reply.
-type Option struct {
-	Label string `json:"label"`
+// Binding is A2UI's DataBinding: a path in the surface's data model.
+type Binding struct {
+	Path string `json:"path"`
 }
 
-// Action is a Button's: the event it names and its literal context.
+// Action is a Button's: the event it names and its context, each value a literal or a Binding.
 type Action struct {
 	Event struct {
 		Name    string                     `json:"name"`
@@ -306,10 +384,33 @@ type Action struct {
 	} `json:"event"`
 }
 
+// bound reads a context value as a Binding, if it is one.
+func bound(v json.RawMessage) (string, bool) {
+	var b map[string]json.RawMessage
+	if json.Unmarshal(v, &b) != nil {
+		return "", false
+	}
+	var path string
+	if json.Unmarshal(b["path"], &path) != nil {
+		return "", false
+	}
+	return path, true
+}
+
 // Find returns the component with id, if the surface has it.
 func (s Surface) Find(id string) (Component, bool) {
 	for _, c := range s.Components {
 		if c.ID == id {
+			return c, true
+		}
+	}
+	return Component{}, false
+}
+
+// boundTo returns the input that binds path, if one does.
+func (s Surface) boundTo(path string) (Component, bool) {
+	for _, c := range s.Components {
+		if c.Value != nil && c.Value.Path == path {
 			return c, true
 		}
 	}
@@ -354,14 +455,21 @@ func Parse(raw []byte, kind string) (Surface, error) {
 	if err := json.Unmarshal(raw, &msgs); err != nil {
 		return Surface{}, invalid("/surface", "not a list of A2UI messages")
 	}
-	if len(msgs) != 2 {
-		return Surface{}, invalid("/surface", "a surface is two messages, createSurface then updateComponents; this is %d", len(msgs))
+	most := 2
+	if kind == KindAsk {
+		most = 3
+	}
+	if len(msgs) < 2 || len(msgs) > most {
+		if kind == KindAsk {
+			return Surface{}, invalid("/surface", "a surface is createSurface, updateComponents and optionally updateDataModel; this is %d messages", len(msgs))
+		}
+		return Surface{}, invalid("/surface", "a notice is two messages, createSurface then updateComponents; this is %d", len(msgs))
 	}
 	var create struct {
 		SurfaceID string `json:"surfaceId"`
 		CatalogID string `json:"catalogId"`
 	}
-	if err := message(msgs[0], "/surface/0", "createSurface", &create, "surfaceId", "catalogId"); err != nil {
+	if err := message(msgs[0], "/surface/0", "createSurface", &create, []string{"surfaceId", "catalogId"}, nil); err != nil {
 		return Surface{}, err
 	}
 	if create.CatalogID != CatalogID {
@@ -374,7 +482,7 @@ func Parse(raw []byte, kind string) (Surface, error) {
 		SurfaceID  string            `json:"surfaceId"`
 		Components []json.RawMessage `json:"components"`
 	}
-	if err := message(msgs[1], "/surface/1", "updateComponents", &update, "surfaceId", "components"); err != nil {
+	if err := message(msgs[1], "/surface/1", "updateComponents", &update, []string{"surfaceId", "components"}, nil); err != nil {
 		return Surface{}, err
 	}
 	if update.SurfaceID != create.SurfaceID {
@@ -400,14 +508,25 @@ func Parse(raw []byte, kind string) (Surface, error) {
 	if err := s.checkTree(kind, base, at); err != nil {
 		return Surface{}, err
 	}
+	if len(msgs) == 3 {
+		model, err := parseModel(msgs[2], create.SurfaceID)
+		if err != nil {
+			return Surface{}, err
+		}
+		s.Model = model
+		if err := s.checkModel(); err != nil {
+			return Surface{}, err
+		}
+	}
 	// Root first: what a reader of the stored surface meets first.
 	r := at["root"]
 	s.Components[0], s.Components[r] = s.Components[r], s.Components[0]
 	return s, nil
 }
 
-// message reads one A2UI message: version, and the one body named name with exactly the keys keys.
-func message(m map[string]json.RawMessage, path, name string, into any, keys ...string) error {
+// message reads one A2UI message: version, and the one body named name, which holds every key of
+// required and no key outside required and optional.
+func message(m map[string]json.RawMessage, path, name string, into any, required, optional []string) error {
 	var v string
 	if err := json.Unmarshal(m["version"], &v); err != nil || v != Version {
 		return invalid(path+"/version", "every message names version %s", Version)
@@ -421,11 +540,11 @@ func message(m map[string]json.RawMessage, path, name string, into any, keys ...
 		return invalid(path+"/"+name, "not an object")
 	}
 	for k := range fields {
-		if !contains(keys, k) {
-			return invalid(path+"/"+name+"/"+k, "%s takes %s, and nothing else", name, strings.Join(keys, " and "))
+		if !contains(required, k) && !contains(optional, k) {
+			return invalid(path+"/"+name+"/"+k, "%s takes %s, and nothing else", name, strings.Join(append(append([]string{}, required...), optional...), ", "))
 		}
 	}
-	for _, k := range keys {
+	for _, k := range required {
 		if _, ok := fields[k]; !ok {
 			return invalid(path+"/"+name+"/"+k, "required")
 		}
@@ -434,6 +553,77 @@ func message(m map[string]json.RawMessage, path, name string, into any, keys ...
 		return invalid(path+"/"+name, "a field is of the wrong type")
 	}
 	return nil
+}
+
+// parseModel reads the third message: the whole data model, for the surface surfaceID.
+func parseModel(m map[string]json.RawMessage, surfaceID string) (map[string]any, error) {
+	path := "/surface/2"
+	var dm struct {
+		SurfaceID string          `json:"surfaceId"`
+		Path      *string         `json:"path"`
+		Value     json.RawMessage `json:"value"`
+	}
+	if err := message(m, path, "updateDataModel", &dm, []string{"surfaceId", "value"}, []string{"path"}); err != nil {
+		return nil, err
+	}
+	path += "/updateDataModel"
+	if dm.SurfaceID != surfaceID {
+		return nil, invalid(path+"/surfaceId", "names surface %q; the createSurface made %q", dm.SurfaceID, surfaceID)
+	}
+	if dm.Path != nil && *dm.Path != "/" {
+		return nil, invalid(path+"/path", "the node takes the whole data model: omit path, or give \"/\"")
+	}
+	var model map[string]any
+	if err := json.Unmarshal(dm.Value, &model); err != nil || model == nil {
+		return nil, invalid(path+"/value", "the data model is an object")
+	}
+	if d := depth(model); d > MaxModelDepth {
+		return nil, invalid(path+"/value", "the data model nests %d deep, over the %d it may", d, MaxModelDepth)
+	}
+	return model, nil
+}
+
+// depth is how deeply v nests: a scalar is 0, an object or a list one more than its deepest member.
+func depth(v any) int {
+	d := 0
+	switch x := v.(type) {
+	case map[string]any:
+		for _, m := range x {
+			d = max(d, depth(m))
+		}
+		return d + 1
+	case []any:
+		for _, m := range x {
+			d = max(d, depth(m))
+		}
+		return d + 1
+	}
+	return 0
+}
+
+// lookup reads the data model at an absolute JSON Pointer (RFC 6901), if it holds anything there.
+func lookup(model map[string]any, pointer string) (any, bool) {
+	var cur any = model
+	for _, tok := range strings.Split(pointer, "/")[1:] {
+		tok = strings.ReplaceAll(strings.ReplaceAll(tok, "~1", "/"), "~0", "~")
+		switch x := cur.(type) {
+		case map[string]any:
+			v, ok := x[tok]
+			if !ok {
+				return nil, false
+			}
+			cur = v
+		case []any:
+			i, err := strconv.Atoi(tok)
+			if err != nil || i < 0 || i >= len(x) {
+				return nil, false
+			}
+			cur = x[i]
+		default:
+			return nil, false
+		}
+	}
+	return cur, true
 }
 
 func parseComponent(raw json.RawMessage, kind, path string) (Component, error) {
@@ -460,7 +650,7 @@ func parseComponent(raw json.RawMessage, kind, path string) (Component, error) {
 			continue
 		}
 		if _, ok := spec.prop(k); !ok {
-			return Component{}, invalid(path+"/"+k, "%s has no %q", name, k)
+			return Component{}, invalid(path+"/"+k, "%s has no %q in this catalog", name, k)
 		}
 	}
 	for _, p := range spec.props {
@@ -480,15 +670,8 @@ func parseComponent(raw json.RawMessage, kind, path string) (Component, error) {
 	if err := dec.Decode(&c); err != nil {
 		return Component{}, invalid(path, "a field is of the wrong type")
 	}
-	if c.Name == "DateTimeInput" {
-		if !c.EnableDate && !c.EnableTime {
-			return Component{}, invalid(path, "a DateTimeInput enables a date, a time or both")
-		}
-		for _, b := range []struct{ name, v string }{{"min", c.Min}, {"max", c.Max}} {
-			if b.v != "" && !isISO(b.v) {
-				return Component{}, invalid(path+"/"+b.name, "not an ISO 8601 date, time or date-time")
-			}
-		}
+	if c.Name == "DateTimeInput" && !c.EnableDate && !c.EnableTime {
+		return Component{}, invalid(path, "a DateTimeInput enables a date, a time or both")
 	}
 	return c, nil
 }
@@ -517,7 +700,7 @@ func checkProp(p prop, v json.RawMessage, path string) error {
 			return invalid(path, "a component id")
 		}
 		return checkID(path, s)
-	case idsProp:
+	case childrenProp:
 		var l []string
 		if json.Unmarshal(v, &l) != nil || len(l) == 0 {
 			return invalid(path, "a list of component ids")
@@ -530,39 +713,37 @@ func checkProp(p prop, v json.RawMessage, path string) error {
 				return err
 			}
 		}
-	case rowsProp:
+	case itemsProp, optionsProp:
+		what, labelMax := "items, each a label and a value", maxKeyBytes
+		if p.kind == optionsProp {
+			what, labelMax = "ready replies, each a label and a value", maxLabelBytes
+		}
 		var l []map[string]json.RawMessage
 		if json.Unmarshal(v, &l) != nil || len(l) == 0 {
-			return invalid(path, "a list of rows, each a label and a value")
+			return invalid(path, "a list of %s", what)
 		}
 		if len(l) > p.max {
-			return invalid(path, "at most %d rows; this has %d", p.max, len(l))
+			return invalid(path, "at most %d %s; this has %d", p.max, strings.SplitN(what, ",", 2)[0], len(l))
 		}
-		for i, r := range l {
-			if err := exactKeys(r, fmt.Sprintf("%s/%d", path, i), "label", "value"); err != nil {
+		values := map[string]bool{}
+		for i, it := range l {
+			at := fmt.Sprintf("%s/%d", path, i)
+			if err := exactKeys(it, at, "label", "value"); err != nil {
 				return err
 			}
-			if err := checkText(r["label"], fmt.Sprintf("%s/%d/label", path, i), maxKeyBytes); err != nil {
+			if err := checkText(it["label"], at+"/label", labelMax); err != nil {
 				return err
 			}
-			if err := checkText(r["value"], fmt.Sprintf("%s/%d/value", path, i), maxLabelBytes); err != nil {
+			if err := checkText(it["value"], at+"/value", maxLabelBytes); err != nil {
 				return err
 			}
-		}
-	case optionsProp:
-		var l []map[string]json.RawMessage
-		if json.Unmarshal(v, &l) != nil || len(l) == 0 {
-			return invalid(path, "a list of ready replies, each a label")
-		}
-		if len(l) > p.max {
-			return invalid(path, "at most %d ready replies; this has %d", p.max, len(l))
-		}
-		for i, o := range l {
-			if err := exactKeys(o, fmt.Sprintf("%s/%d", path, i), "label"); err != nil {
-				return err
-			}
-			if err := checkText(o["label"], fmt.Sprintf("%s/%d/label", path, i), maxLabelBytes); err != nil {
-				return err
+			if p.kind == optionsProp {
+				var val string
+				_ = json.Unmarshal(it["value"], &val)
+				if values[val] {
+					return invalid(at+"/value", "two options have the value %q", val)
+				}
+				values[val] = true
 			}
 		}
 	case boolProp:
@@ -570,13 +751,20 @@ func checkProp(p prop, v json.RawMessage, path string) error {
 		if json.Unmarshal(v, &b) != nil {
 			return invalid(path, "true or false")
 		}
+	case isoProp:
+		var s string
+		if json.Unmarshal(v, &s) != nil || len(s) > maxISOBytes || !isISO(s) {
+			return invalid(path, "an ISO 8601 date, time or date-time")
+		}
+	case bindingProp:
+		return checkBinding(v, path)
 	case actionProp:
 		var a map[string]json.RawMessage
 		if json.Unmarshal(v, &a) != nil {
 			return invalid(path, "an action: {event: {name, context}}")
 		}
 		if err := exactKeys(a, path, "event"); err != nil {
-			return err
+			return invalid(path, "an action here is an event, {event: {name, context}}: the portal runs no function")
 		}
 		var ev map[string]json.RawMessage
 		if json.Unmarshal(a["event"], &ev) != nil {
@@ -600,21 +788,48 @@ func checkProp(p prop, v json.RawMessage, path string) error {
 				return invalid(path+"/event/context", "at most %d keys", maxContextKeys)
 			}
 			for k, cv := range ctx {
+				at := path + "/event/context/" + k
+				if len(k) > maxKeyBytes {
+					return invalid(at, "a key of at most %d bytes", maxKeyBytes)
+				}
 				var lit any
 				if json.Unmarshal(cv, &lit) != nil {
-					return invalid(path+"/event/context/"+k, "a literal")
+					return invalid(at, "a literal or a {path}")
 				}
 				switch x := lit.(type) {
 				case string:
 					if len(x) > maxContextBytes {
-						return invalid(path+"/event/context/"+k, "at most %d bytes", maxContextBytes)
+						return invalid(at, "at most %d bytes", maxContextBytes)
 					}
 				case float64, bool:
+				case map[string]any:
+					if err := checkBinding(cv, at); err != nil {
+						return err
+					}
 				default:
-					return invalid(path+"/event/context/"+k, "a literal string, number or boolean: the node binds no data model")
+					return invalid(at, "a literal string, number or boolean, or a {path} in the data model")
 				}
 			}
 		}
+	}
+	return nil
+}
+
+// checkBinding reads v as A2UI's DataBinding: {path}, an absolute JSON Pointer.
+func checkBinding(v json.RawMessage, path string) error {
+	var b map[string]json.RawMessage
+	if json.Unmarshal(v, &b) != nil {
+		return invalid(path, "a binding: {path}")
+	}
+	if err := exactKeys(b, path, "path"); err != nil {
+		return invalid(path, "a binding is {path}, and nothing else")
+	}
+	var p string
+	if json.Unmarshal(b["path"], &p) != nil || len(p) < 2 || len(p) > maxPathBytes || p[0] != '/' {
+		return invalid(path+"/path", "an absolute JSON Pointer of 2 to %d bytes", maxPathBytes)
+	}
+	if strings.HasSuffix(p, "/") || strings.Contains(p, "//") || strings.ReplaceAll(strings.ReplaceAll(p, "~0", ""), "~1", "") != strings.ReplaceAll(p, "~", "") {
+		return invalid(path+"/path", "not a JSON Pointer the node reads: no empty step, and ~ only as ~0 or ~1")
 	}
 	return nil
 }
@@ -636,7 +851,7 @@ func exactKeys(m map[string]json.RawMessage, path string, keys ...string) error 
 func checkText(v json.RawMessage, path string, max int) error {
 	var s string
 	if json.Unmarshal(v, &s) != nil {
-		return invalid(path, "a string")
+		return invalid(path, "a literal string")
 	}
 	if strings.TrimSpace(s) == "" {
 		return invalid(path, "empty")
@@ -687,7 +902,8 @@ func (s Surface) checkTree(kind, base string, at map[string]int) error {
 			return err
 		}
 	}
-	choices, fields, answers := 0, 0, 0
+	pickers, fields, buttons := 0, 0, 0
+	paths := map[string]string{}
 	for i, c := range s.Components {
 		path := fmt.Sprintf("%s/%d", base, i)
 		switch c.Name {
@@ -696,19 +912,25 @@ func (s Surface) checkTree(kind, base string, at map[string]int) error {
 				return invalid(path+"/component", "a Column is the root alone")
 			}
 		case "Button":
+			buttons++
 			if err := place(path+"/child", c.Child); err != nil {
 				return err
 			}
 			if s.Components[at[c.Child]].Name != "Text" {
 				return invalid(path+"/child", "a Button's child is the Text that is its label")
 			}
-		case "Choice":
-			choices++
+		case "ChoicePicker":
+			pickers++
 		case "TextField":
 			fields++
 		}
-		if spec, _ := componentNamed(c.Name); spec.interactive {
-			answers++
+		if c.Value != nil {
+			for other, id := range paths {
+				if other == c.Value.Path || strings.HasPrefix(c.Value.Path, other+"/") || strings.HasPrefix(other, c.Value.Path+"/") {
+					return invalid(path+"/value/path", "%q and %q bind one place in the data model: each input binds its own", id, c.ID)
+				}
+			}
+			paths[c.Value.Path] = c.ID
 		}
 	}
 	for i, c := range s.Components {
@@ -723,18 +945,166 @@ func (s Surface) checkTree(kind, base string, at map[string]int) error {
 	if len(first.Text) > MaxTLDRBytes {
 		return invalid(fmt.Sprintf("%s/%d/text", base, at[first.ID]), "the TLDR is %d bytes, over the %d it may be", len(first.Text), MaxTLDRBytes)
 	}
-	if choices > 1 || fields > 1 {
-		return invalid(base, "at most one Choice and one TextField")
+	if pickers > 1 || fields > 1 {
+		return invalid(base, "at most one ChoicePicker and one TextField")
 	}
+	field := -1
 	for i, id := range root.Children {
-		if s.Components[at[id]].Name == "TextField" && i != len(root.Children)-1 {
-			return invalid(fmt.Sprintf("%s/%d", cpath, i), "the TextField is the last child of root")
+		c := s.Components[at[id]]
+		if spec, _ := componentNamed(c.Name); spec.role == input && field >= 0 {
+			return invalid(fmt.Sprintf("%s/%d", cpath, field), "the TextField is the last input under root")
+		}
+		if c.Name == "TextField" {
+			field = i
 		}
 	}
-	if kind == KindAsk && answers == 0 {
-		return invalid(base, "an ask holds a Choice, a TextField, a DateTimeInput or a Button: something that answers it")
+	if kind == KindAsk && buttons == 0 {
+		return invalid(base, "an ask holds a Button: pressing it is the owner's answer")
+	}
+	for i, c := range s.Components {
+		if c.Action == nil {
+			continue
+		}
+		for k, v := range c.Action.Event.Context {
+			if p, ok := bound(v); ok {
+				if _, ok := paths[p]; !ok {
+					return invalid(fmt.Sprintf("%s/%d/action/event/context/%s", base, i, k), "no input binds %q", p)
+				}
+			}
+		}
 	}
 	return nil
+}
+
+// checkModel holds the data model to the inputs: what it holds at an input's path is a value that
+// input could have written.
+func (s Surface) checkModel() error {
+	for _, c := range s.Components {
+		if c.Value == nil {
+			continue
+		}
+		v, ok := lookup(s.Model, c.Value.Path)
+		if !ok {
+			continue
+		}
+		raw, _ := json.Marshal(v)
+		if _, err := s.inputValue(c, raw); err != nil {
+			return invalid("/surface/2/updateDataModel/value", "at %s: %s", c.Value.Path, err)
+		}
+	}
+	return nil
+}
+
+// inputValue reads v as a value input c could have written at its path, in a word: a ChoicePicker's
+// is a list of at most one of its options' values (the chosen option's label returned, or ""), a
+// TextField's a string, a DateTimeInput's an ISO string or "" (returned as given).
+func (s Surface) inputValue(c Component, v json.RawMessage) (string, error) {
+	switch c.Name {
+	case "ChoicePicker":
+		var l []string
+		if json.Unmarshal(v, &l) != nil {
+			return "", fmt.Errorf("a ChoicePicker's value is a list of option values")
+		}
+		if len(l) > 1 {
+			return "", fmt.Errorf("one option, not %d: the ChoicePicker is mutually exclusive", len(l))
+		}
+		if len(l) == 0 {
+			return "", nil
+		}
+		for _, o := range c.Options {
+			if o.Value == l[0] {
+				return o.Label, nil
+			}
+		}
+		return "", fmt.Errorf("%q is not one of the ChoicePicker's option values", l[0])
+	case "TextField":
+		var t string
+		if json.Unmarshal(v, &t) != nil {
+			return "", fmt.Errorf("a TextField's value is a string")
+		}
+		if len(t) > maxTextBytes {
+			return "", fmt.Errorf("%d bytes, over the %d a TextField's value may be", len(t), maxTextBytes)
+		}
+		if !utf8.ValidString(t) {
+			return "", fmt.Errorf("not UTF-8")
+		}
+		return t, nil
+	case "DateTimeInput":
+		var t string
+		if json.Unmarshal(v, &t) != nil {
+			return "", fmt.Errorf("a DateTimeInput's value is an ISO 8601 string")
+		}
+		if t != "" && !isISO(t) {
+			return "", fmt.Errorf("not an ISO 8601 date, time or date-time")
+		}
+		return t, nil
+	}
+	return "", fmt.Errorf("%s binds no value", c.Name)
+}
+
+// Pressed is the owner's answer as the portal sent it: A2UI's client-to-server action, its context
+// already resolved from the card's data model.
+type Pressed struct {
+	Button  Component
+	Context map[string]json.RawMessage
+}
+
+// ReadAction reads raw, an A2UI v0.9.1 client-to-server message, as an action on surface s: the
+// surface it names is s, its source is one of s's Buttons and its name that Button's event's, and its
+// context holds exactly the Button's keys, each literal as the Button wrote it. The client's
+// timestamp is not read: the node keeps its own clock.
+func (s Surface) ReadAction(raw []byte) (Pressed, error) {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(raw, &m) != nil {
+		return Pressed{}, fmt.Errorf("not an A2UI message")
+	}
+	var a struct {
+		Name              string                     `json:"name"`
+		SurfaceID         string                     `json:"surfaceId"`
+		SourceComponentID string                     `json:"sourceComponentId"`
+		Timestamp         string                     `json:"timestamp"`
+		Context           map[string]json.RawMessage `json:"context"`
+	}
+	if err := message(m, "", "action", &a, []string{"name", "surfaceId", "sourceComponentId", "timestamp", "context"}, nil); err != nil {
+		return Pressed{}, fmt.Errorf("not an A2UI %s action (%v)", Version, err)
+	}
+	if a.SurfaceID != s.ID {
+		return Pressed{}, fmt.Errorf("that action is on surface %q, not this ask's", a.SurfaceID)
+	}
+	b, ok := s.Find(a.SourceComponentID)
+	if !ok || b.Name != "Button" || b.Action == nil {
+		return Pressed{}, fmt.Errorf("no Button by that id answers this ask")
+	}
+	if a.Name != b.Action.Event.Name {
+		return Pressed{}, fmt.Errorf("that Button's event is %q", b.Action.Event.Name)
+	}
+	if len(a.Context) != len(b.Action.Event.Context) {
+		return Pressed{}, fmt.Errorf("the context holds the Button's %d keys, and nothing else", len(b.Action.Event.Context))
+	}
+	for k, want := range b.Action.Event.Context {
+		got, ok := a.Context[k]
+		if !ok {
+			return Pressed{}, fmt.Errorf("the context has no %q", k)
+		}
+		if _, isBound := bound(want); isBound {
+			continue
+		}
+		if !sameJSON(want, got) {
+			return Pressed{}, fmt.Errorf("%q is the Button's literal, %s", k, want)
+		}
+	}
+	return Pressed{Button: b, Context: a.Context}, nil
+}
+
+// sameJSON says a and b are one JSON value, whatever their spacing.
+func sameJSON(a, b json.RawMessage) bool {
+	var x, y any
+	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
+		return false
+	}
+	ca, _ := json.Marshal(x)
+	cb, _ := json.Marshal(y)
+	return bytes.Equal(ca, cb)
 }
 
 func isISO(v string) bool {

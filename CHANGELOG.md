@@ -29,11 +29,14 @@ changelog can be and is not summarized into a fictional release history.
   id the change log records and a webhook's `data` carries, so an agent can key its work by
   message (#208).
 - Owner asks: the owner's agent asks its owner to decide (`ask_owner`) or tells them what it did
-  (`notify_owner`) with an A2UI v0.9.1 surface built from the node's catalog — a TLDR first, Text,
-  KeyValue, up to three ready replies, a date or time, buttons and a write-my-own field last — and
-  follows it with `withdraw_ask`, `get_ask` and `list_asks`. The portal draws the open ask and every
+  (`notify_owner`) with an A2UI v0.9.1 surface built from the node's catalog — A2UI's basic Column,
+  Text, ChoicePicker, TextField, DateTimeInput and Button, narrowed, plus the node's own KeyValue: a
+  TLDR first, the key terms, up to three ready replies, a date or time, a write-my-own field last and
+  the button that sends them, each input bound to the surface's data model — and follows it with
+  `withdraw_ask`, `get_ask` and `list_asks` (by thread, by contact or open). The portal draws the open ask and every
   notice as a card on the conversation and lists the open asks on a new Needs you page, counted in
-  the sidebar. A ready reply or what the owner writes is sent as the owner's own message, labelled
+  the sidebar; pressing a button posts A2UI's action with the values it reads. A ready reply or what
+  the owner writes is sent as the owner's own message, labelled
   human; any message the owner sends that contact answers the open ask too; every answer becomes
   one line the agent reads back (`Ana chose: "Confirm Wed 15:00"`). An ask expires after 24 hours.
   `wait_for_updates` lists asks that moved, and two webhook events, `ask.answered` and

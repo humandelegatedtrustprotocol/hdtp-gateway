@@ -14,13 +14,23 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/asks"
 )
 
-// askSurface is the story's ask: a TLDR, two ready replies and a field to write one's own.
+// askSurface is the story's ask: a TLDR, two ready replies, a field to write one's own and the Send
+// button that reads both.
 const askSurface = `[{"version":"v0.9.1","createSurface":{"surfaceId":"s1","catalogId":"` + asks.CatalogID + `"}},` +
 	`{"version":"v0.9.1","updateComponents":{"surfaceId":"s1","components":[` +
-	`{"id":"root","component":"Column","children":["tldr","pick","own"]},` +
+	`{"id":"root","component":"Column","children":["tldr","pick","own","send"]},` +
 	`{"id":"tldr","component":"Text","text":"Bob proposes Wed 15:00 for 30 min."},` +
-	`{"id":"pick","component":"Choice","options":[{"label":"Confirm Wed 15:00"},{"label":"Ask for Thu instead"}]},` +
-	`{"id":"own","component":"TextField","label":"Write my own"}]}}]`
+	`{"id":"pick","component":"ChoicePicker","options":[{"label":"Confirm Wed 15:00","value":"confirm"},{"label":"Ask for Thu instead","value":"thu"}],"value":{"path":"/reply"}},` +
+	`{"id":"own","component":"TextField","label":"Write my own","value":{"path":"/own"}},` +
+	`{"id":"send-label","component":"Text","text":"Send"},` +
+	`{"id":"send","component":"Button","child":"send-label","action":{"event":{"name":"answer","context":{"reply":{"path":"/reply"},"own":{"path":"/own"}}}}}]}}]`
+
+// pressed is the A2UI action the card posts when the owner presses Send, its context as resolved
+// from the card's data model.
+func pressed(button, context string) string {
+	return `{"version":"v0.9.1","action":{"name":"answer","surfaceId":"s1","sourceComponentId":"` + button +
+		`","timestamp":"2026-10-19T10:00:00Z","context":` + context + `}}`
+}
 
 // The asks routes through the whole portal (session, CSRF, account resolution), with the refusals
 // of Building rule 3: no session, no CSRF token, an ask that does not exist, another account's ask
@@ -104,7 +114,7 @@ func TestTheAsksRoutesRefuseWhatTheyMustAndAnswerTheOwnersOwn(t *testing.T) {
 		}
 		return v
 	}
-	choose := as(mine.ID, "component", "pick", "value", "Confirm Wed 15:00")
+	choose := as(mine.ID, "message", pressed("send", `{"reply":["confirm"],"own":""}`))
 
 	if a := send(http.MethodGet, "/api/asks", as(mine.ID), false, false); a.code != http.StatusUnauthorized {
 		t.Fatalf("a read with no session: %d", a.code)
@@ -123,10 +133,14 @@ func TestTheAsksRoutesRefuseWhatTheyMustAndAnswerTheOwnersOwn(t *testing.T) {
 	}{
 		"an ask that does not exist":              {"/asks/ask_none/answer", choose, http.StatusNotFound, "not_found"},
 		"another account's ask, under mine":       {"/asks/" + theirAsk.ID + "/answer", choose, http.StatusNotFound, "not_found"},
-		"another account's ask, named":            {"/asks/" + theirAsk.ID + "/answer", as(theirs.ID, "component", "pick", "value", "Confirm Wed 15:00"), http.StatusNotFound, ""},
-		"a reply the ask does not offer":          {"/asks/" + ask.ID + "/answer", as(mine.ID, "component", "pick", "value", "Fri"), http.StatusBadRequest, "bad_request"},
-		"a component the ask does not hold":       {"/asks/" + ask.ID + "/answer", as(mine.ID, "component", "nope", "value", "x"), http.StatusBadRequest, "bad_request"},
-		"nothing written in the write-my-own box": {"/asks/" + ask.ID + "/answer", as(mine.ID, "component", "own", "value", " "), http.StatusBadRequest, "bad_request"},
+		"another account's ask, named":            {"/asks/" + theirAsk.ID + "/answer", as(theirs.ID, "message", pressed("send", `{"reply":["confirm"],"own":""}`)), http.StatusNotFound, ""},
+		"no action":                               {"/asks/" + ask.ID + "/answer", as(mine.ID), http.StatusBadRequest, "bad_request"},
+		"the old form":                            {"/asks/" + ask.ID + "/answer", as(mine.ID, "component", "pick", "value", "Confirm Wed 15:00"), http.StatusBadRequest, "bad_request"},
+		"a reply the ask does not offer":          {"/asks/" + ask.ID + "/answer", as(mine.ID, "message", pressed("send", `{"reply":["fri"],"own":""}`)), http.StatusBadRequest, "bad_request"},
+		"a component the ask does not hold":       {"/asks/" + ask.ID + "/answer", as(mine.ID, "message", pressed("nope", `{}`)), http.StatusBadRequest, "bad_request"},
+		"nothing written in the write-my-own box": {"/asks/" + ask.ID + "/answer", as(mine.ID, "message", pressed("send", `{"reply":[],"own":" "}`)), http.StatusBadRequest, "bad_request"},
+		"an action over its bound": {"/asks/" + ask.ID + "/answer", as(mine.ID, "message", pressed("send", `{"reply":[],"own":"`+strings.Repeat("x", asks.MaxSurfaceBytes)+`"}`)),
+			http.StatusRequestEntityTooLarge, "too_large"},
 	} {
 		a := send(http.MethodPost, c.path, c.form, true, true)
 		if a.code != c.code || (c.err != "" && (a.body["error"] != c.err || a.body["detail"] == "")) {
@@ -146,6 +160,12 @@ func TestTheAsksRoutesRefuseWhatTheyMustAndAnswerTheOwnersOwn(t *testing.T) {
 	raw, _ := json.Marshal(listed.body)
 	if listed.code != http.StatusOK || listed.body["open"] != float64(1) || !strings.Contains(string(raw), ask.ID) || strings.Contains(string(raw), theirAsk.ID) {
 		t.Fatalf("the open list: %d %s", listed.code, raw)
+	}
+	for thread, want := range map[string]bool{ask.ThreadID: true, theirAsk.ThreadID: false} {
+		l := send(http.MethodGet, "/api/asks", as(mine.ID, "thread", thread), true, false)
+		if raw, _ := json.Marshal(l.body); l.code != http.StatusOK || strings.Contains(string(raw), ask.ID) != want || strings.Contains(string(raw), theirAsk.ID) {
+			t.Fatalf("the list of thread %s: %d %s", thread, l.code, raw)
+		}
 	}
 	a := send(http.MethodPost, "/asks/"+ask.ID+"/answer", choose, true, true)
 	if a.code != http.StatusOK || a.body["status"] != "answered" || a.body["answer_text"] != `Ana chose: "Confirm Wed 15:00"` {

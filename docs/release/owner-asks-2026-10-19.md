@@ -134,3 +134,52 @@ See docs/release/usecase-videos-2026-10-19.md.
   page listing open asks across threads; done-for-you TLDR **notices** (no buttons).
 - A1 adds: the `notify` turn; autonomy per topic in the instructions (ask before committing, or
   commit within limits and notify).
+
+## Aligned with A2UI v0.9.1's basic catalog (team-lead, 2026-10-19)
+
+"we need to use A2UI in these demos" (the owner): the node speaks the specification, not look-alike
+names. Read from google/A2UI `specification/v0_9_1` (the protocol document, `common_types.json`,
+`catalogs/basic/catalog.json`).
+
+- **The catalog** is the node's own, as A2UI provides for, named
+  `https://hdtp.dev/a2ui/v0_9_1/catalogs/owner/catalog.json` in `createSurface.catalogId` (an
+  identifier; nothing is served there). Its definitions are the tool schema's `$defs`. It holds six of
+  the basic catalog's components under their names and property shapes, narrowed, and one of its
+  own; a test validates every surface the node takes against A2UI's own v0.9.1 message schema
+  (copied from google/A2UI) in a catalog of the basic components plus this KeyValue:
+
+  | Component | From | The node's narrowing |
+  |---|---|---|
+  | `Column` | basic | the root only; `children` an array of ids (no template) |
+  | `Text` | basic | `text` a literal string; the root's first child is the TLDR |
+  | `ChoicePicker` | basic | `variant` `mutuallyExclusive`; 1–3 `options` `{label, value}`; `value` a `{path}` |
+  | `TextField` | basic | `label` a literal; `value` a `{path}`; `variant` `shortText` or `longText` |
+  | `DateTimeInput` | basic | `value` a `{path}`; `min`, `max`, `label` literals |
+  | `Button` | basic | `child` a Text; `action.event` only, its `context` literals or `{path}` |
+  | `KeyValue` | the node's | `items` `[{label, value}]`, 1–8: the key terms under the TLDR |
+
+  No function calls, `checks`, `weight`, `accessibility` or `theme`: the portal implements none of
+  them, so the schema does not offer them.
+- **The data model:** every input binds its `value` to a path (an absolute JSON Pointer). A surface
+  may carry a third message, `updateDataModel` for the same surface, with no `path` (the whole model)
+  and an object `value`: the inputs' starting values. Bounded by the surface's 16 KiB and a depth of 4.
+- **The answer** is the spec's client-to-server `action`: pressing a Button resolves its context (each
+  `{path}` read from the card's data model) and the portal posts `{"version":"v0.9.1","action":{name,
+  surfaceId, sourceComponentId, timestamp, context}}` as the `message` field of `POST
+  /asks/{id}/answer`. The node checks it against the stored Button (its literals exactly; each bound
+  value against the input bound to that path) and makes the one line, in one function:
+  1. a non-empty TextField value is sent to the contact as the owner's message: `Ana wrote: "…"`;
+  2. else one chosen ChoicePicker value: its option's label is sent: `Ana chose: "…"`;
+  3. else a DateTimeInput value: nothing is sent: `Ana picked: …`;
+  4. else, a Button whose context binds nothing: nothing is sent: `Ana pressed: "<its label>"`;
+  5. a Button whose bound values are all empty is refused (`bad_request`, nothing chosen or written).
+- **What answers:** an ask holds at least one Button. An input alone answers nothing (A2UI sends on an
+  action, never on a keystroke). A notice holds no Button and no input. The TextField, the "write my
+  own", is the last input under the root (Buttons may follow it); each input binds its own path, and
+  every `{path}` in a Button's context is one an input binds.
+- **list_asks** gains `thread_id` (and `GET /api/asks` `thread`): the agent's "is an ask open on this
+  thread" is `list_asks {thread_id, status: "open"}`.
+- **What the owner does:** a ready reply is two taps now, the reply and then the Button that sends
+  it, where the first card sent on the first tap: A2UI writes a selection to the data model and sends
+  nothing until an action. One tap remains for a Button that reads nothing (`Ana pressed: "Approve"`),
+  which sends nothing to the contact.
