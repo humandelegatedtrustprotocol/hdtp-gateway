@@ -10,6 +10,7 @@ import { Link, navigate } from "../router";
 import { Avatar, Badge, Button, CountChip, EmptyState, Failed, Icon, Notice, PLUMBING_TOOLS, PageHeader, Toolbar, permLabel, tallyCount, toolAction, toolLabel, trustWord, type IconName, type Tally } from "../ui";
 import { SchemaForm, missingRequired } from "../schema_form";
 import { IdText } from "../glance";
+import { AskCard, type Ask } from "../a2ui";
 import { actionWord, ago, contactStatusWord, fileSize, mediaKind, undeliveredReason, when, whenTitle } from "../words";
 import type { Schema, Values } from "../schema_form";
 
@@ -93,6 +94,10 @@ export function Messages() {
   // A first read that failed is said as one: the Inbox drew a blank content area, with no list, no
   // heading and no error, for as long as the node refused.
   const [err, setErr] = useState("");
+  // The conversation's open ask and its notices, drawn as cards among its messages (a2ui.tsx). An ask the
+  // owner answered, or that expired or was withdrawn, leaves the thread: what was sent shows instead.
+  const [cards, setCards] = useState<Ask[]>([]);
+  const [cardsErr, setCardsErr] = useState("");
   // The search is the node's too: the list is one page, and a conversation past it is found by asking.
   const [search, setSearch] = useState("");
   useEffect(() => { const t = setTimeout(() => setSearch(q.trim()), 250); return () => clearTimeout(t); }, [q]);
@@ -100,6 +105,11 @@ export function Messages() {
     const params: Record<string, string> = {};
     if (sel) params.contact = sel;
     if (search) params.q = search;
+    if (sel) {
+      getJSON<{ asks: Ask[] | null }>("/api/asks", { contact: sel })
+        .then((x) => { setCards((x.asks ?? []).filter((a) => a.kind === "notice" || a.status === "open")); setCardsErr(""); })
+        .catch((e) => setCardsErr(failureOf(e)));
+    } else setCards([]);
     return getJSON<Data>("/api/conversations", params).then((x) => { setD(x); setErr(""); }).catch((e) => setErr(failureOf(e)));
   }, [sel, search]);
   useEffect(() => { load(); }, [load]);
@@ -306,12 +316,15 @@ export function Messages() {
                   {(d.messages ?? []).length === 0 && (
                     <EmptyState title="Say hello">Messages you type here are labelled <code>human</code>; your agent's are labelled <code>agent</code>.</EmptyState>
                   )}
-                  {[...(d.messages ?? []),
+                  {cardsErr && <Notice kind="err">Your agent's asks did not load: {cardsErr}</Notice>}
+                  {withCards([...(d.messages ?? []),
                     // The node records the message before it attempts delivery, so
                     // its own copy can arrive on the event stream while this one is
                     // still on screen; show ours only until then.
                     ...(pending && !(d.messages ?? []).some((m) => m.mine && m.body === pending.body) ? [pending] : []),
-                  ].map((m, i) => (
+                  ], cards).map((m, i) => "kind" in m ? (
+                    <div key={"ask:" + m.id} className="msg ask"><AskCard ask={m} onAnswered={() => { load(); dispatchEvent(new Event("hdtp:counts")); }} /></div>
+                  ) : (
                     <div key={i} className={"msg" + (m.mine ? " mine" : "")}>
                       {m.mine ? <Avatar me name={accountName()} size="sm" /> : <Avatar name={current.label} identity={current.fingerprint} size="sm" />}
                       <div className="body">
@@ -643,6 +656,17 @@ function Undelivered({ m }: { m: Msg }) {
 
 // Keep the old deep link working: /messages?contact=… is what the contacts page
 // and the dashboard navigate to.
+/** The messages with each card placed where it was made: before the first message written after it. */
+function withCards(msgs: Msg[], cards: Ask[]): (Msg | Ask)[] {
+  const out: (Msg | Ask)[] = [];
+  let c = 0;
+  for (const m of msgs) {
+    while (c < cards.length && cards[c].created_at < m.ts) out.push(cards[c++]);
+    out.push(m);
+  }
+  return out.concat(cards.slice(c));
+}
+
 export function openConversation(fpr: string) {
   navigate("/messages?contact=" + encodeURIComponent(fpr));
 }

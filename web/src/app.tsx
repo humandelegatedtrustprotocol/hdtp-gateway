@@ -12,6 +12,7 @@ import { Dashboard } from "./views/dashboard";
 import { People } from "./views/people";
 import { ContactDetail } from "./views/contact_detail";
 import { Messages } from "./views/messages";
+import { NeedsYou } from "./views/needs_you";
 import { CardView } from "./views/card";
 import { Integrations } from "./views/integrations";
 import { Exposure } from "./views/exposure";
@@ -26,6 +27,7 @@ import { Setup } from "./views/setup";
 // `counts` is what the link's badge counts, as a screen reader hears it after the number ('7 unread').
 type Item = { to: string; label: string; icon: string; match?: string[]; counts?: string };
 const PLACES: Item[] = [
+  { to: "/needs-you", label: "Needs you", icon: "bell", counts: "waiting on you" },
   { to: "/messages", label: "Inbox", icon: "inbox", counts: "unread" },
   { to: "/contacts", label: "People", icon: "people", match: ["/contacts", "/requests", "/invites"], counts: "requests waiting" },
   { to: "/card", label: "My card", icon: "card" },
@@ -107,8 +109,8 @@ function Root() {
             <nav className="side-nav">
               <div className="grp"><span>Your agent</span></div>
               {PLACES.map((it) => <NavLink key={it.to} it={it} path={path}
-                badge={it.to === "/messages" ? counts.unread : it.to === "/contacts" ? counts.pending : 0}
-                warn={it.to === "/contacts"} />)}
+                badge={it.to === "/messages" ? counts.unread : it.to === "/contacts" ? counts.pending : it.to === "/needs-you" ? counts.asks : 0}
+                warn={it.to === "/contacts" || it.to === "/needs-you"} />)}
               <div className="grp"><span>This node</span></div>
               {NODE.map((it) => <NavLink key={it.to} it={it} path={path} />)}
             </nav>
@@ -165,8 +167,9 @@ type Toast = { id: number; fpr: string; label: string };
 // page of conversations, stopped at the node's cap as BatonDeck's chip is — `{ count: 50, capped: true }`
 // reads "50+" — and `capped` under it when one past the page has unread too. The cap is the answer's,
 // never this view's. It used to be summed here from the rows' numbers, which the node never filled.
-function Counts({ children }: { children: (c: { unread: Tally; pending: number }) => ReactElement }) {
-  const [c, setC] = useState<{ unread: Tally; pending: number }>({ unread: 0, pending: 0 });
+// `asks` is how many asks wait on the owner (GET /api/asks `open`), the Needs you chip.
+function Counts({ children }: { children: (c: { unread: Tally; pending: number; asks: number }) => ReactElement }) {
+  const [c, setC] = useState<{ unread: Tally; pending: number; asks: number }>({ unread: 0, pending: 0, asks: 0 });
   const [toasts, setToasts] = useState<Toast[]>([]);
   useEffect(() => {
     let alive = true;
@@ -178,9 +181,10 @@ function Counts({ children }: { children: (c: { unread: Tally; pending: number }
           return d.unread ?? 0;
         }).catch((): Tally => 0),
         getJSON<{ pending: unknown[] | null }>("/api/requests").then((d) => (d.pending ?? []).length).catch(() => 0),
-      ]).then(([unread, pending]) => {
+        getJSON<{ open: number }>("/api/asks", { status: "open" }).then((d) => d.open ?? 0).catch(() => 0),
+      ]).then(([unread, pending, asks]) => {
         if (!alive) return;
-        setC({ unread, pending });
+        setC({ unread, pending, asks });
         // A message about a contact whose conversation is not on screen right now.
         if (e?.kind === "message" && e.contact_fpr) {
           const viewing = location.pathname === "/messages" && new URLSearchParams(location.search).get("contact") === e.contact_fpr && document.visibilityState === "visible";
@@ -228,6 +232,7 @@ function route(path: string, account: string) {
   if (path === "/contacts" || path === "/requests" || path === "/invites") return <People key={key} />;
   if (seg[0] === "contacts" && seg.length === 2) return <ContactDetail key={key} fpr={decodeURIComponent(seg[1])} />;
   if (path === "/messages" || path === "/inbox") return <Messages key={key} />;
+  if (path === "/needs-you") return <NeedsYou key={key} />;
   if (path === "/card") return <CardView key={key} />;
   if (path === "/integrations") return <Integrations key={key} />;
   if (seg[0] === "integrations" && seg[2] === "exposure") return <Exposure key={key} id={decodeURIComponent(seg[1])} />;
