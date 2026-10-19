@@ -174,7 +174,7 @@ func TestSendToContactStoresAgentLabel(t *testing.T) {
 	if isErr {
 		t.Fatalf("send failed: %s", text)
 	}
-	var res messaging.Result
+	var res sendAnswer
 	_ = json.Unmarshal([]byte(text), &res)
 	msgs, _ := e.deps.Msg.Thread(context.Background(), e.acctA, res.ThreadID)
 	if len(msgs) != 1 || msgs[0].Sender != "agent" || msgs[0].Direction != "out" {
@@ -192,7 +192,7 @@ func TestSendToContactStartsAThreadWithItsTopic(t *testing.T) {
 	if isErr {
 		t.Fatalf("send failed: %s", text)
 	}
-	var res messaging.Result
+	var res sendAnswer
 	_ = json.Unmarshal([]byte(text), &res)
 	if th, err := e.st.GetThread(context.Background(), e.acctA, res.ThreadID); err != nil || th.Topic != "Coffee catch-up" {
 		t.Fatalf("thread: %+v %v", th, err)

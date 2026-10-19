@@ -343,11 +343,11 @@ func TestSendToContactAnswersARecordedUndeliveredMessage(t *testing.T) {
 		refusal.Undelivered("unreachable", fmt.Errorf("dial: %w", errors.New(storeCanary))))
 	got := noStoreText(t, "send_to_contact", body, isErr)
 	if got["code"] != "unavailable" || got["detail"] != "recorded, not delivered: unreachable" ||
-		got["ThreadID"] != "t1" || got["Status"] != "pending" {
+		got["thread_id"] != "t1" || got["status"] != "pending" {
 		t.Errorf("a recorded, undelivered message: answered %s", body)
 	}
 	if body, isErr := answer(messaging.Result{ThreadID: "t1", Status: "delivered"}, nil); isErr ||
-		!strings.Contains(body, `"Status":"delivered"`) || strings.Contains(body, "code") {
+		!strings.Contains(body, `"status":"delivered"`) || strings.Contains(body, "code") {
 		t.Errorf("the control: answered %s (IsError %v)", body, isErr)
 	}
 }
@@ -396,6 +396,8 @@ func TestAResourceReadThatFailsCarriesNoStoreText(t *testing.T) {
 		fs := &failingStore{Store: e.st, fail: fail, called: map[string]bool{}}
 		d := e.deps
 		d.Store = fs
+		// The thread resource reads through the messaging service, as read_thread does.
+		d.Msg = &messaging.Service{Store: fs}
 		srv := NewServerWithExtra(d, Extra{}, auth.Identity{OwnerID: e.owner})
 		ct, st := mcp.NewInMemoryTransports()
 		if _, err := srv.Connect(ctx, st, nil); err != nil {

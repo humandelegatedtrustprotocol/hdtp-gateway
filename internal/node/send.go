@@ -57,14 +57,14 @@ func (e notActive) Error() string { return "send: contact is " + e.status + ", n
 // codes it conflict.
 func (e notActive) Is(target error) bool { return target == contacts.ErrWrongState }
 
-// notServing is why a send names an identity this node does not serve. One the store holds is
-// awaiting the certificate its wallet issues, or could not be loaded (both audited at start): that
-// is its state, so a door answers conflict. One the store does not hold is not_found. Both
-// answered internal (#207).
-func (n *Node) notServing(ctx context.Context, accountID string) error {
+// notServing is why an owner's action (op: send, fetch) names an identity this node does not
+// serve. One the store holds is awaiting the certificate its wallet issues, or could not be loaded
+// (both audited at start): that is its state, so a door answers conflict. One the store does not
+// hold is not_found. Both answered internal: a send until #207, a fetch until #224.
+func (n *Node) notServing(ctx context.Context, op, accountID string) error {
 	rec, err := n.opts.Store.GetAccountByID(ctx, accountID)
 	if errors.Is(err, store.ErrNotFound) {
-		return refusal.NotFound("send: unknown account", err)
+		return refusal.NotFound(op+": unknown account", err)
 	}
 	if err != nil {
 		return err
@@ -73,9 +73,9 @@ func (n *Node) notServing(ctx context.Context, accountID string) error {
 	_, awaiting := n.awaiting[rec.Slug]
 	n.mu.RUnlock()
 	if awaiting {
-		return refusal.Conflict("send: "+rec.Slug+" has no certificate yet, so it cannot send: its wallet issues one", nil)
+		return refusal.Conflict(op+": "+rec.Slug+" has no certificate yet, so it cannot "+op+": its wallet issues one", nil)
 	}
-	return refusal.Conflict("send: "+rec.Slug+" is not serving on this node", nil)
+	return refusal.Conflict(op+": "+rec.Slug+" is not serving on this node", nil)
 }
 
 // SendMessage records an owner-composed message and delivers it to the contact.
@@ -88,7 +88,7 @@ func (n *Node) SendMessage(ctx context.Context, accountID, contactFpr string, in
 	acct := n.accounts[accountID]
 	n.mu.RUnlock()
 	if acct == nil {
-		return messaging.Result{}, n.notServing(ctx, accountID)
+		return messaging.Result{}, n.notServing(ctx, "send", accountID)
 	}
 	c, err := n.opts.Store.GetContact(ctx, accountID, contactFpr)
 	if errors.Is(err, store.ErrNotFound) {
@@ -160,7 +160,7 @@ func (n *Node) SendMedia(ctx context.Context, accountID, contactFpr string, in m
 	acct := n.accounts[accountID]
 	n.mu.RUnlock()
 	if acct == nil {
-		return messaging.Result{}, n.notServing(ctx, accountID)
+		return messaging.Result{}, n.notServing(ctx, "send", accountID)
 	}
 	c, err := n.opts.Store.GetContact(ctx, accountID, contactFpr)
 	if errors.Is(err, store.ErrNotFound) {
@@ -544,14 +544,15 @@ func (n *Node) retryTick(ctx context.Context, leading func(context.Context) bool
 
 // FetchMedia fetches the link of one url media message a peer sent, on the owner's request (SPEC
 // §7.5: a peer's URL is never fetched automatically), through the account's media service and its
-// address checks, and records the file on that message (messaging.MediaService.FetchMessage). It
-// returns "media: unknown account" for an account this node does not serve or one with no media service, and otherwise the media service's error (a URL that resolves to a private address is refused there).
+// address checks, and records the file on that message (messaging.MediaService.FetchMessage). An
+// account this node does not serve is refused as a send from one is (notServing); otherwise it
+// returns the media service's error (a URL that resolves to a private address is refused there).
 func (n *Node) FetchMedia(ctx context.Context, accountID, messageID string) (string, error) {
 	n.mu.RLock()
 	a := n.accounts[accountID]
 	n.mu.RUnlock()
-	if a == nil || a.media == nil {
-		return "", fmt.Errorf("media: unknown account")
+	if a == nil {
+		return "", n.notServing(ctx, "fetch", accountID)
 	}
 	return a.media.FetchMessage(ctx, accountID, messageID)
 }

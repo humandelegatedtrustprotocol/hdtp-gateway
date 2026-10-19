@@ -17,7 +17,7 @@ import (
 // answer's own encoding rather than written here.
 func resultThreadKey(t *testing.T) string {
 	t.Helper()
-	raw, err := json.Marshal(messaging.Result{ThreadID: "the-thread"})
+	raw, err := json.Marshal(sendAnswerOf("the-message", messaging.Result{ThreadID: "the-thread"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func resultThreadKey(t *testing.T) string {
 			return k
 		}
 	}
-	t.Fatalf("messaging.Result encodes no thread id: %s", raw)
+	t.Fatalf("send_to_contact's answer encodes no thread id: %s", raw)
 	return ""
 }
 
