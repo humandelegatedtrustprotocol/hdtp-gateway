@@ -207,3 +207,117 @@ func TestAPairingWhosePublicURLCannotBeAppliedIsStillPaired(t *testing.T) {
 		}
 	}
 }
+
+// awaitingFirst is the store with the accounts that have no leaf listed first, so the seal's apply
+// meets the one the node does not serve before the one it does.
+type awaitingFirst struct{ store.Store }
+
+func (s awaitingFirst) ListAccounts(ctx context.Context) ([]store.Account, error) {
+	accts, err := s.Store.ListAccounts(ctx)
+	slices.SortStableFunc(accts, func(a, b store.Account) int {
+		switch {
+		case !a.HasRoot() && b.HasRoot():
+			return -1
+		case a.HasRoot() && !b.HasRoot():
+			return 1
+		}
+		return 0
+	})
+	return accts, err
+}
+
+// certify gives an account a leaf from a test wallet, as `account install-leaf` does.
+func certify(t *testing.T, idm *identity.Manager, acct store.Account) {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now()
+	csr, err := idm.IssueCSR(ctx, acct.ID, identity.PurposeSignup, identity.EndpointFor("https://old.example", acct.Slug), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := testid.NewWallet(t, acct.DisplayName)
+	iss, err := hdtpidentity.IssueFromCSR(csr.CSR, hdtpidentity.IssueOpts{Root: testid.Root(t, w.RootDER), RootKey: w.Key,
+		RootSPKIs: [][]byte{w.Key.Public().SPKI}, Now: now, PreviousNotBefore: csr.PreviousNotBefore, ValidDays: 365})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := idm.InstallLeaf(ctx, acct.ID, [][]byte{iss.DER, w.RootDER}, now); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// #226: on a node holding an identity that awaits its wallet's leaf — the quickstart's state between
+// `account create` and `account install-leaf` — saving Settings answered "could not apply seal: the
+// node could not complete this", on every save, since the form posts every knob. The seal's apply
+// stopped at the account the node does not serve, so a served account listed after it kept its old
+// seal at the gate. Now the served account takes the seal at once, the waiting one's row holds it
+// and it serves under it once certified, and each is audited once.
+func TestASaveBesideAnAccountAwaitingItsLeafAppliesTheSeal(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st := openStoreAt(t, dir)
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	idm := &identity.Manager{Store: st, Keyring: openKeyringAt(t, dir)}
+	alice, err := idm.CreateAccount(ctx, "alice", "Alice", identity.AlgoP256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certify(t, idm, alice)
+	bob, err := idm.CreateAccount(ctx, "bob", "Bob", identity.AlgoP256)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	a, n, aRows, _ := processOver(t, dir, false, func(st store.Store) store.Store { return awaitingFirst{st} })
+	if got := n.AwaitingLeaf(); len(got) != 1 || got[0] != "bob" {
+		t.Fatalf("awaiting %v, want [bob]", got)
+	}
+	mux := http.NewServeMux()
+	internalui.MountSettingsPages(mux, a.Deps())
+	form := url.Values{"seal": {"none"}, "limit.contacts": {"7"}}
+	req := httptest.NewRequest(http.MethodPost, "/settings", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	var page struct {
+		Notice string `json:"notice"`
+		Error  bool   `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("%d %s: %v", rec.Code, rec.Body, err)
+	}
+	if want := "Saved seal, limit.contacts."; page.Notice != want || page.Error {
+		t.Errorf("notice %q (error %v), want %q (error false)", page.Notice, page.Error, want)
+	}
+	if card, err := n.Card(ctx, alice.ID); err != nil || !strings.Contains(card, "X-HDTP-SEAL:none") {
+		t.Errorf("the served identity's card after the save: %v\n%s", err, card)
+	}
+	if row, err := st.GetAccountByID(ctx, bob.ID); err != nil || row.Seal != "none" {
+		t.Errorf("the waiting identity's row: seal %q, %v; want none", row.Seal, err)
+	}
+	aRows.mu.Lock()
+	audited := slices.Clone(aRows.rows)
+	aRows.mu.Unlock()
+	for _, want := range []string{"settings_save keys:seal,limit.contacts ok", "settings_seal account:" + alice.ID + " none",
+		"settings_seal account:" + bob.ID + " not_served none"} {
+		if got := slices.Index(audited, want); got < 0 || slices.Index(audited[got+1:], want) >= 0 {
+			t.Errorf("audit %v has %q other than once", audited, want)
+		}
+	}
+	for _, row := range audited {
+		if strings.HasPrefix(row, "settings_apply") {
+			t.Errorf("audit %v says the save was not applied", audited)
+		}
+	}
+
+	certify(t, idm, bob)
+	if err := n.AdoptAccount(ctx, bob.ID); err != nil {
+		t.Fatal(err)
+	}
+	if card, err := n.Card(ctx, bob.ID); err != nil || !strings.Contains(card, "X-HDTP-SEAL:none") {
+		t.Errorf("the identity certified after the save: %v\n%s", err, card)
+	}
+}

@@ -31,6 +31,13 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Fixed
 
+- Saving the portal's Settings page on a node holding an identity that awaits its certificate (the
+  quickstart's state between `account create` and `account install-leaf`) answered "could not apply
+  seal: the node could not complete this" (#226), on every save, since the form posts every knob, and
+  an identity listed after the waiting one kept its old seal at the gate. The seal of an identity the
+  node does not serve is now written to its row, audited `settings_seal account:<id> not_served
+  <seal>`, and served once the identity is certified; the seal of an identity the store does not hold
+  is `not_found`.
 - A ticked box on the portal's Settings page saved as false, so **Accept LAN connections** could
   not be turned on there (#221): the box posts `1`, and the save stored `true` only for a posted
   `true`. Every boolean knob is now read by one rule, `core.SettingTrue` (`true` or `1`), from the
