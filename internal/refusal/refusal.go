@@ -54,8 +54,8 @@ func TooLarge(sentence string, cause error) error {
 }
 
 type coded struct {
-	code, sentence string
-	cause          error
+	code, sentence, reason string
+	cause                  error
 }
 
 func (c coded) Error() string {
@@ -65,24 +65,24 @@ func (c coded) Error() string {
 	return c.sentence + ": " + c.cause.Error()
 }
 
-// For marks a refusal with the rule it is for, as a code (asks.Invalid's "invalid_surface:<rule>"):
-// the owner MCP answers it as the refusal's reason, beside its code and detail. reason is one of a
-// fixed set the node names, never a caller's text. Of reads through it.
-func For(reason string, err error) error { return reasoned{reason: reason, err: err} }
-
-type reasoned struct {
-	reason string
-	err    error
+// For marks a refusal this package coded (BadRequest, TooLarge, ...) with the rule it is for, as a
+// code (asks.Invalid's "invalid_surface:<rule>"): the owner MCP answers it as the refusal's reason,
+// beside its code and detail, which stay as they were. reason is one of a fixed set the node names,
+// never a caller's text. An err this package did not code is returned as it is.
+func For(reason string, err error) error {
+	var c coded
+	if !errors.As(err, &c) {
+		return err
+	}
+	c.reason = reason
+	return c
 }
 
-func (r reasoned) Error() string { return r.err.Error() }
-func (r reasoned) Unwrap() error { return r.err }
-
-// Reason is the reason For put in err's chain, or "" when err holds none.
+// Reason is the reason For put on the refusal in err's chain, or "" when it has none.
 func Reason(err error) string {
-	var r reasoned
-	if errors.As(err, &r) {
-		return r.reason
+	var c coded
+	if errors.As(err, &c) {
+		return c.reason
 	}
 	return ""
 }

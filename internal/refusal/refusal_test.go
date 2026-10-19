@@ -134,4 +134,8 @@ func TestAReasonRidesBesideTheRefusal(t *testing.T) {
 	if r := Reason(BadRequest("no reason", nil)); r != "" {
 		t.Fatalf("a refusal with no reason: %q", r)
 	}
+	// An error this package did not code takes no reason, and stays internal.
+	if err := For("invalid_surface:x", errors.New("a store's text")); Reason(err) != "" || err.Error() != "a store's text" {
+		t.Fatalf("For on an uncoded error: %v %q", err, Reason(err))
+	}
 }
