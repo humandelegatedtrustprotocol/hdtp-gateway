@@ -82,6 +82,8 @@ const PATHS: Record<string, string> = {
   rail: "M11 17l-5-5 5-5M18 17l-5-5 5-5",
   unrail: "M13 7l5 5-5 5M6 7l5 5-5 5",
   clock: "M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z",
+  // a bell: what your agent asks you (the Needs you page)
+  bell: "M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0",
   tick: "M4 12l5 5L20 6",
   // an arrow back round a turn: undo what was just saved (save_mark.tsx)
   undo: "M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11",

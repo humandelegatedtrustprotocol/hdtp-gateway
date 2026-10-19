@@ -27,6 +27,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/node"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/asks"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/integrationchain"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/presence"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/webhooks"
@@ -111,7 +112,7 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 	chain *integrationchain.Chain, connector *integrations.Connector, agent *integrations.AgentAnswered,
 	presence *presence.Tracker, identityDeps internalui.IdentityDeps,
 	setStatic, setOAuthClient func(ctx context.Context, integrationID, a, b string) error,
-	auditFn func(action, resource, outcome string), hooks *webhooks.Service, publicURL string,
+	auditFn func(action, resource, outcome string), hooks *webhooks.Service, askSvc *asks.Service, publicURL string,
 	settings internalui.SettingsDeps, authDeps *internalui.AuthDeps,
 	cfg *core.Config, background func(work func(ctx context.Context)), onError func(error)) http.Handler {
 	// Everything below is owner-initiated by construction: it is the internal
@@ -189,9 +190,13 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 			// The conversation view. Messaging worked end to end and had no way
 			// in: /inbox listed threads that already existed, so an owner could
 			// reply and never start.
+			// What the owner sends a contact who has an open ask goes on that ask's thread and answers
+			// it (asks.Service.OwnerSend).
 			internalui.MountMessagePages(mux, internalui.MessagesDeps{
-				Store: st, Send: nd.SendMessage, SendMedia: nd.SendMedia, Audit: auditFn,
+				Store: st, Send: askSvc.OwnerSend(nd.SendMessage), SendMedia: askSvc.OwnerSendMedia(nd.SendMedia), Audit: auditFn,
 			})
+			// The SAME service the owner MCP's ask tools call (serve's asks).
+			internalui.MountAskPages(mux, internalui.AsksDeps{Asks: askSvc})
 		},
 		func(mux *http.ServeMux) {
 			internalui.MountMediaPages(mux, internalui.MediaDeps{
@@ -251,7 +256,7 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", internalui.Health(nd.LimitsAnswer))
-	mux.Handle("/owner/mcp", ownerMCPHandler(nd, st, messaging.BlobDir{Root: cfg.Blobs()}, onError, tokens, authSvc, chain, agent, presence, auditFn))
+	mux.Handle("/owner/mcp", ownerMCPHandler(nd, st, messaging.BlobDir{Root: cfg.Blobs()}, onError, tokens, authSvc, chain, agent, presence, auditFn, askSvc))
 	mux.Handle("/", internalui.HandlerWithAuth(st, setup, authDeps, mounts...))
 	return mux
 }
@@ -263,7 +268,7 @@ func internalHandler(ctx context.Context, nd *node.Node, st store.Store, setup *
 func ownerMCPHandler(nd *node.Node, st store.Store, blobs messaging.BlobDir, onError func(error),
 	tokens *auth.TokenService, authSvc *auth.Service, chain *integrationchain.Chain,
 	agent *integrations.AgentAnswered, presence *presence.Tracker,
-	auditFn func(action, resource, outcome string)) http.Handler {
+	auditFn func(action, resource, outcome string), askSvc *asks.Service) http.Handler {
 
 	inner := public.StatelessMCP(func(r *http.Request) *mcp.Server {
 		ident, ok := ownerIdentity(r, tokens)
@@ -302,7 +307,7 @@ func ownerMCPHandler(nd *node.Node, st store.Store, blobs messaging.BlobDir, onE
 			},
 			// The switchboard the portal offers, so set_permissions can grant an integration.
 			ServedPermissions: nd.ServedPermissions,
-		}, ownerExtra(nd, st, authSvc, chain, auditFn), ident)
+		}, withAsks(ownerExtra(nd, st, authSvc, chain, auditFn), askSvc), ident)
 		return srv
 	}, mcp.StreamableHTTPOptions{
 		// Bounded by CapBody below; the SDK's own limit is set to the same number so there is one.
@@ -311,6 +316,13 @@ func ownerMCPHandler(nd *node.Node, st store.Store, blobs messaging.BlobDir, onE
 	// A body is bounded where it enters, before the token is looked at: nothing reads a byte past
 	// the cap, authenticated or not.
 	return public.CapBody(requireOwnerToken(tokens, auditFn, inner), OwnerMCPMaxBodyBytes)
+}
+
+// withAsks is e with the asks service the portal answers through, so the owner MCP's ask tools
+// and the portal act on the same asks.
+func withAsks(e ownermcp.Extra, svc *asks.Service) ownermcp.Extra {
+	e.Asks = svc
+	return e
 }
 
 // OwnerMCPMaxBodyBytes caps a request to the owner MCP. Its largest legitimate call carries a

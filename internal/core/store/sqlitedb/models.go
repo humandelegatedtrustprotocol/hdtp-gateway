@@ -239,6 +239,21 @@ type Owner struct {
 	CreatedAt   int64
 }
 
+type OwnerAsk struct {
+	ID         string
+	AccountID  string
+	Kind       string
+	ThreadID   string
+	ContactFpr string
+	ForMsgID   string
+	Surface    string
+	Status     string
+	AnswerText string
+	CreatedAt  int64
+	UpdatedAt  int64
+	ExpiresAt  int64
+}
+
 type OwnerPresence struct {
 	ID     int64
 	SeenAt int64

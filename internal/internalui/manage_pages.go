@@ -332,7 +332,7 @@ func (d ManageDeps) getAPICard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apiJSON(w, map[string]any{"card": f.Card, "sig": sig, "slug": a.Slug,
-		"endpoint": f.Endpoint, "root_fingerprint": f.Root, "kid": f.Kid})
+		"endpoint": f.Endpoint, "root_fingerprint": f.Root, "display_name": f.DisplayName, "kid": f.Kid})
 }
 
 // getCardVCF serves `GET /card.vcf`.

@@ -252,6 +252,9 @@ func TestCardPageAndVCFDownloadRoundTrip(t *testing.T) {
 	var raw map[string]string
 	_ = json.Unmarshal(rr2.Body.Bytes(), &raw)
 	got.Endpoint, got.Root, got.Kid = raw["endpoint"], raw["root_fingerprint"], raw["kid"]
+	if raw["display_name"] != "Sumit" || raw["display_name"] != contacts.CardName(raw["card"]) {
+		t.Fatalf("card name %q, want the card's FN %q", raw["display_name"], c.FN)
+	}
 	pinned, err := contacts.ValidateInbound(raw["card"])
 	if err != nil {
 		t.Fatal(err)

@@ -88,6 +88,10 @@ func (s *Service) remove(ctx context.Context, accountID, threadID string, held b
 		if out.Messages, err = tx.DeleteThreadMessages(ctx, accountID, threadID); err != nil {
 			return err
 		}
+		// Its asks and notices go with it (internal/services/asks).
+		if _, err = tx.DeleteThreadOwnerAsks(ctx, accountID, threadID); err != nil {
+			return err
+		}
 		if threadID == "" {
 			return nil // a change row's empty thread_id names no thread: a contact's event
 		}

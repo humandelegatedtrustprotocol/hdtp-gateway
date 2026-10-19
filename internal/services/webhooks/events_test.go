@@ -22,7 +22,7 @@ import (
 func TestAFilterTakesExactlyTheEventsTheNodeSends(t *testing.T) {
 	sent := Subscribable()
 	want := []string{"message.received", "message.delivered", "message.failed", "media.received",
-		"request.pending", "request.answered", "call.made"}
+		"request.pending", "request.answered", "ask.answered", "ask.expired", "call.made"}
 	if !slices.Equal(sent, want) {
 		t.Fatalf("Subscribable() = %v, want %v", sent, want)
 	}
@@ -81,6 +81,12 @@ func TestEveryChangeRowTheNodeWritesIsDeliveredAsItsNameOrNotAtAll(t *testing.T)
 		{Kind: messaging.EventPending, AccountID: a.ID, ContactFpr: alina, Ref: "pr-1"},
 		{Kind: messaging.EventAnswered, AccountID: a.ID, Ref: "pr-1"},
 		{Kind: messaging.EventRelayed, AccountID: a.ID, Ref: "pr-1"},
+		// The asks service's rows: put, answered, expired, withdrawn, and a notice.
+		{Kind: messaging.EventAsk, AccountID: a.ID, ContactFpr: alina, ThreadID: in.ThreadID, Ref: "ask_1", Status: messaging.AskOpen},
+		{Kind: messaging.EventAsk, AccountID: a.ID, ContactFpr: alina, ThreadID: in.ThreadID, Ref: "ask_1", Status: messaging.AskAnswered},
+		{Kind: messaging.EventAsk, AccountID: a.ID, ContactFpr: alina, ThreadID: in.ThreadID, Ref: "ask_2", Status: messaging.AskExpired},
+		{Kind: messaging.EventAsk, AccountID: a.ID, ContactFpr: alina, ThreadID: in.ThreadID, Ref: "ask_3", Status: messaging.AskWithdrawn},
+		{Kind: messaging.EventAsk, AccountID: a.ID, ContactFpr: alina, ThreadID: in.ThreadID, Ref: "ntc_1", Status: messaging.AskPosted},
 		{Kind: messaging.EventCall, AccountID: a.ID, ContactFpr: alina, Ref: core.ToolBookSlot},
 		{Kind: messaging.EventCall, AccountID: a.ID, ContactFpr: alina},       // a contact's address moved
 		{Kind: messaging.EventRequest, AccountID: a.ID, ContactFpr: alina},    // a request, or an address awaiting the owner
@@ -125,6 +131,8 @@ func TestEveryChangeRowTheNodeWritesIsDeliveredAsItsNameOrNotAtAll(t *testing.T)
 		{"message.failed", map[string]any{"thread_id": thread, "message_id": "m-out"}},
 		{"request.pending", map[string]any{"request_id": "pr-1", "fingerprint": alina}},
 		{"request.answered", map[string]any{"request_id": "pr-1"}},
+		{"ask.answered", map[string]any{"ask_id": "ask_1", "thread_id": thread}},
+		{"ask.expired", map[string]any{"ask_id": "ask_2", "thread_id": thread}},
 		{"call.made", map[string]any{"fingerprint": alina, "capability": core.ToolBookSlot}},
 	}
 	if !reflect.DeepEqual(got, want) {
