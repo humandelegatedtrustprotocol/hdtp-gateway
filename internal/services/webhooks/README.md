@@ -70,11 +70,11 @@ Deliveries are not audited: the delivery log is their record, as in the cloud.
 ## Divergences from the cloud
 
 - **URLs (ruling A):** the node takes `http`, IP literals, loopback, LAN and inward names (`localhost`, `.local`, `.internal`). The cloud refuses them as `not_https`, `literal_address` and `private_name`. A scheme other than http or https is `not_a_url` here, where the cloud says `not_https`.
-- **Headers:** `X-HDTP-*` where the cloud has `X-BatonDeck-*`. The grammar is the same.
+- **Headers:** `X-HDTP-*` where the cloud has `X-BatonDeck-*`, and the user agent `hdtp-gateway-webhooks/<version>` where the cloud's is `BatonDeck-Webhooks/1`. The grammar is the same.
 - **The envelope's `identity`:** the account's id, where the cloud sends the identity's slug (`identity.ts`, the event it hands to `enqueueEvent`). Every owner MCP tool of the node takes an account id, so a slug would make a receiver look the account up first. Held by `TestTheEnvelopesIdentityIsTheAccountIDWhereTheCloudSendsTheSlug`.
 - **Delivery rows:** no `attempt` (always 1 in the cloud), no `next_attempt_at` and no `payload_json` (always null there). There is never a second attempt, so the columns would be dead.
 - **No queue:** the cloud enqueues each event and its consumer posts it. The node reads its change log from a cursor per account, claimed before each post, under a lease. A change the log no longer holds (it keeps a week, SPEC §7.8) is never posted.
-- **Redirects:** not followed, where the cloud's `fetch` is told `redirect: "manual"` and its guard refuses the address a redirect names. The owner named one address (ruling A), and a redirect would post the signed event to one the owner did not name.
+- **Redirects:** not followed, where the cloud follows them: its `attemptDelivery` names no `redirect` mode, and neither does `networkFetch`, so the Worker's `fetch` follows. The owner named one address (ruling A), and a redirect would post the signed event to one the owner did not name.
 - **Bounds:** at most 100 endpoints per account and a URL of at most 2,048 bytes. The cloud lists 100, and its checks refuse neither.
 - **Doors:** the portal only (ruling A). The cloud has its portal, `/v1` and six owner MCP actions (`webhooks`, `webhook_deliveries`, `create_webhook`, `rotate_webhook_secret`, `set_webhook_status`, `delete_webhook`, in `src/mcp/owner/actions.ts`), which list, create, rotate, pause, resume and remove endpoints and read their log. Held by `TestNoOwnerMCPToolTouchesAWebhook` (`internal/internalui/ownermcp`) and `TestNoCommandTouchesAWebhook` (`internal/cli`).
 - **Audit names:** snake_case with the node's resource string, where the cloud has `webhook.created` with JSON details.
@@ -106,8 +106,9 @@ Deliveries are not audited: the delivery log is their record, as in the cloud.
   - `TestAFailureTheDispatcherSwallowsLeavesOneLineNamingItsStage`;
   - `TestTwoDispatchersOnOneStorePostEachChangeOnce` (the lease, and the claim with no lease), on two stores over one database.
 - The store's side is the conformance suite's `webhooks` (`internal/core/store/conformance/conformance_webhooks.go`). The retention pass's two writes are held by `TestThePassTakesOldWebhookDeliveriesAndExpiredReplacedSecrets` (`internal/services/retention`) and the suite's `RetentionTakesOldDeliveriesAndExpiredReplacedSecrets`. The tests here run on SQLite, and those that open stores through `sharedStores` (the two dispatchers, the answer that is not text) on PostgreSQL too when `HDTP_TEST_POSTGRES_DSN` is set.
+- `cloud_parity_test.go`, reading the sibling `batondeck` checkout (`testid.SiblingFile`; skipped without one, a failure under `HDTP_REQUIRE_SIBLINGS=1`, which the pre-push hook sets): the names a filter takes against `SUBSCRIBABLE_EVENTS` less a named cloud-only list, each name's data against the registry's (a named subset for three), the five constants, the envelope's keys and their order, the signature grammar and the secret's shape, the shared refusals in `WEBHOOK_REFUSALS`' words, the endpoint and delivery views, and every divergence above: `TestEveryDivergenceTheREADMENamesIsHeldAndNoOther` fails on an entry of this list it does not hold, and on one it holds that the list does not name.
 
-The portal's routes over this service, with their refusals, are held by `internal/internalui/webhooks_pages_test.go`. Not held here: the parity of the names, the envelope and the header grammar with the cloud's, by a test reading the sibling `batondeck` (W4).
+The portal's routes over this service, with their refusals, are held by `internal/internalui/webhooks_pages_test.go`.
 
 ## What it does not do
 

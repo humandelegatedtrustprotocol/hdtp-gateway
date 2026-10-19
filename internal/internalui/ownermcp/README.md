@@ -2,7 +2,9 @@
 
 The owner's MCP server (SPEC §8.4, §8.5): the tools and `hdtp://` resources with which an owner's
 agent runs the node under a bearer token, doing what the portal does for a person. It is stateless:
-nothing is pushed, and what changes is waited for with `wait_for_updates`.
+this server pushes nothing, and what changes is waited for with `wait_for_updates`. What the node
+pushes is a webhook, posted by `internal/services/webhooks` to an endpoint the owner registered on the
+portal, not by this server.
 
 `internal/cli/compose.go` builds a new server for each request with `NewServerWithExtra` and mounts
 it at `/owner/mcp`, outside the portal's session and CSRF layers. In front of it sit a body cap
@@ -225,7 +227,8 @@ schema on the wire).
 - It does not authenticate. A request with no valid bearer never reaches it; `requireOwnerToken`
   in `internal/cli` is the only gate, and the bearer is checked on every request, so revocation
   takes effect on the next one.
-- It does not push. There are no notifications and no subscriptions; `wait_for_updates` is a poll
+- It does not push. There are no notifications and no subscriptions (a webhook is the dispatcher's,
+  `internal/services/webhooks`, not this server's); `wait_for_updates` is a poll
   with a bound of `WaitMaxSec` seconds, and the bus only tells it to look. The store's change log
   says what moved.
 - It does not register passkeys, and cannot (SPEC §8.6).
