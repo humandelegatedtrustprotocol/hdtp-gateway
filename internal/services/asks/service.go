@@ -132,9 +132,13 @@ func resource(accountID string, rest ...string) string {
 	return strings.Join(append([]string{"account:" + accountID}, rest...), " ")
 }
 
-// refused audits a refusal by its code and hands it back.
+// refused audits a refusal by its code, with its reason when it has one (reason:invalid_surface:
+// <rule>), and hands it back.
 func (s *Service) refused(action, res string, err error) error {
 	code, _ := refusal.Of(err)
+	if r := refusal.Reason(err); r != "" {
+		res += " reason:" + r
+	}
 	s.audit(action, res, code)
 	return err
 }
@@ -163,10 +167,14 @@ func (s *Service) put(ctx context.Context, kind, accountID, threadID, forMsgID s
 	sf, err := Parse(surface, kind)
 	if err != nil {
 		var inv Invalid
-		if errors.As(err, &inv) && inv.TooLarge {
-			return View{}, s.refused(action, res, refusal.TooLarge(inv.Error(), nil))
+		if !errors.As(err, &inv) {
+			return View{}, s.refused(action, res, refusal.BadRequest(err.Error(), nil))
 		}
-		return View{}, s.refused(action, res, refusal.BadRequest(err.Error(), nil))
+		coded := refusal.BadRequest
+		if inv.TooLarge {
+			coded = refusal.TooLarge
+		}
+		return View{}, s.refused(action, res, refusal.For(inv.Reason(), coded(inv.Error(), nil)))
 	}
 	th, err := s.store.GetThread(ctx, accountID, threadID)
 	if errors.Is(err, store.ErrNotFound) {

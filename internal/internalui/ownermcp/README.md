@@ -99,7 +99,7 @@ Registered by `AddAskTools` when `Extra.Asks` is non-nil, each the asks service'
 
 | Tool | Contract |
 |---|---|
-| `ask_owner` | Puts an A2UI v0.9.1 surface for the owner to answer on a thread, about one message of it (`thread_id`, `for_message_id`, `surface`). The input schema, JSON Schema 2020-12 as its `$schema` says (`Draft`), carries the catalog's, its definitions under the tool schema's own `$defs` (every `$ref` local), and states the order and counts JSON Schema can (root first and a Text second by `prefixItems`; one Column, at most three ready replies, one ChoicePicker and one TextField, and a Button, by `contains`); a ready reply is a Button of event `reply` whose context `{reply}` is the text one tap sends; the SDK does not validate against it, `asks.Parse` does, so a refusal is coded: `bad_request`, `too_large` over `asks.MaxSurfaceBytes`, `not_found` for a thread or message the account does not hold, `conflict` while the thread has another open ask or its contact is not active. The same message asked about again answers the same ask. |
+| `ask_owner` | Puts an A2UI v0.9.1 surface for the owner to answer on a thread, about one message of it (`thread_id`, `for_message_id`, `surface`). The input schema, JSON Schema 2020-12 as its `$schema` says (`Draft`), carries the catalog's, its definitions under the tool schema's own `$defs` (every `$ref` local), and states the order and counts JSON Schema can (root first and a Text second by `prefixItems`; one Column, at most three ready replies and one ChoicePicker, exactly one TextField, and a Button that is not a ready reply, by `contains`; that root's last two children are that TextField and then that Button, reading its path, `asks.Parse` alone holds); a ready reply is a Button of event `reply` whose context `{reply}` is the text one tap sends; the SDK does not validate against it, `asks.Parse` does, so a refusal is coded: `bad_request`, `too_large` over `asks.MaxSurfaceBytes`, each with the rule that refused the surface as `reason` (`invalid_surface:<rule>`, also in the `ask_create` or `notice_create` audit row as `reason:invalid_surface:<rule>`), `not_found` for a thread or message the account does not hold, `conflict` while the thread has another open ask or its contact is not active. The same message asked about again answers the same ask. |
 | `notify_owner` | The same for a notice: Text and KeyValue only, status `posted`, no expiry. |
 | `withdraw_ask` | Takes back an open ask; `conflict` once it is answered, expired or withdrawn; `not_found` for an id the account does not hold. |
 | `get_ask` | One ask or notice: status, TLDR, surface, `answer_text` (the one line the owner's answer became). Reading an open ask past its time writes its expiry. |
@@ -122,7 +122,9 @@ Every refusal is a tool error with a code (`IsError` true), and the audit middle
 `owner_mcp_call` row `refused`. `deny()` answers `{"code":"permission_denied"}` when
    the identity may not act on the named account (or, for the passkey tools, is narrowed) (for an account it does not administer, and for
    one outside a narrowed token, alike). Every other failure of a tool's work is answered by
-   `refused(err)` as `{"code","detail"}`, read by `refusal.Of` (`internal/refusal`, whose README
+   `refused(err)` as `{"code","detail"}`, and `"reason"` beside them when the refusal carries one
+   (`refusal.Reason`: `ask_owner` and `notify_owner` name the rule that refused a surface,
+   `invalid_surface:<rule>`), read by `refusal.Of` (`internal/refusal`, whose README
    lists every code): a refusal the node coded keeps the node's sentence, a store's not-found is
    `not_found` and anything else `internal`, each with a fixed detail. No error text the node did
    not write reaches the caller, and the portal's pages show the same detail. `send_to_contact`

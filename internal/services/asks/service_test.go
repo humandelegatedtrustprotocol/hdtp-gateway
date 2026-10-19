@@ -31,6 +31,8 @@ type rig struct {
 	clock   time.Time
 	sent    []messaging.Input
 	audit   []string
+	// rows are the audit rows in full: who, action, resource, outcome.
+	rows []string
 }
 
 func newRig(t *testing.T) *rig {
@@ -64,7 +66,10 @@ func newRig(t *testing.T) *rig {
 		return r.msg.Record(ctx, accountID, contactFpr, messaging.DirOut, in)
 	}
 	rec := func(who string) func(action, resource, outcome string) {
-		return func(action, resource, outcome string) { r.audit = append(r.audit, who+" "+action+" "+outcome) }
+		return func(action, resource, outcome string) {
+			r.audit = append(r.audit, who+" "+action+" "+outcome)
+			r.rows = append(r.rows, who+" "+action+" "+resource+" "+outcome)
+		}
 	}
 	r.svc = New(st, bus, send, rec("owner"), rec("system"))
 	r.svc.Now = func() time.Time { return r.clock }
@@ -167,7 +172,7 @@ func TestEveryKindOfAnswerBecomesOneLine(t *testing.T) {
 		{"picked and sent", validAsks["a picker and its Send"], act("answer", "send", `{"reply":["confirm"],"own":""}`), `Ana chose: "Confirm Wed 15:00"`, "Confirm Wed 15:00"},
 		{"typed over picked", validAsks["a picker and its Send"], act("answer", "send", `{"reply":["thu"],"own":"Thu, but 11:00"}`), `Ana wrote: "Thu, but 11:00"`, "Thu, but 11:00"},
 		{"picked, nothing typed", validAsks["a picker and its Send"], act("answer", "send", `{"reply":["thu"],"own":"   "}`), `Ana chose: "Ask for Thu instead"`, "Ask for Thu instead"},
-		{"a date and time", validAsks["a date it sends"], act("answer", "send", `{"when":"2026-10-22T14:00:00+01:00"}`), "Ana picked: Thu 22 Oct 2026 14:00 +01:00", ""},
+		{"a date and time", validAsks["a date it sends"], act("answer", "send", `{"when":"2026-10-22T14:00:00+01:00","own":""}`), "Ana picked: Thu 22 Oct 2026 14:00 +01:00", ""},
 		{"a button", validAsks["a date and a button"], act("approve", "ok", `{"slot":"wed-15","n":1,"firm":true}`), `Ana pressed: "Approve"`, ""},
 		{"a button with no context", validAsks["a button with no context"], act("seen", "ok", `{}`), `Ana pressed: "Approve"`, ""},
 		{"a line break stays one line", validAsks["a TextField alone"], act("answer", "send", `{"own":"yes\nbut later"}`), `Ana wrote: "yes\nbut later"`, "yes\nbut later"},
@@ -187,6 +192,35 @@ func TestEveryKindOfAnswerBecomesOneLine(t *testing.T) {
 				t.Fatalf("sent %+v, want %q", r.sent, c.sends)
 			}
 		})
+	}
+}
+
+// A surface the node refuses is refused by one named rule: the refusal carries it as its reason
+// (invalid_surface:<rule>), and the audit row names it beside the code, so a refusal can be told
+// from another without its sentence. A refusal that is not of the surface names no rule.
+func TestASurfaceRefusalNamesItsRule(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	for _, c := range []struct {
+		name, surface, code, reason string
+	}{
+		{"no write my own", invalidSurfaces["no write my own"].surface, "bad_request", "invalid_surface:own_message"},
+		{"a last Button that drops it", invalidSurfaces["a last Button that drops it"].surface, "bad_request", "invalid_surface:own_message"},
+		{"an oversize payload", invalidSurfaces["an oversize payload"].surface, "too_large", "invalid_surface:surface_size"},
+		{"four ready replies", invalidSurfaces["four ready replies"].surface, "bad_request", "invalid_surface:reply_count"},
+	} {
+		_, err := r.svc.Ask(ctx, r.account, r.thread, "m1", []byte(c.surface))
+		if codeOf(err) != c.code || refusal.Reason(err) != c.reason {
+			t.Errorf("%s: %s %q, want %s %q", c.name, codeOf(err), refusal.Reason(err), c.code, c.reason)
+		}
+		want := "owner ask_create account:" + r.account + " thread:" + r.thread + " msg:m1 reason:" + c.reason + " " + c.code
+		if got := r.rows[len(r.rows)-1]; got != want {
+			t.Errorf("%s: the audit row %q, want %q", c.name, got, want)
+		}
+	}
+	_, err := r.svc.Ask(ctx, r.account, "0123456789abcdef0123456789abcdef", "m1", []byte(validAsks["the story's ask"]))
+	if refusal.Reason(err) != "" || strings.Contains(r.rows[len(r.rows)-1], "reason:") {
+		t.Fatalf("an unknown thread names a rule: %q, %s", refusal.Reason(err), r.rows[len(r.rows)-1])
 	}
 }
 

@@ -143,10 +143,14 @@ func (d Deps) owner() contacts.Owner {
 }
 
 // refused answers a failure as a tool error carrying its code and detail (refusal.Of), the
-// shape deny() uses.
+// shape deny() uses, and its reason when it has one (refusal.Reason: which rule refused it).
 func refused(err error) (*mcp.CallToolResult, error) {
 	code, detail := refusal.Of(err)
-	b, jerr := json.Marshal(map[string]string{"code": code, "detail": detail})
+	answer := map[string]string{"code": code, "detail": detail}
+	if r := refusal.Reason(err); r != "" {
+		answer["reason"] = r
+	}
+	b, jerr := json.Marshal(answer)
 	if jerr != nil {
 		return nil, jerr
 	}

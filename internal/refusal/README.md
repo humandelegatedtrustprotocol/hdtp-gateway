@@ -36,7 +36,9 @@ may not import each other, import it.
   a peer's), `Conflict(sentence, cause)` one about a target in a state that refuses the call, and
   `NotFound(sentence, cause)` one about a target the node does not hold; `Of` answers each with
   its sentence alone. `Undelivered(why, cause)` marks a message recorded and not
-  delivered; `Why(err)` reads the reason back. A cause (a dial, a peer's answer) is in `Error()` and
+  delivered; `Why(err)` reads the reason back. `For(reason, err)` puts beside a refusal the rule it
+  is for, as a code the node names (`asks.Invalid`'s `invalid_surface:<rule>`), and `Reason(err)`
+  reads it back; `Of` reads through it, and the owner MCP answers it as `reason`. A cause (a dial, a peer's answer) is in `Error()` and
   in no detail.
 
 Producers: `internal/cli/contactinit.go` (add_contact's refusals), `internal/cli/ownerextra.go`

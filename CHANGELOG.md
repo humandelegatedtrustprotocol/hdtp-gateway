@@ -35,15 +35,17 @@ changelog can be and is not summarized into a fictional release history.
   (`notify_owner`) with an A2UI v0.9.1 surface built from the node's catalog — A2UI's basic Column,
   Text, ChoicePicker, TextField, DateTimeInput and Button, narrowed, plus the node's own KeyValue: a
   TLDR first, the key terms, up to three ready replies (each a Button whose one tap sends its text),
-  a date or time, a write-my-own field last and the button that sends it, each input bound to the
-  surface's data model; the tool schema (JSON Schema 2020-12, named by `$schema`) states the order,
+  a date or time, and in every ask a write-my-own field and the button that sends it, last, each input
+  bound to the surface's data model; the tool schema (JSON Schema 2020-12, named by `$schema`) states the order,
   root first and the TLDR second — and follows it with
   `withdraw_ask`, `get_ask` and `list_asks` (by thread, by contact or open, newest first). The portal draws the open ask and every
   notice as a card on the conversation and lists the open asks on a new Needs you page, counted in
   the sidebar; pressing a button posts A2UI's action with the values it reads. A ready reply or what
   the owner writes is sent as the owner's own message, labelled
   human; any other message the owner sends on the ask's thread answers it too; every answer becomes
-  one line the agent reads back (`Ana chose: "Confirm Wed 15:00"`). An ask expires after 24 hours.
+  one line the agent reads back (`Ana chose: "Confirm Wed 15:00"`). A surface the node refuses is
+  answered with the rule that refused it as the error's `reason` (`invalid_surface:<rule>`), which
+  its audit row names too; a refusal of any other owner tool is unchanged. An ask expires after 24 hours.
   `wait_for_updates` lists asks that moved, and two webhook events, `ask.answered` and
   `ask.expired`, carry them. Migration 0007 adds the `owner_asks` table (SPEC §8.4).
 

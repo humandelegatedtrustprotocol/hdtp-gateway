@@ -131,7 +131,7 @@ var catalog = []component{
 			{name: "options", kind: optionsProp, required: true, max: MaxOptions},
 			{name: "value", kind: bindingProp, required: true, about: "Where the chosen value is written: a list of at most one option's value."},
 		}},
-	{name: "TextField", role: input, about: "Write my own: what the owner types is written at the bound path; a Button that sends that path sends it to the contact as their own message. The last input under root.",
+	{name: "TextField", role: input, about: "Write my own: what the owner types is written at the bound path. Every ask has one, root's next-to-last child, and root's last child is the Button that sends it: its context reads this path, and what the owner wrote is sent to the contact as their own message.",
 		props: []prop{
 			{name: "label", kind: textProp, required: true, max: maxLabelBytes},
 			{name: "value", kind: bindingProp, required: true},
@@ -156,15 +156,17 @@ var catalog = []component{
 
 // The code-only rules are what Parse holds that the schema does not: rules over the list of
 // components that JSON Schema cannot state, not over one of them. What it can state, the schema
-// states as well: root first in the list and a Text second, at most one root, ChoicePicker and
-// TextField, at most MaxOptions reply Buttons, and a Button in every ask. Each code-only rule is a
+// states as well: root first in the list and a Text second, at most one root and ChoicePicker, at
+// most MaxOptions reply Buttons, and in every ask exactly one TextField and a Button that is not a
+// reply. Each code-only rule is a
 // sentence Parse refuses with; catalog_test.go shows each red:
 //
 //   - the messages name one surfaceId
 //   - component ids are unique
 //   - every component but root is placed once: under root, or as a Button's label
 //   - the first child of root is the Text second in the list, the TLDR, of at most MaxTLDRBytes
-//   - the TextField is the last input under root
+//   - an ask ends with the owner's own message: root's last two children are the TextField, then
+//     a Button that is not a ready reply and whose context reads the TextField's path
 //   - a Button's child is a Text
 //   - each input binds a path of its own, none inside another's
 //   - every path a Button's context reads is one an input binds
@@ -263,7 +265,9 @@ func SurfaceSchema(kind string) *jsonschema.Schema {
 		prefix, most = append(prefix, model), 3
 		what += " Optionally a third, updateDataModel for the same surfaceId: the values the inputs start from. " +
 			"The owner answers by pressing a Button. Each ready reply is a Button of event \"" + ReplyEvent + "\" with context {reply: its text}, sent in one tap; " +
-			"every input binds its value to a {path}, and the Button that sends it names those paths in its context."
+			"every input binds its value to a {path}, and the Button that sends it names those paths in its context. " +
+			"Every ask ends with the owner's own message: root's last two children are a TextField, then the Button that sends it, " +
+			"whose context reads the TextField's path."
 	} else {
 		what += " A notice holds only Text and KeyValue: it tells, and nothing answers it."
 	}
@@ -271,8 +275,9 @@ func SurfaceSchema(kind string) *jsonschema.Schema {
 }
 
 // listRules are the rules over a surface's list of components that JSON Schema can state: at most
-// one root, and on an ask at most one ChoicePicker and one TextField, at most MaxOptions reply
-// Buttons and at least one Button.
+// one root, and on an ask at most one ChoicePicker, at most MaxOptions reply Buttons, exactly one
+// TextField and a Button that is not a reply. Where they stand under root, and what that Button
+// reads, only Parse can hold.
 func listRules(kind string) []*jsonschema.Schema {
 	is := func(name string) *jsonschema.Schema {
 		return &jsonschema.Schema{Type: "object", Required: []string{"component"},
@@ -290,8 +295,14 @@ func listRules(kind string) []*jsonschema.Schema {
 	reply.Properties["action"] = &jsonschema.Schema{Type: "object", Required: []string{"event"},
 		Properties: map[string]*jsonschema.Schema{"event": {Type: "object", Required: []string{"name"},
 			Properties: map[string]*jsonschema.Schema{"name": {Const: anyPtr(ReplyEvent)}}}}}
-	return append(rules, atMost(is("ChoicePicker"), 1), atMost(is("TextField"), 1), atMost(reply, MaxOptions),
-		&jsonschema.Schema{Contains: is("Button")})
+	send := is("Button")
+	send.Required = append(send.Required, "action")
+	send.Properties["action"] = &jsonschema.Schema{Type: "object", Required: []string{"event"},
+		Properties: map[string]*jsonschema.Schema{"event": {Type: "object", Required: []string{"name"},
+			Properties: map[string]*jsonschema.Schema{"name": {Not: &jsonschema.Schema{Const: anyPtr(ReplyEvent)}}}}}}
+	return append(rules, atMost(is("ChoicePicker"), 1), atMost(reply, MaxOptions),
+		&jsonschema.Schema{Contains: is("TextField"), MinContains: ptr(1), MaxContains: ptr(1)},
+		&jsonschema.Schema{Contains: send})
 }
 
 func componentSchema(c component) *jsonschema.Schema {
@@ -467,12 +478,17 @@ func (s Surface) TLDR() string {
 	return t.Text
 }
 
-// Invalid is a surface Parse refused: Path is where, in A2UI's JSON Pointer form under the tool's
-// `surface` argument, and TooLarge says the refusal is for its size.
+// Invalid is a surface Parse refused: Rule is which rule refused it, a code of the node's own (see
+// Reason); Path is where, in A2UI's JSON Pointer form under the tool's `surface` argument; and
+// TooLarge says the refusal is for its size.
 type Invalid struct {
-	Path, Why string
-	TooLarge  bool
+	Rule, Path, Why string
+	TooLarge        bool
 }
+
+// Reason is the refusal as a code, "invalid_surface:<rule>": the rule is one the node names at the
+// place it refuses, never anything the caller wrote, so it can go in an audit row and a log line.
+func (e Invalid) Reason() string { return "invalid_surface:" + e.Rule }
 
 func (e Invalid) Error() string {
 	if e.Path == "" {
@@ -481,19 +497,19 @@ func (e Invalid) Error() string {
 	return e.Path + ": " + e.Why
 }
 
-func invalid(path, format string, args ...any) error {
-	return Invalid{Path: path, Why: fmt.Sprintf(format, args...)}
+func invalid(rule, path, format string, args ...any) error {
+	return Invalid{Rule: rule, Path: path, Why: fmt.Sprintf(format, args...)}
 }
 
 // Parse reads raw, the `surface` argument, as a surface of kind, and refuses anything the catalog
 // does not allow. The bytes counted are raw's own.
 func Parse(raw []byte, kind string) (Surface, error) {
 	if len(raw) > MaxSurfaceBytes {
-		return Surface{}, Invalid{Path: "/surface", Why: fmt.Sprintf("the surface is %d bytes, over the %d a surface may be", len(raw), MaxSurfaceBytes), TooLarge: true}
+		return Surface{}, Invalid{Rule: "surface_size", Path: "/surface", Why: fmt.Sprintf("the surface is %d bytes, over the %d a surface may be", len(raw), MaxSurfaceBytes), TooLarge: true}
 	}
 	var msgs []map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &msgs); err != nil {
-		return Surface{}, invalid("/surface", "not a list of A2UI messages")
+		return Surface{}, invalid("messages", "/surface", "not a list of A2UI messages")
 	}
 	most := 2
 	if kind == KindAsk {
@@ -501,9 +517,9 @@ func Parse(raw []byte, kind string) (Surface, error) {
 	}
 	if len(msgs) < 2 || len(msgs) > most {
 		if kind == KindAsk {
-			return Surface{}, invalid("/surface", "a surface is createSurface, updateComponents and optionally updateDataModel; this is %d messages", len(msgs))
+			return Surface{}, invalid("messages", "/surface", "a surface is createSurface, updateComponents and optionally updateDataModel; this is %d messages", len(msgs))
 		}
-		return Surface{}, invalid("/surface", "a notice is two messages, createSurface then updateComponents; this is %d", len(msgs))
+		return Surface{}, invalid("messages", "/surface", "a notice is two messages, createSurface then updateComponents; this is %d", len(msgs))
 	}
 	var create struct {
 		SurfaceID string `json:"surfaceId"`
@@ -513,7 +529,7 @@ func Parse(raw []byte, kind string) (Surface, error) {
 		return Surface{}, err
 	}
 	if create.CatalogID != CatalogID {
-		return Surface{}, invalid("/surface/0/createSurface/catalogId", "the catalog is %s", CatalogID)
+		return Surface{}, invalid("catalog_id", "/surface/0/createSurface/catalogId", "the catalog is %s", CatalogID)
 	}
 	if err := checkID("/surface/0/createSurface/surfaceId", create.SurfaceID); err != nil {
 		return Surface{}, err
@@ -526,11 +542,11 @@ func Parse(raw []byte, kind string) (Surface, error) {
 		return Surface{}, err
 	}
 	if update.SurfaceID != create.SurfaceID {
-		return Surface{}, invalid("/surface/1/updateComponents/surfaceId", "names surface %q; the createSurface made %q", update.SurfaceID, create.SurfaceID)
+		return Surface{}, invalid("surface_id", "/surface/1/updateComponents/surfaceId", "names surface %q; the createSurface made %q", update.SurfaceID, create.SurfaceID)
 	}
 	base := "/surface/1/updateComponents/components"
 	if len(update.Components) < 2 || len(update.Components) > MaxComponents {
-		return Surface{}, invalid(base, "a surface holds 2 to %d components; this has %d", MaxComponents, len(update.Components))
+		return Surface{}, invalid("component_count", base, "a surface holds 2 to %d components; this has %d", MaxComponents, len(update.Components))
 	}
 	s := Surface{ID: create.SurfaceID}
 	at := map[string]int{}
@@ -540,7 +556,7 @@ func Parse(raw []byte, kind string) (Surface, error) {
 			return Surface{}, err
 		}
 		if _, dup := at[c.ID]; dup {
-			return Surface{}, invalid(fmt.Sprintf("%s/%d/id", base, i), "id %q is used twice", c.ID)
+			return Surface{}, invalid("duplicate_id", fmt.Sprintf("%s/%d/id", base, i), "id %q is used twice", c.ID)
 		}
 		at[c.ID] = i
 		s.Components = append(s.Components, c)
@@ -566,28 +582,28 @@ func Parse(raw []byte, kind string) (Surface, error) {
 func message(m map[string]json.RawMessage, path, name string, into any, required, optional []string) error {
 	var v string
 	if err := json.Unmarshal(m["version"], &v); err != nil || v != Version {
-		return invalid(path+"/version", "every message names version %s", Version)
+		return invalid("version", path+"/version", "every message names version %s", Version)
 	}
 	body, ok := m[name]
 	if !ok || len(m) != 2 {
-		return invalid(path, "this message is %s, and holds version and %s alone", name, name)
+		return invalid("message_shape", path, "this message is %s, and holds version and %s alone", name, name)
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(body, &fields); err != nil {
-		return invalid(path+"/"+name, "not an object")
+		return invalid("message_shape", path+"/"+name, "not an object")
 	}
 	for k := range fields {
 		if !contains(required, k) && !contains(optional, k) {
-			return invalid(path+"/"+name+"/"+k, "%s takes %s, and nothing else", name, strings.Join(append(append([]string{}, required...), optional...), ", "))
+			return invalid("message_shape", path+"/"+name+"/"+k, "%s takes %s, and nothing else", name, strings.Join(append(append([]string{}, required...), optional...), ", "))
 		}
 	}
 	for _, k := range required {
 		if _, ok := fields[k]; !ok {
-			return invalid(path+"/"+name+"/"+k, "required")
+			return invalid("message_shape", path+"/"+name+"/"+k, "required")
 		}
 	}
 	if err := json.Unmarshal(body, into); err != nil {
-		return invalid(path+"/"+name, "a field is of the wrong type")
+		return invalid("message_shape", path+"/"+name, "a field is of the wrong type")
 	}
 	return nil
 }
@@ -605,17 +621,17 @@ func parseModel(m map[string]json.RawMessage, surfaceID string) (map[string]any,
 	}
 	path += "/updateDataModel"
 	if dm.SurfaceID != surfaceID {
-		return nil, invalid(path+"/surfaceId", "names surface %q; the createSurface made %q", dm.SurfaceID, surfaceID)
+		return nil, invalid("surface_id", path+"/surfaceId", "names surface %q; the createSurface made %q", dm.SurfaceID, surfaceID)
 	}
 	if dm.Path != nil && *dm.Path != "/" {
-		return nil, invalid(path+"/path", "the node takes the whole data model: omit path, or give \"/\"")
+		return nil, invalid("model_path", path+"/path", "the node takes the whole data model: omit path, or give \"/\"")
 	}
 	var model map[string]any
 	if err := json.Unmarshal(dm.Value, &model); err != nil || model == nil {
-		return nil, invalid(path+"/value", "the data model is an object")
+		return nil, invalid("model_shape", path+"/value", "the data model is an object")
 	}
 	if d := depth(model); d > MaxModelDepth {
-		return nil, invalid(path+"/value", "the data model nests %d deep, over the %d it may", d, MaxModelDepth)
+		return nil, invalid("model_depth", path+"/value", "the data model nests %d deep, over the %d it may", d, MaxModelDepth)
 	}
 	return model, nil
 }
@@ -666,18 +682,18 @@ func lookup(model map[string]any, pointer string) (any, bool) {
 func parseComponent(raw json.RawMessage, kind, path string) (Component, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
-		return Component{}, invalid(path, "a component is an object")
+		return Component{}, invalid("component_shape", path, "a component is an object")
 	}
 	var name, id string
 	if json.Unmarshal(fields["component"], &name) != nil || name == "" {
-		return Component{}, invalid(path+"/component", "required: one of %s", names(kind))
+		return Component{}, invalid("unknown_component", path+"/component", "required: one of %s", names(kind))
 	}
 	spec, ok := componentNamed(name)
 	if !ok || !spec.allowedIn(kind) {
-		return Component{}, invalid(path+"/component", "%q is not in the catalog for a%s %s: it takes %s", name, an(kind), kind, names(kind))
+		return Component{}, invalid("unknown_component", path+"/component", "%q is not in the catalog for a%s %s: it takes %s", name, an(kind), kind, names(kind))
 	}
 	if json.Unmarshal(fields["id"], &id) != nil {
-		return Component{}, invalid(path+"/id", "required")
+		return Component{}, invalid("component_shape", path+"/id", "required")
 	}
 	if err := checkID(path+"/id", id); err != nil {
 		return Component{}, err
@@ -687,14 +703,14 @@ func parseComponent(raw json.RawMessage, kind, path string) (Component, error) {
 			continue
 		}
 		if _, ok := spec.prop(k); !ok {
-			return Component{}, invalid(path+"/"+k, "%s has no %q in this catalog", name, k)
+			return Component{}, invalid("unknown_prop", path+"/"+k, "%s has no %q in this catalog", name, k)
 		}
 	}
 	for _, p := range spec.props {
 		v, ok := fields[p.name]
 		if !ok {
 			if p.required {
-				return Component{}, invalid(path+"/"+p.name, "required")
+				return Component{}, invalid("required_prop", path+"/"+p.name, "required")
 			}
 			continue
 		}
@@ -705,10 +721,10 @@ func parseComponent(raw json.RawMessage, kind, path string) (Component, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	var c Component
 	if err := dec.Decode(&c); err != nil {
-		return Component{}, invalid(path, "a field is of the wrong type")
+		return Component{}, invalid("component_shape", path, "a field is of the wrong type")
 	}
 	if c.Name == "DateTimeInput" && !c.EnableDate && !c.EnableTime {
-		return Component{}, invalid(path, "a DateTimeInput enables a date, a time or both")
+		return Component{}, invalid("date_enables", path, "a DateTimeInput enables a date, a time or both")
 	}
 	return c, nil
 }
@@ -729,21 +745,21 @@ func checkProp(p prop, v json.RawMessage, path string) error {
 	case enumProp:
 		var s string
 		if json.Unmarshal(v, &s) != nil || !contains(p.enum, s) {
-			return invalid(path, "one of %s", strings.Join(p.enum, ", "))
+			return invalid("prop_value", path, "one of %s", strings.Join(p.enum, ", "))
 		}
 	case idProp:
 		var s string
 		if json.Unmarshal(v, &s) != nil {
-			return invalid(path, "a component id")
+			return invalid("prop_value", path, "a component id")
 		}
 		return checkID(path, s)
 	case childrenProp:
 		var l []string
 		if json.Unmarshal(v, &l) != nil || len(l) == 0 {
-			return invalid(path, "a list of component ids")
+			return invalid("prop_value", path, "a list of component ids")
 		}
 		if len(l) > p.max {
-			return invalid(path, "at most %d", p.max)
+			return invalid("prop_size", path, "at most %d", p.max)
 		}
 		for i, s := range l {
 			if err := checkID(fmt.Sprintf("%s/%d", path, i), s); err != nil {
@@ -757,10 +773,10 @@ func checkProp(p prop, v json.RawMessage, path string) error {
 		}
 		var l []map[string]json.RawMessage
 		if json.Unmarshal(v, &l) != nil || len(l) == 0 {
-			return invalid(path, "a list of %s", what)
+			return invalid("prop_value", path, "a list of %s", what)
 		}
 		if len(l) > p.max {
-			return invalid(path, "at most %d %s; this has %d", p.max, strings.SplitN(what, ",", 2)[0], len(l))
+			return invalid("prop_size", path, "at most %d %s; this has %d", p.max, strings.SplitN(what, ",", 2)[0], len(l))
 		}
 		values := map[string]bool{}
 		for i, it := range l {
@@ -778,7 +794,7 @@ func checkProp(p prop, v json.RawMessage, path string) error {
 				var val string
 				_ = json.Unmarshal(it["value"], &val)
 				if values[val] {
-					return invalid(at+"/value", "two options have the value %q", val)
+					return invalid("option_values", at+"/value", "two options have the value %q", val)
 				}
 				values[val] = true
 			}
@@ -786,64 +802,64 @@ func checkProp(p prop, v json.RawMessage, path string) error {
 	case boolProp:
 		var b bool
 		if json.Unmarshal(v, &b) != nil {
-			return invalid(path, "true or false")
+			return invalid("prop_value", path, "true or false")
 		}
 	case isoProp:
 		var s string
 		if json.Unmarshal(v, &s) != nil || len(s) > maxISOBytes || !isISO(s) {
-			return invalid(path, "an ISO 8601 date, time or date-time")
+			return invalid("prop_value", path, "an ISO 8601 date, time or date-time")
 		}
 	case bindingProp:
 		return checkBinding(v, path)
 	case actionProp:
 		var a map[string]json.RawMessage
 		if json.Unmarshal(v, &a) != nil {
-			return invalid(path, "an action: {event: {name, context}}")
+			return invalid("action_shape", path, "an action: {event: {name, context}}")
 		}
 		if err := exactKeys(a, path, "event"); err != nil {
-			return invalid(path, "an action here is an event, {event: {name, context}}: the portal runs no function")
+			return invalid("action_function", path, "an action here is an event, {event: {name, context}}: the portal runs no function")
 		}
 		var ev map[string]json.RawMessage
 		if json.Unmarshal(a["event"], &ev) != nil {
-			return invalid(path+"/event", "an event: {name, context}")
+			return invalid("action_shape", path+"/event", "an event: {name, context}")
 		}
 		for k := range ev {
 			if k != "name" && k != "context" {
-				return invalid(path+"/event/"+k, "an event has a name and a context, and nothing else")
+				return invalid("action_shape", path+"/event/"+k, "an event has a name and a context, and nothing else")
 			}
 		}
 		var name string
 		if json.Unmarshal(ev["name"], &name) != nil || name == "" || len(name) > maxKeyBytes {
-			return invalid(path+"/event/name", "a name of 1 to %d bytes", maxKeyBytes)
+			return invalid("action_shape", path+"/event/name", "a name of 1 to %d bytes", maxKeyBytes)
 		}
 		if name == ReplyEvent {
 			var ctx map[string]json.RawMessage
 			if json.Unmarshal(ev["context"], &ctx) != nil || exactKeys(ctx, path+"/event/context", "reply") != nil {
-				return invalid(path+"/event/context", "a ready reply's context is {reply}, the text one tap sends")
+				return invalid("reply_context", path+"/event/context", "a ready reply's context is {reply}, the text one tap sends")
 			}
 			return checkText(ctx["reply"], path+"/event/context/reply", maxContextBytes)
 		}
 		if c, ok := ev["context"]; ok {
 			var ctx map[string]json.RawMessage
 			if json.Unmarshal(c, &ctx) != nil {
-				return invalid(path+"/event/context", "an object")
+				return invalid("context_value", path+"/event/context", "an object")
 			}
 			if len(ctx) > maxContextKeys {
-				return invalid(path+"/event/context", "at most %d keys", maxContextKeys)
+				return invalid("context_value", path+"/event/context", "at most %d keys", maxContextKeys)
 			}
 			for k, cv := range ctx {
 				at := path + "/event/context/" + k
 				if len(k) > maxKeyBytes {
-					return invalid(at, "a key of at most %d bytes", maxKeyBytes)
+					return invalid("context_value", at, "a key of at most %d bytes", maxKeyBytes)
 				}
 				var lit any
 				if json.Unmarshal(cv, &lit) != nil {
-					return invalid(at, "a literal or a {path}")
+					return invalid("context_value", at, "a literal or a {path}")
 				}
 				switch x := lit.(type) {
 				case string:
 					if len(x) > maxContextBytes {
-						return invalid(at, "at most %d bytes", maxContextBytes)
+						return invalid("context_value", at, "at most %d bytes", maxContextBytes)
 					}
 				case float64, bool:
 				case map[string]any:
@@ -851,7 +867,7 @@ func checkProp(p prop, v json.RawMessage, path string) error {
 						return err
 					}
 				default:
-					return invalid(at, "a literal string, number or boolean, or a {path} in the data model")
+					return invalid("context_value", at, "a literal string, number or boolean, or a {path} in the data model")
 				}
 			}
 		}
@@ -863,17 +879,17 @@ func checkProp(p prop, v json.RawMessage, path string) error {
 func checkBinding(v json.RawMessage, path string) error {
 	var b map[string]json.RawMessage
 	if json.Unmarshal(v, &b) != nil {
-		return invalid(path, "a binding: {path}")
+		return invalid("binding", path, "a binding: {path}")
 	}
 	if err := exactKeys(b, path, "path"); err != nil {
-		return invalid(path, "a binding is {path}, and nothing else")
+		return invalid("binding", path, "a binding is {path}, and nothing else")
 	}
 	var p string
 	if json.Unmarshal(b["path"], &p) != nil || len(p) < 2 || len(p) > maxPathBytes || p[0] != '/' {
-		return invalid(path+"/path", "an absolute JSON Pointer of 2 to %d bytes", maxPathBytes)
+		return invalid("binding", path+"/path", "an absolute JSON Pointer of 2 to %d bytes", maxPathBytes)
 	}
 	if strings.HasSuffix(p, "/") || strings.Contains(p, "//") || strings.ReplaceAll(strings.ReplaceAll(p, "~0", ""), "~1", "") != strings.ReplaceAll(p, "~", "") {
-		return invalid(path+"/path", "not a JSON Pointer the node reads: no empty step, and ~ only as ~0 or ~1")
+		return invalid("binding", path+"/path", "not a JSON Pointer the node reads: no empty step, and ~ only as ~0 or ~1")
 	}
 	return nil
 }
@@ -881,12 +897,12 @@ func checkBinding(v json.RawMessage, path string) error {
 func exactKeys(m map[string]json.RawMessage, path string, keys ...string) error {
 	for k := range m {
 		if !contains(keys, k) {
-			return invalid(path+"/"+k, "takes %s, and nothing else", strings.Join(keys, " and "))
+			return invalid("prop_value", path+"/"+k, "takes %s, and nothing else", strings.Join(keys, " and "))
 		}
 	}
 	for _, k := range keys {
 		if _, ok := m[k]; !ok {
-			return invalid(path+"/"+k, "required")
+			return invalid("prop_value", path+"/"+k, "required")
 		}
 	}
 	return nil
@@ -895,23 +911,23 @@ func exactKeys(m map[string]json.RawMessage, path string, keys ...string) error 
 func checkText(v json.RawMessage, path string, max int) error {
 	var s string
 	if json.Unmarshal(v, &s) != nil {
-		return invalid(path, "a literal string")
+		return invalid("prop_value", path, "a literal string")
 	}
 	if strings.TrimSpace(s) == "" {
-		return invalid(path, "empty")
+		return invalid("prop_value", path, "empty")
 	}
 	if len(s) > max {
-		return invalid(path, "%d bytes, over the %d it may be", len(s), max)
+		return invalid("prop_size", path, "%d bytes, over the %d it may be", len(s), max)
 	}
 	if !utf8.ValidString(s) {
-		return invalid(path, "not UTF-8")
+		return invalid("prop_value", path, "not UTF-8")
 	}
 	return nil
 }
 
 func checkID(path, id string) error {
 	if id == "" || len(id) > maxIDBytes {
-		return invalid(path, "an id of 1 to %d bytes", maxIDBytes)
+		return invalid("prop_value", path, "an id of 1 to %d bytes", maxIDBytes)
 	}
 	return nil
 }
@@ -920,25 +936,25 @@ func checkID(path, id string) error {
 func (s Surface) checkTree(kind, base string, at map[string]int) error {
 	r, ok := at["root"]
 	if !ok {
-		return invalid(base, "no component has id \"root\"")
+		return invalid("root_missing", base, "no component has id \"root\"")
 	}
 	root := s.Components[r]
 	if root.Name != "Column" {
-		return invalid(fmt.Sprintf("%s/%d/component", base, r), "root is a Column")
+		return invalid("root_column", fmt.Sprintf("%s/%d/component", base, r), "root is a Column")
 	}
 	if r != 0 {
-		return invalid(fmt.Sprintf("%s/%d", base, r), "root comes first in the list of components")
+		return invalid("root_first", fmt.Sprintf("%s/%d", base, r), "root comes first in the list of components")
 	}
 	placed := map[string]bool{}
 	place := func(path, id string) error {
 		if id == "root" {
-			return invalid(path, "root is placed under nothing")
+			return invalid("root_placed", path, "root is placed under nothing")
 		}
 		if _, ok := at[id]; !ok {
-			return invalid(path, "no component has id %q", id)
+			return invalid("child_missing", path, "no component has id %q", id)
 		}
 		if placed[id] {
-			return invalid(path, "component %q is placed twice", id)
+			return invalid("placed_twice", path, "component %q is placed twice", id)
 		}
 		placed[id] = true
 		return nil
@@ -949,17 +965,16 @@ func (s Surface) checkTree(kind, base string, at map[string]int) error {
 			return err
 		}
 	}
-	pickers, fields, buttons, replies := 0, 0, 0, 0
+	pickers, fields, replies := 0, 0, 0
 	paths := map[string]string{}
 	for i, c := range s.Components {
 		path := fmt.Sprintf("%s/%d", base, i)
 		switch c.Name {
 		case "Column":
 			if c.ID != "root" {
-				return invalid(path+"/component", "a Column is the root alone")
+				return invalid("column_not_root", path+"/component", "a Column is the root alone")
 			}
 		case "Button":
-			buttons++
 			if c.Action.Event.Name == ReplyEvent {
 				replies++
 			}
@@ -967,7 +982,7 @@ func (s Surface) checkTree(kind, base string, at map[string]int) error {
 				return err
 			}
 			if s.Components[at[c.Child]].Name != "Text" {
-				return invalid(path+"/child", "a Button's child is the Text that is its label")
+				return invalid("button_label", path+"/child", "a Button's child is the Text that is its label")
 			}
 		case "ChoicePicker":
 			pickers++
@@ -977,7 +992,7 @@ func (s Surface) checkTree(kind, base string, at map[string]int) error {
 		if c.Value != nil {
 			for other, id := range paths {
 				if other == c.Value.Path || strings.HasPrefix(c.Value.Path, other+"/") || strings.HasPrefix(other, c.Value.Path+"/") {
-					return invalid(path+"/value/path", "%q and %q bind one place in the data model: each input binds its own", id, c.ID)
+					return invalid("binding_shared", path+"/value/path", "%q and %q bind one place in the data model: each input binds its own", id, c.ID)
 				}
 			}
 			paths[c.Value.Path] = c.ID
@@ -985,37 +1000,29 @@ func (s Surface) checkTree(kind, base string, at map[string]int) error {
 	}
 	for i, c := range s.Components {
 		if c.ID != "root" && !placed[c.ID] {
-			return invalid(fmt.Sprintf("%s/%d", base, i), "component %q is placed nowhere: under root, or as a Button's label", c.ID)
+			return invalid("placed_nowhere", fmt.Sprintf("%s/%d", base, i), "component %q is placed nowhere: under root, or as a Button's label", c.ID)
 		}
 	}
 	first := s.Components[at[root.Children[0]]]
 	if first.Name != "Text" {
-		return invalid(cpath+"/0", "the first child of root is a Text, the TLDR")
+		return invalid("tldr_first_child", cpath+"/0", "the first child of root is a Text, the TLDR")
 	}
 	if at[first.ID] != 1 {
-		return invalid(fmt.Sprintf("%s/%d", base, at[first.ID]), "the TLDR, root's first child, comes second in the list, after root")
+		return invalid("tldr_second", fmt.Sprintf("%s/%d", base, at[first.ID]), "the TLDR, root's first child, comes second in the list, after root")
 	}
 	if len(first.Text) > MaxTLDRBytes {
-		return invalid(fmt.Sprintf("%s/%d/text", base, at[first.ID]), "the TLDR is %d bytes, over the %d it may be", len(first.Text), MaxTLDRBytes)
+		return invalid("tldr_size", fmt.Sprintf("%s/%d/text", base, at[first.ID]), "the TLDR is %d bytes, over the %d it may be", len(first.Text), MaxTLDRBytes)
 	}
 	if pickers > 1 || fields > 1 {
-		return invalid(base, "at most one ChoicePicker and one TextField")
+		return invalid("input_count", base, "at most one ChoicePicker and one TextField")
 	}
 	if replies > MaxOptions {
-		return invalid(base, "at most %d ready replies; this has %d", MaxOptions, replies)
+		return invalid("reply_count", base, "at most %d ready replies; this has %d", MaxOptions, replies)
 	}
-	field := -1
-	for i, id := range root.Children {
-		c := s.Components[at[id]]
-		if spec, _ := componentNamed(c.Name); spec.role == input && field >= 0 {
-			return invalid(fmt.Sprintf("%s/%d", cpath, field), "the TextField is the last input under root")
+	if kind == KindAsk {
+		if err := s.checkOwn(root, at, cpath); err != nil {
+			return err
 		}
-		if c.Name == "TextField" {
-			field = i
-		}
-	}
-	if kind == KindAsk && buttons == 0 {
-		return invalid(base, "an ask holds a Button: pressing it is the owner's answer")
 	}
 	for i, c := range s.Components {
 		if c.Action == nil {
@@ -1024,12 +1031,37 @@ func (s Surface) checkTree(kind, base string, at map[string]int) error {
 		for k, v := range c.Action.Event.Context {
 			if p, ok := bound(v); ok {
 				if _, ok := paths[p]; !ok {
-					return invalid(fmt.Sprintf("%s/%d/action/event/context/%s", base, i, k), "no input binds %q", p)
+					return invalid("context_unbound", fmt.Sprintf("%s/%d/action/event/context/%s", base, i, k), "no input binds %q", p)
 				}
 			}
 		}
 	}
 	return nil
+}
+
+// checkOwn holds an ask to its last option, the owner's own message: root's last two children are
+// the TextField, then a Button whose context reads the TextField's path, so what the owner writes
+// is what that Button sends. A ready reply's context is its literal text alone, so it is never that
+// Button.
+func (s Surface) checkOwn(root Component, at map[string]int, cpath string) error {
+	n := len(root.Children)
+	if n < 3 {
+		return invalid("own_message", cpath, "an ask ends with the owner's own message: a TextField, then the Button that sends it")
+	}
+	own := s.Components[at[root.Children[n-2]]]
+	if own.Name != "TextField" {
+		return invalid("own_message", fmt.Sprintf("%s/%d", cpath, n-2), "an ask ends with the owner's own message: root's next-to-last child is the TextField")
+	}
+	send := s.Components[at[root.Children[n-1]]]
+	if send.Name != "Button" {
+		return invalid("own_message", fmt.Sprintf("%s/%d", cpath, n-1), "an ask ends with the owner's own message: root's last child is the Button that sends the TextField")
+	}
+	for _, v := range send.Action.Event.Context {
+		if p, ok := bound(v); ok && p == own.Value.Path {
+			return nil
+		}
+	}
+	return invalid("own_message", fmt.Sprintf("%s/%d/action/event/context", cpath, n-1), "the last Button sends the TextField: its context reads %q", own.Value.Path)
 }
 
 // checkModel holds the data model to the inputs: what it holds at an input's path is a value that
@@ -1045,7 +1077,7 @@ func (s Surface) checkModel() error {
 		}
 		raw, _ := json.Marshal(v)
 		if _, err := s.inputValue(c, raw); err != nil {
-			return invalid("/surface/2/updateDataModel/value", "at %s: %s", c.Value.Path, err)
+			return invalid("model_value", "/surface/2/updateDataModel/value", "at %s: %s", c.Value.Path, err)
 		}
 	}
 	return nil

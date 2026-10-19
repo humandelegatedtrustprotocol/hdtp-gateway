@@ -65,6 +65,28 @@ func (c coded) Error() string {
 	return c.sentence + ": " + c.cause.Error()
 }
 
+// For marks a refusal with the rule it is for, as a code (asks.Invalid's "invalid_surface:<rule>"):
+// the owner MCP answers it as the refusal's reason, beside its code and detail. reason is one of a
+// fixed set the node names, never a caller's text. Of reads through it.
+func For(reason string, err error) error { return reasoned{reason: reason, err: err} }
+
+type reasoned struct {
+	reason string
+	err    error
+}
+
+func (r reasoned) Error() string { return r.err.Error() }
+func (r reasoned) Unwrap() error { return r.err }
+
+// Reason is the reason For put in err's chain, or "" when err holds none.
+func Reason(err error) string {
+	var r reasoned
+	if errors.As(err, &r) {
+		return r.reason
+	}
+	return ""
+}
+
 // Undelivered marks a message that was recorded and not delivered. why is the node's reason: a
 // peer's §12 code, one the node names (node.WhyEndpointRefused, node.WhyUnreachable), or one
 // outbound names for a call that never left (outbound.UnsentRateLimited,

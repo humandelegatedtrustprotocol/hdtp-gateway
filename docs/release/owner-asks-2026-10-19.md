@@ -200,3 +200,20 @@ names. Read from google/A2UI `specification/v0_9_1` (the protocol document, `com
   components, are checked by the node alone. `$schema` names draft 2020-12.
 - **Newest first.** `list_asks` and `GET /api/asks` list newest first in every filter, so the limit of
   100 keeps the newest; the conversation reverses them to place the cards among its messages.
+
+### Round 3 (2026-10-19, after the review of 014f0d8 and the agent's live U1 run)
+
+- **The owner's own message ends every ask.** This supersedes "the last input under the root" and "an
+  ask contains a Button" above. Root's last two children are the TextField, then a Button whose
+  context reads the TextField's path, so the last option is always the owner's own message. The tool
+  schema states what JSON Schema can: an ask holds exactly one TextField and a Button that is not a
+  ready reply. Where they stand under root, and that the Button reads the TextField, the node checks
+  alone (JSON Schema has no rule for an array's last items, and the order drawn is root's children).
+- **A refusal names its rule.** A surface the node refuses carries the rule that refused it as a code,
+  `invalid_surface:<rule>`. It is in the tool error as `reason`, beside `code` and `detail`, and in
+  the audit row's resource as `reason:invalid_surface:<rule>`. The audit outcome stays the refusal's
+  code. The rule is one of a fixed set the node names where it refuses, never the caller's text.
+- **Only a message on the ask's thread answers it.** The portal's message or file answers the open ask
+  of the thread it is sent on; one on another thread with the contact goes there and answers
+  nothing. `list_asks` answers `not_found` for a thread or contact the account does not have. The
+  expiry sweep ends on a pass that expires nothing.

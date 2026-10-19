@@ -80,8 +80,9 @@ var (
 		"an A2UI %s surface in the node's catalog (A2UI's basic components plus the node's KeyValue; the schema of surface) "+
 		"listing the root Column first and its first child, a one-line TLDR Text (at most %d bytes), second; then what "+
 		"they need to know (Text, KeyValue); then up to %d ready replies, each a Button whose action.event is "+
-		"{\"name\":\"reply\",\"context\":{\"reply\":\"<the text>\"}} so one tap sends it; and a TextField last "+
-		"for writing their own, with the Button that sends it. An input binds its value to a {path} in the data model "+
+		"{\"name\":\"reply\",\"context\":{\"reply\":\"<the text>\"}} so one tap sends it; and every ask ends with "+
+		"their own message: root's last two children are a TextField for writing it, then the Button that sends it (not a "+
+		"ready reply; its context reads the TextField's path). An input binds its value to a {path} in the data model "+
 		"and a Button's action.event.context reads those paths: pressing it is the answer (a ChoicePicker or a "+
 		"DateTimeInput read this way too). A ready reply or what they write is sent to the contact as the owner's "+
 		"message (labelled human) and answers the ask; a date, or a button that reads nothing, answers without "+

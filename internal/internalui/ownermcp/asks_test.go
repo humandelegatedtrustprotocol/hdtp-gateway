@@ -174,6 +174,8 @@ func TestEveryAskToolRefusesByCode(t *testing.T) {
 		"a surface that is not A2UI":      {"ask_owner", map[string]any{"account_id": a.acctA, "thread_id": a.thread, "for_message_id": "m2", "surface": map[string]any{"text": "hi"}}, "bad_request"},
 		"a surface too large": {"ask_owner", map[string]any{"account_id": a.acctA, "thread_id": a.thread, "for_message_id": "m2",
 			"surface": json.RawMessage(oversize())}, "too_large"},
+		"an ask with no write my own": {"ask_owner", map[string]any{"account_id": a.acctA, "thread_id": a.thread, "for_message_id": "m2",
+			"surface": json.RawMessage(noOwnSurface)}, "bad_request"},
 		"a notice that asks":      {"notify_owner", map[string]any{"account_id": a.acctA, "thread_id": a.thread, "for_message_id": "m2", "surface": json.RawMessage(askSurface)}, "bad_request"},
 		"arguments not an object": {"ask_owner", map[string]any{"account_id": 7}, "bad_request"},
 		"another account":         {"ask_owner", map[string]any{"account_id": "acct_none", "thread_id": a.thread, "for_message_id": "m1", "surface": json.RawMessage(askSurface)}, "permission_denied"},
@@ -186,15 +188,34 @@ func TestEveryAskToolRefusesByCode(t *testing.T) {
 		"list elsewhere":          {"list_asks", map[string]any{"account_id": "acct_none"}, "permission_denied"},
 		"get elsewhere":           {"get_ask", map[string]any{"account_id": "acct_none", "ask_id": "ask_none"}, "permission_denied"},
 	}
+	// A surface's refusal names its rule as the reason, a code the agent can log; no other refusal
+	// has one.
+	reasons := map[string]string{
+		"a surface that is not A2UI":  "invalid_surface:messages",
+		"a surface too large":         "invalid_surface:surface_size",
+		"an ask with no write my own": "invalid_surface:own_message",
+		"a notice that asks":          "invalid_surface:messages",
+	}
 	for name, c := range cases {
 		text, isErr := callJSON(t, a.cs, c.tool, c.args)
-		var r struct{ Code string }
+		var r struct{ Code, Reason string }
 		_ = json.Unmarshal([]byte(text), &r)
 		if !isErr || r.Code != c.code {
 			t.Errorf("%s: %s (error %v), want code %s", name, text, isErr, c.code)
 		}
+		if r.Reason != reasons[name] {
+			t.Errorf("%s: reason %q, want %q (%s)", name, r.Reason, reasons[name], text)
+		}
 	}
 }
+
+// noOwnSurface is an ask of ready replies alone: no write my own, which every ask ends with.
+const noOwnSurface = `[{"version":"v0.9.1","createSurface":{"surfaceId":"s1","catalogId":"` + asks.CatalogID + `"}},` +
+	`{"version":"v0.9.1","updateComponents":{"surfaceId":"s1","components":[` +
+	`{"id":"root","component":"Column","children":["tldr","r1"]},` +
+	`{"id":"tldr","component":"Text","text":"Bob proposes Wed 15:00 for 30 min."},` +
+	`{"id":"r1-label","component":"Text","text":"Confirm Wed 15:00"},` +
+	`{"id":"r1","component":"Button","child":"r1-label","action":{"event":{"name":"reply","context":{"reply":"Confirm Wed 15:00"}}}}]}}]`
 
 // A token narrowed to account B cannot reach account A's asks, even by the ask's own id.
 func TestANarrowTokenCannotReachAnotherAccountsAsk(t *testing.T) {

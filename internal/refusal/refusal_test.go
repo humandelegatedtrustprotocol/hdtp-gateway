@@ -120,3 +120,18 @@ func realInstallRefusal(t *testing.T) error {
 	}
 	return err
 }
+
+// A reason rides beside a refusal and changes nothing of it: Of reads the refusal through it, as it
+// is or wrapped, and Reason reads the reason back; a refusal with none has none.
+func TestAReasonRidesBesideTheRefusal(t *testing.T) {
+	err := fmt.Errorf("put: %w", For("invalid_surface:own_message", BadRequest("an ask ends with the owner's own message", nil)))
+	if code, detail := Of(err); code != "bad_request" || detail != "an ask ends with the owner's own message" {
+		t.Fatalf("Of through a reason: %s %q", code, detail)
+	}
+	if r := Reason(err); r != "invalid_surface:own_message" {
+		t.Fatalf("Reason: %q", r)
+	}
+	if r := Reason(BadRequest("no reason", nil)); r != "" {
+		t.Fatalf("a refusal with no reason: %q", r)
+	}
+}
