@@ -8,7 +8,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -166,6 +170,34 @@ func TestInviteLifecyclePages(t *testing.T) {
 	mux.ServeHTTP(rr2, httptest.NewRequest("GET", "/api/invites?account="+acct, nil))
 	if !strings.Contains(rr2.Body.String(), `"Label":"party"`) || !strings.Contains(rr2.Body.String(), `"MaxUses":5`) {
 		t.Fatalf("invites payload: %s", rr2.Body.String())
+	}
+	// #210: the answer is the fields the Invites page reads (people.tsx's type Invite), and no
+	// others; it sent the stored row, TokenHash included.
+	var page struct {
+		Invites []map[string]any `json:"invites"`
+	}
+	if err := json.Unmarshal(rr2.Body.Bytes(), &page); err != nil || len(page.Invites) != 1 {
+		t.Fatalf("invites payload: %v %s", err, rr2.Body.String())
+	}
+	src, err := os.ReadFile(filepath.Join(repoRootUI(t), "web", "src", "views", "people.tsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	typ := regexp.MustCompile(`(?s)type Invite = \{(.*?)\};`).FindSubmatch(src)
+	if typ == nil {
+		t.Fatal("people.tsx declares no `type Invite = { … };`")
+	}
+	var want, got []string
+	for _, m := range regexp.MustCompile(`(\w+):`).FindAllSubmatch(typ[1], -1) {
+		want = append(want, string(m[1]))
+	}
+	for k := range page.Invites[0] {
+		got = append(got, k)
+	}
+	sort.Strings(want)
+	sort.Strings(got)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("GET /api/invites sends an invite as %v; the page reads %v, and nothing else belongs on the wire", got, want)
 	}
 	invs, _ := st.ListInvites(ctx, acct)
 	if len(invs) != 1 || !invs[0].AutoAccept {

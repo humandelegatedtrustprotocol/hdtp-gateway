@@ -251,8 +251,25 @@ func (d ManageDeps) getAPIInvites(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"store"}`, http.StatusInternalServerError)
 		return
 	}
+	// Projected to what the Invites page reads (web/src/views/people.tsx, type Invite), never the
+	// row: the token's hash, the account and the permissions stay in the store.
+	type row struct {
+		ID         string
+		Label      string
+		MaxUses    int64
+		Uses       int64
+		AutoAccept bool
+		Preset     string
+		RevokedAt  int64
+		ExpiresAt  int64
+	}
+	invites := make([]row, 0, len(list))
+	for _, inv := range list {
+		invites = append(invites, row{ID: inv.ID, Label: inv.Label, MaxUses: inv.MaxUses, Uses: inv.Uses,
+			AutoAccept: inv.AutoAccept, Preset: inv.Preset, RevokedAt: inv.RevokedAt, ExpiresAt: inv.ExpiresAt})
+	}
 	apiJSON(w, map[string]any{
-		"invites": list, "presets": presetNames(r.Context(), d.Store), "public_url": d.publicURL(),
+		"invites": invites, "presets": presetNames(r.Context(), d.Store), "public_url": d.publicURL(),
 	})
 }
 

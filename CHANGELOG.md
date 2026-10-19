@@ -34,6 +34,8 @@ changelog can be and is not summarized into a fictional release history.
   node's old network. The forwarder now shares the node's processes as well (`pid:
   "service:hdtp-gateway"`, with `cap_drop: [ALL]`), so it stops with the node and its restart policy
   brings it back; the portal answered 0.5 s after either.
+- `GET /api/invites` sent the stored invite rows, each invite's token hash included (#210). It
+  now sends the fields the Invites page reads and no others.
 
 ### Removed
 
