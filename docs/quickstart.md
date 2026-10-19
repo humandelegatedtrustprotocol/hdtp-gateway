@@ -200,8 +200,8 @@ restart it whenever Compose restarts the node (`restart: true` under its `depend
 node's processes too (`pid: "service:hdtp-gateway"`), so when the node stops without Compose — a
 crash, or `docker restart` — the forwarder stops with it and its own restart policy starts it again
 in the node's new network; it holds no capabilities (`cap_drop: [ALL]`), so it cannot signal or read
-the node's processes. On Docker 29.8.2 on 2026-10-19 the portal answered `/healthz` 0.5 s after
-`docker restart` returned, and 0.5 s after an isolated crash (SIGTERM to the node); crashes seconds
+the node's processes. On Docker 29.8.2 on 2026-10-19 the portal answered `/healthz` 0.49 to 0.76 s
+after `docker restart` returned (four runs), and 0.51 s after an isolated crash (SIGTERM to the node); crashes seconds
 apart waited longer, up to 3.4 s for the third, because Docker doubles its restart delay for a
 container that keeps stopping. The portal's
 cookie names come from the configuration file and the environment, never from a public URL saved

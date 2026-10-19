@@ -39,7 +39,7 @@ changelog can be and is not summarized into a fictional release history.
   forwarder was restarted by hand (#204): a restart Compose does not make kept the forwarder in the
   node's old network. The forwarder now shares the node's processes as well (`pid:
   "service:hdtp-gateway"`, with `cap_drop: [ALL]`), so it stops with the node and its restart policy
-  brings it back; the portal answered 0.5 s after either.
+  brings it back; the portal answered in under 1 s after either (0.49 to 0.76 s, five runs).
 - `GET /api/invites` sent the stored invite rows, each invite's token hash included (#210). It
   now sends the fields the Invites page reads and no others.
 - A send from an identity the node does not serve (one awaiting its certificate, or one that could
