@@ -65,12 +65,12 @@ func TestTheAsksRoutesRefuseWhatTheyMustAndAnswerTheOwnersOwn(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	askOn := func(account, msgID string) asks.View {
+	askOn := func(account, thread, msgID string) asks.View {
 		t.Helper()
 		if _, err := e.st.InsertContact(ctx, store.Contact{AccountID: account, Fingerprint: "sha256:bob", Status: "active"}); err != nil && msgID == "m1" {
 			t.Fatal(err)
 		}
-		in, err := msg.Record(ctx, account, "sha256:bob", messaging.DirIn, messaging.Input{Origin: messaging.OriginPeer, Sender: messaging.SenderAgent, MsgID: msgID, Text: "Wed 15:00?"})
+		in, err := msg.Record(ctx, account, "sha256:bob", messaging.DirIn, messaging.Input{ThreadID: thread, Origin: messaging.OriginPeer, Sender: messaging.SenderAgent, MsgID: msgID, Text: "Wed 15:00?"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -80,8 +80,8 @@ func TestTheAsksRoutesRefuseWhatTheyMustAndAnswerTheOwnersOwn(t *testing.T) {
 		}
 		return v
 	}
-	ask := askOn(mine.ID, "m1")
-	theirAsk := askOn(theirs.ID, "m1")
+	ask := askOn(mine.ID, "", "m1")
+	theirAsk := askOn(theirs.ID, "", "m1")
 
 	type answer struct {
 		code int
@@ -195,8 +195,9 @@ func TestTheAsksRoutesRefuseWhatTheyMustAndAnswerTheOwnersOwn(t *testing.T) {
 		t.Fatalf("the answered ask is listed open: %v", open.body)
 	}
 
-	// The next ask, answered by the owner typing on the conversation.
-	next := askOn(mine.ID, "m2")
+	// The next ask, on the same thread, answered by the owner typing on the conversation: the
+	// composer sends on the contact's newest thread, which is this one.
+	next := askOn(mine.ID, ask.ThreadID, "m2")
 	if a := send(http.MethodPost, "/messages/send", as(mine.ID, "contact", "sha256:bob", "text", "Let me check", "msg_id", "ui-1"), true, true); a.code != http.StatusSeeOther {
 		t.Fatalf("the composer's send: %d", a.code)
 	}
