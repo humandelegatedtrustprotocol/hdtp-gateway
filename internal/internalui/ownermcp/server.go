@@ -214,7 +214,7 @@ type DeleteThreadArgs struct {
 type SendArgs struct {
 	AccountID  string `json:"account_id"`
 	ContactFpr string `json:"contact_fpr"`
-	ThreadID   string `json:"thread_id,omitempty" jsonschema:"the thread to continue, as get_inbox lists it or a send answered it (ThreadID); none starts a new thread"`
+	ThreadID   string `json:"thread_id,omitempty" jsonschema:"the thread to continue, as get_inbox lists it or a send answered it (thread_id); none starts a new thread"`
 	MsgID      string `json:"msg_id"`
 	Text       string `json:"text"`
 	Topic      string `json:"topic,omitempty" jsonschema:"a new thread's topic, at most 256 bytes; refused for a thread that exists"`
@@ -269,7 +269,7 @@ type AddressArgs struct {
 // InviteIDArgs names one invite of one account.
 type InviteIDArgs struct {
 	AccountID string `json:"account_id"`
-	InviteID  string `json:"invite_id" jsonschema:"the invite to revoke, as list_invites names it"`
+	InviteID  string `json:"invite_id" jsonschema:"the invite to revoke: its id, as list_invites and create_invite answer it"`
 }
 
 // InviteArgs are create_invite's arguments; they are contacts.InviteOptions.
@@ -366,7 +366,7 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 		Annotations: public.Hints(false, true, true, false)},
 		ot.deleteThreadTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "send_to_contact", Description: "Send a message to a contact, labeled agent (SPEC §7.1). A message without thread_id starts a new thread, under topic if one is given, so a reply or a follow-up names its thread: the thread_id get_inbox lists, or the ThreadID this tool answered for the thread's first message. A thread_id of another contact's thread is refused (bad_request) and nothing is recorded. Answers the message's ThreadID and Status",
+	mcp.AddTool(s, &mcp.Tool{Name: "send_to_contact", Description: "Send a message to a contact, labeled agent (SPEC §7.1). A message without thread_id starts a new thread, under topic if one is given, so a reply or a follow-up names its thread: the thread_id get_inbox lists, or the thread_id this tool answered for the thread's first message. A thread_id of another contact's thread is refused (bad_request) and nothing is recorded. Answers {thread_id, status}: the thread the message is on and the message's status; a message recorded and not delivered is a tool error carrying both beside its code",
 		Annotations: public.Hints(false, false, false, true)},
 		ot.sendToContactTool)
 
@@ -475,7 +475,7 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 		Annotations: public.Hints(false, false, false, false)},
 		ot.createInviteTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "list_invites", Description: "This account's invites: label, uses, expiry, whether revoked. The link's token is never stored, so it is not here",
+	mcp.AddTool(s, &mcp.Tool{Name: "list_invites", Description: "This account's invites, as {invites: [...]}: each its id, label, preset, uses, max_uses, auto_accept, permissions, expires_at and revoked_at (null while live). The link's token is never stored, so no row has a url",
 		Annotations: public.Hints(true, false, true, false)},
 		ot.listInvitesTool)
 
@@ -587,41 +587,57 @@ func (ot ownerTools) getInboxTool(ctx context.Context, req *mcp.CallToolRequest,
 // answer of this server that carries a contact's display name or a removed thread's kept one.
 var stripName = identity.StripDisplayName
 
+// threadMessage is one message of a thread as read_thread and the hdtp://thread/<id> resource
+// answer it.
+type threadMessage struct {
+	// MessageID is the message's msg_id: the id the change log records and a webhook's data
+	// carries as message_id, so an agent can key its work by message.
+	MessageID string `json:"message_id"`
+	Direction string `json:"direction"`
+	Sender    string `json:"sender"`
+	Kind      string `json:"kind"`
+	Body      string `json:"body"`
+	Trust     string `json:"trust"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+// threadMessages is one thread of one account, oldest first, as both doors to it answer it: the
+// read_thread tool and the hdtp://thread/<id> resource, which answered the store's rows until #223.
+// It reads through messaging.Service.Thread and marks nothing; last is the newest message's Seq,
+// 0 for a thread with none, for read_thread to mark the thread read through.
+func (ot ownerTools) threadMessages(ctx context.Context, accountID, threadID string) (out []threadMessage, last int64, err error) {
+	msgs, err := ot.d.Msg.Thread(ctx, accountID, threadID)
+	if err != nil {
+		return nil, 0, err
+	}
+	out = make([]threadMessage, 0, len(msgs))
+	for _, m := range msgs {
+		trust := "messages_only"
+		if c, err := ot.d.Store.GetContact(ctx, accountID, m.ContactFpr); err == nil {
+			trust = c.TrustFlag
+		}
+		// SPEC §7.6: every payload handed to the agent carries the trust label.
+		out = append(out, threadMessage{MessageID: m.MsgID, Direction: m.Direction, Sender: m.Sender, Kind: m.Kind, Body: m.Body, Trust: trust, CreatedAt: m.CreatedAt})
+		last = m.Seq
+	}
+	return out, last, nil
+}
+
 // readThreadTool is the `read_thread` tool.
 func (ot ownerTools) readThreadTool(ctx context.Context, req *mcp.CallToolRequest, a ReadThreadArgs) (*mcp.CallToolResult, any, error) {
 	if !ot.allow(ctx, a.AccountID) {
 		r, err := deny()
 		return r, nil, err
 	}
-	msgs, err := ot.d.Msg.Thread(ctx, a.AccountID, a.ThreadID)
+	out, last, err := ot.threadMessages(ctx, a.AccountID, a.ThreadID)
 	if err != nil {
 		return fail(err)
-	}
-	type row struct {
-		// MessageID is the message's msg_id: the id the change log records and a webhook's data
-		// carries as message_id, so an agent can key its work by message.
-		MessageID string `json:"message_id"`
-		Direction string `json:"direction"`
-		Sender    string `json:"sender"`
-		Kind      string `json:"kind"`
-		Body      string `json:"body"`
-		Trust     string `json:"trust"`
-		CreatedAt int64  `json:"created_at"`
-	}
-	out := make([]row, 0, len(msgs))
-	for _, m := range msgs {
-		trust := "messages_only"
-		if c, err := ot.d.Store.GetContact(ctx, a.AccountID, m.ContactFpr); err == nil {
-			trust = c.TrustFlag
-		}
-		// SPEC §7.6: every payload handed to the agent carries the trust label.
-		out = append(out, row{MessageID: m.MsgID, Direction: m.Direction, Sender: m.Sender, Kind: m.Kind, Body: m.Body, Trust: trust, CreatedAt: m.CreatedAt})
 	}
 	// The agent reading is the owner reading, as BatonDeck's read_thread is: the thread is read
 	// through the newest message this answer hands over (oldest first, so the last), and what
 	// lands after it stays unread. The marker is local and never wire-visible (SPEC §7.6).
-	if n := len(msgs); n > 0 {
-		if _, err := ot.d.Store.MarkThreadReadThrough(ctx, a.AccountID, a.ThreadID, msgs[n-1].Seq); err != nil {
+	if len(out) > 0 {
+		if _, err := ot.d.Store.MarkThreadReadThrough(ctx, a.AccountID, a.ThreadID, last); err != nil {
 			return fail(err)
 		}
 	}
@@ -660,6 +676,26 @@ func (ot ownerTools) deleteThreadTool(ctx context.Context, req *mcp.CallToolRequ
 	return r, nil, err
 }
 
+// sendAnswer is what send_to_contact answers, projected from messaging.Result (Building rule 10):
+// the thread the message is on, which a follow-up names as its thread_id, and the message's status.
+// It answered the Result as it was, in Go's field names, until #234.
+type sendAnswer struct {
+	ThreadID string `json:"thread_id"`
+	Status   string `json:"status"`
+}
+
+func sendAnswerOf(res messaging.Result) sendAnswer {
+	return sendAnswer{ThreadID: res.ThreadID, Status: res.Status}
+}
+
+// sendRefusal is a message recorded and not delivered: the code and detail every refusal carries,
+// beside the recorded answer.
+type sendRefusal struct {
+	Code   string `json:"code"`
+	Detail string `json:"detail"`
+	sendAnswer
+}
+
 // sendToContactTool is the `send_to_contact` tool.
 func (ot ownerTools) sendToContactTool(ctx context.Context, req *mcp.CallToolRequest, a SendArgs) (*mcp.CallToolResult, any, error) {
 	if !ot.allow(ctx, a.AccountID) {
@@ -681,14 +717,13 @@ func (ot ownerTools) sendToContactTool(ctx context.Context, req *mcp.CallToolReq
 		// Recorded and not delivered: the message exists and the retry sweep goes on with it, so
 		// the answer carries the recorded result beside the code.
 		code, detail := refusal.Of(err)
-		r, jerr := errorResult(map[string]string{"code": code, "detail": detail,
-			"ThreadID": res.ThreadID, "Status": res.Status})
+		r, jerr := errorResult(sendRefusal{Code: code, Detail: detail, sendAnswer: sendAnswerOf(res)})
 		return r, nil, jerr
 	}
 	if err != nil {
 		return fail(err)
 	}
-	r, err := jsonResult(res)
+	r, err := jsonResult(sendAnswerOf(res))
 	return r, nil, err
 }
 
@@ -947,23 +982,9 @@ func (ot ownerTools) listInvitesTool(ctx context.Context, req *mcp.CallToolReque
 	if err != nil {
 		return fail(err)
 	}
-	type row struct {
-		ID          string   `json:"invite_id"`
-		Label       string   `json:"label"`
-		Uses        int64    `json:"uses"`
-		MaxUses     int64    `json:"max_uses"`
-		AutoAccept  bool     `json:"auto_accept"`
-		Preset      string   `json:"preset,omitempty"`
-		Permissions []string `json:"permissions"`
-		ExpiresAt   int64    `json:"expires_at"`
-		RevokedAt   int64    `json:"revoked_at,omitempty"`
-	}
-	out := make([]row, 0, len(list))
-	for _, inv := range list {
-		out = append(out, row{ID: inv.ID, Label: inv.Label, Uses: inv.Uses, MaxUses: inv.MaxUses, AutoAccept: inv.AutoAccept,
-			Preset: inv.Preset, Permissions: inv.Permissions, ExpiresAt: inv.ExpiresAt, RevokedAt: inv.RevokedAt})
-	}
-	r, err := jsonResult(out)
+	// The portal's GET /api/invites answers the same rows, and the cloud's list_invites the same
+	// member: {invites: [...]}.
+	r, err := jsonResult(map[string]any{"invites": contacts.InviteRows(list)})
 	return r, nil, err
 }
 
@@ -1105,19 +1126,19 @@ func (ot ownerTools) threadResource(ctx context.Context, req *mcp.ReadResourceRe
 	// A thread belongs to exactly one account, and this identity may only
 	// read the accounts it administers — the same rule every tool applies. An
 	// account that does not hold it is passed over; a read that failed is not.
+	// The answer is read_thread's, and like every resource read it marks nothing.
 	for _, acct := range sc.AdminAccounts {
-		th, err := ot.d.Store.GetThread(ctx, acct, id)
+		out, _, err := ot.threadMessages(ctx, acct, id)
 		if errors.Is(err, store.ErrNotFound) {
 			continue
 		}
 		if err != nil {
 			return nil, resourceFailure(err)
 		}
-		msgs, err := ot.d.Store.ListMessagesByThread(ctx, acct, id)
+		b, err := json.Marshal(out)
 		if err != nil {
-			return nil, resourceFailure(err)
+			return nil, err
 		}
-		b, _ := json.Marshal(map[string]any{"thread": th, "messages": msgs})
 		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{
 			{URI: req.Params.URI, MIMEType: "application/json", Text: string(b)}}}, nil
 	}

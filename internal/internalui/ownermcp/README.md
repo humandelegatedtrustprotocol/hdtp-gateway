@@ -65,7 +65,7 @@ Registered always (`NewServerWithExtra`):
 | `get_inbox` | Threads of an account with `unread`, `last_at`, `contact_status` (the contact row's status, or `removed` when no row names the thread's fingerprint) and `removed_contact` (the names a removed contact's thread kept; null while the contact is held). |
 | `read_thread` | A thread's messages oldest first, each labelled with the contact's trust flag and carrying its `message_id`, the message's `msg_id`: the id the change log records and a webhook's `data` carries as `message_id` (`TestReadThreadCarriesTheMessageIDTheChangeLogAndTheWebhookCarry`); marks the thread read through the newest message returned. A `thread_id` of neither form of HDTP §7 is refused (`bad_request`, or `too_large` over 64 bytes, as the tool error's text), and so is the `hdtp://thread/<id>` resource for one. A thread the identity does not hold is `not_found`, as `delete_thread` answers it. |
 | `delete_thread` | Deletes one thread of an account here only, through `messaging.Service.DeleteThread` (the portal's `POST /thread/delete`): `{status: "deleted", thread_id, contact, messages, files}`; `bad_request` for an id of neither form of HDTP §7, the empty one included, `too_large` for one over 64 bytes, `not_found` for a thread the account does not hold. Writes one `thread_delete` row under `account:<id> contact:<fpr> thread_id:<id>` with the counts (a refusal names the id only when it is of a form, `thread_id:neither_form` otherwise). Acts at once, as every owner MCP tool does. |
-| `send_to_contact` | Sends a message as sender `agent` (origin fixed to the owner MCP, never a parameter), through `Deps.Send` or, with none, records only. `thread_id` names the thread to continue, the one `get_inbox` lists or the `ThreadID` a send answered, and empty starts a new thread, which the tool's description and the property's tell the caller (`TestSendToContactTellsItsCallerHowAThreadIsContinued`); another contact's thread is `bad_request` and nothing is recorded; one of neither form of HDTP §7 is refused (`bad_request`, or `too_large` over 64 bytes) and nothing is recorded; `topic` is for a new thread. |
+| `send_to_contact` | Sends a message as sender `agent` (origin fixed to the owner MCP, never a parameter), through `Deps.Send` or, with none, records only. Answers `{thread_id, status}`, projected from `messaging.Result` (`TestSendToContactAnswersThreadIDAndStatus`; it answered the result in Go's field names, `ThreadID` and `Status`, until #234). `thread_id` names the thread to continue, the one `get_inbox` lists or the `thread_id` a send answered, and empty starts a new thread, which the tool's description and the property's tell the caller (`TestSendToContactTellsItsCallerHowAThreadIsContinued`); another contact's thread is `bad_request` and nothing is recorded; one of neither form of HDTP §7 is refused (`bad_request`, or `too_large` over 64 bytes) and nothing is recorded; `topic` is for a new thread. |
 | `list_contacts` | Contacts as `contactView` (named fields only); a waiting request carries `address_claim` when its address belongs, or lately belonged, to another contact. |
 | `approve_contact`, `reject_contact`, `block_contact`, `unblock_contact`, `remove_contact` | The contact lifecycle through `contacts.Owner`, the portal's own. Each answers the `contacts.Decision` (status afterwards; whether the peer was told) and writes the portal's audit action (`contact_approve`, `contact_reject`, `contact_block`, `contact_unblock`, `contact_remove`) under `account:<id> contact:<fpr>`. `approve_contact` takes an optional `preset`. |
 | `list_pending_addresses` | Contacts held at a new address for the owner's decision. |
@@ -75,7 +75,7 @@ Registered always (`NewServerWithExtra`):
 | `refresh_contact` | Registered only when `Deps.RefreshContact` is set. Re-fetches one contact's card; answers `outcome` and `why`. |
 | `set_trust_flag` | `messages_only` or `may_instruct`; audited as `trust_update`. |
 | `create_invite` | Mints an invite; answers `id`, `url` (the link, which holds the token) and `expires_at`. The token is shown only in that link. |
-| `list_invites`, `revoke_invite` | Invites of one account (never the token); revoke scoped by the account. `revoke_invite` is audited as `invite_revoke`. |
+| `list_invites`, `revoke_invite` | Invites of one account as `{invites: [...]}`, each row `contacts.InviteRow`, the portal's `GET /api/invites` row too: `id`, `label`, `preset`, `uses`, `max_uses`, `auto_accept`, `permissions`, `expires_at`, `revoked_at` (null while live). It is the cloud's row without `url`, since the token is never stored, and with `permissions` (`TestTheInviteRowIsTheCloudsLessItsLinkAndWithItsGrant`). Revoke takes that `id` as `invite_id`, scoped by the account, and is audited as `invite_revoke`. |
 | `list_pending`, `answer_request` | Open agent-answered requests (SPEC §6.8) read from the store, and the answer that the node relays to the waiting caller (`answer_request` needs `Deps.Pending`). |
 
 Registered by `AddParityTools`, each only when its `Extra` field is non-nil:
@@ -100,7 +100,9 @@ Registered by `AddWatchTools`:
 
 Resources: `hdtp://inbox` (unread count per administered account), `hdtp://requests` (contacts in
 `pending_in` across them), `hdtp://pending` (open agent-answered requests across them), and the
-template `hdtp://thread/{id}` (one thread and its messages, found among the administered accounts).
+template `hdtp://thread/{id}` (one thread's messages, found among the administered accounts, in
+`read_thread`'s answer by the same function, `threadMessages`; unlike `read_thread` it marks nothing
+read: `TestTheThreadResourceAnswersWhatReadThreadAnswers`).
 
 ## What it refuses, and how
 
@@ -112,7 +114,7 @@ Every refusal is a tool error with a code (`IsError` true), and the audit middle
    lists every code): a refusal the node coded keeps the node's sentence, a store's not-found is
    `not_found` and anything else `internal`, each with a fixed detail. No error text the node did
    not write reaches the caller, and the portal's pages show the same detail. `send_to_contact`
-   answers a message recorded and not delivered with the recorded result (`ThreadID`, `Status`
+   answers a message recorded and not delivered with the recorded result (`thread_id`, `status`
    `pending`) beside `unavailable` and "recorded, not delivered: <why>". A resource read whose scope,
    any list or count it reads, or a thread's messages, could not be read fails with
    "<code>: <detail>" from `refusal.Of` (`resourceFailure`), never with what it could read of the

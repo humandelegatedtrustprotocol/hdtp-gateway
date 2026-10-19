@@ -55,5 +55,5 @@ Outbound (outbound.go, send.go, contactcall.go, request.go, refresh.go, announce
 - It does not relay or queue for a third party: delivery is direct and only direct (no relay role, SPEC.md §10.1); a peer that cannot be reached before the message's deadline is a reported failure.
 - It does not go looking for changes to a contact's card or address: a refresh is one contact, on request; a new leaf arrives on use (HDTP §14.3).
 - Saving a new public URL is not a move and announces nothing: `SetPublicURL` changes the base the next certificate request will name and moves nobody (a leaf still names the address it was issued for).
-- It does not fetch a peer's media URL on its own; `FetchMedia` is the owner's explicit action (SPEC.md §7.5).
+- It does not fetch a peer's media URL on its own; `FetchMedia` is the owner's explicit action (SPEC.md §7.5). An identity it does not serve is refused as a send from one is, with `fetch` for `send` (`fetch: <slug> has no certificate yet, so it cannot fetch: its wallet issues one`, `fetch: <slug> is not serving on this node`, `fetch: unknown account`); it answered an uncoded `media: unknown account`, `internal` at the portal, until #224.
 - It does not apply the TLS or the connection cap in `Handler`; `Start` adds them.
