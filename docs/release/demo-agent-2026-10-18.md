@@ -45,7 +45,10 @@ holds:
    reconcile pass do not both reply: the agent keys each reply by message id, and `read_thread`
    marks the thread read.
 6. **No telemetry**: `MASTRA_TELEMETRY_DISABLED=1` is set in code and in the image. Mastra's memory
-   and storage are not configured, so nothing stores the conversation beyond what the node holds.
+   is not configured. Its storage is an in-memory store that Mastra Studio's Observability pages
+   read (hdtp-gateway-agent #41): a draft's trace holds the whole prompt, the thread's messages as
+   the contact wrote them, and the draft. Nothing is written to disk, a restart empties it, and a
+   sweep each minute deletes the traces that started more than 24 hours ago, with their log lines.
 
 ## Configuration (env, documented in `.env.example`)
 
