@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/webhooks"
 )
@@ -93,9 +95,9 @@ func signedBy(secret, header, body string, now time.Time) bool {
 // TestAContactsMessageWakesTheOwnersAgentWithASignedWebhook is the webhooks' scenario (W4 of
 // docs/release/webhooks-2026-10-18.md), hermetic: one `hdtp-gateway serve` of the shipped binary on
 // SQLite, and a receiver on loopback (ruling A takes one). The endpoint is registered through the
-// webhooks service, the one implementation the portal's Webhooks page calls, before the process
-// starts; a passkey session is the portal's half and is the portal tests'. Then a contact redeems
-// an invite and sends a message, and:
+// portal's own route, `POST /webhooks/create`, by the owner's session; the session is minted into
+// the store before the process starts, because the passkey ceremony that mints one is the portal
+// tests' and the browser tiers'. Then a contact redeems an invite and sends a message, and:
 //   - the receiver is posted one message.received, signed with the endpoint's secret, which it
 //     verifies, and which a changed body does not pass (the control);
 //   - the headers name the event, its id and a delivery the node's log records as delivered;
@@ -114,8 +116,7 @@ func TestAContactsMessageWakesTheOwnersAgentWithASignedWebhook(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := seed(t, st, kr)
-	rc := newReceiver(t)
-	hook, secret, err := webhooks.New(st, kr, func(string, string, string) {}).Create(ctx, s.accountID, rc.URL+"/hdtp/webhook", []string{"message.received"})
+	session, err := auth.New(st).MintSession(ctx, s.ownerID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,6 +125,8 @@ func TestAContactsMessageWakesTheOwnersAgentWithASignedWebhook(t *testing.T) {
 	d := deployment{engine: "sqlite", dirs: [2]string{dir, dir}, limits: limitstest.StartDefault(t).Path}
 	a := start(t, bin, "A", d, 0, []string{"HDTP_LOG=off"})
 	a.ready(t, s.ownerToken)
+	rc := newReceiver(t)
+	hookID, secret := registerOnThePortal(t, a, dir, session, s.accountID, rc.URL+"/hdtp/webhook", "message.received")
 
 	bharat, err := peer.NewAgent("bharat")
 	if err != nil {
@@ -185,7 +188,7 @@ func TestAContactsMessageWakesTheOwnersAgentWithASignedWebhook(t *testing.T) {
 	var status string
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		err := rawQuery(t, d, "SELECT status FROM webhook_deliveries WHERE id = '"+strings.ReplaceAll(delivery, "'", "")+"' AND endpoint_id = '"+hook.ID+"'", &status)
+		err := rawQuery(t, d, "SELECT status FROM webhook_deliveries WHERE id = '"+strings.ReplaceAll(delivery, "'", "")+"' AND endpoint_id = '"+hookID+"'", &status)
 		if (err == nil && status == "delivered") || time.Now().After(deadline) {
 			break
 		}
@@ -205,4 +208,39 @@ func TestAContactsMessageWakesTheOwnersAgentWithASignedWebhook(t *testing.T) {
 	if err != nil || !strings.Contains(thread, text) {
 		t.Fatalf("read_thread with the webhook's ids: %v %s", err, thread)
 	}
+}
+
+// registerOnThePortal adds an endpoint as the owner does on the portal's Webhooks page: a form post
+// to `/webhooks/create` with the owner's session and the double-submit CSRF pair, under the cookie
+// names this node's tag gives them (core.NodeTag, from the configuration start writes). It answers
+// the endpoint's id and the secret the page shows once.
+func registerOnThePortal(t *testing.T, p *proc, dataDir, session, accountID, endpoint, events string) (id, secret string) {
+	t.Helper()
+	form := url.Values{"account": {accountID}, "url": {endpoint}, "events": {events}}
+	req, err := http.NewRequest(http.MethodPost, "http://"+p.internal+"/webhooks/create", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-HDTP-Csrf", "harness-csrf")
+	tag := core.NodeTag(dataDir, publicURL, p.internal)
+	req.AddCookie(&http.Cookie{Name: "hdtp_csrf_" + tag, Value: "harness-csrf"})
+	req.AddCookie(&http.Cookie{Name: "hdtp_session_" + tag, Value: session})
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var made struct {
+		Secret   string `json:"secret"`
+		Endpoint struct {
+			ID     string   `json:"id"`
+			Events []string `json:"events"`
+		} `json:"endpoint"`
+	}
+	b, _ := io.ReadAll(res.Body)
+	if err := json.Unmarshal(b, &made); err != nil || res.StatusCode != http.StatusOK || made.Endpoint.ID == "" || !strings.HasPrefix(made.Secret, "whsec_") {
+		t.Fatalf("the portal's /webhooks/create answered %d %s", res.StatusCode, b)
+	}
+	return made.Endpoint.ID, made.Secret
 }

@@ -103,6 +103,7 @@ type deployment struct {
 // seeded is what the store holds before either process starts.
 type seeded struct {
 	accountID, slug string
+	ownerID         string
 	leaf            []byte
 	root            string
 	ownerToken      string
@@ -164,7 +165,7 @@ func seed(t *testing.T, st store.Store, kr *core.Keyring) seeded {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return seeded{accountID: a.ID, slug: a.Slug, leaf: iss.DER,
+	return seeded{accountID: a.ID, slug: a.Slug, ownerID: o.ID, leaf: iss.DER,
 		root: hdtpidentity.Fingerprint(rootKey.Public().SPKI), ownerToken: token, inviteToken: invite}
 }
 
