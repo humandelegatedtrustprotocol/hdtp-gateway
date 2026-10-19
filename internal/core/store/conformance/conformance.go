@@ -43,6 +43,7 @@ func Run(t *testing.T, newStore Factory) {
 	integrations(t, newStore)
 	auditPages(t, newStore)
 	webhooks(t, newStore)
+	asks(t, newStore)
 }
 
 func migrated(t *testing.T, newStore Factory) Migratable {

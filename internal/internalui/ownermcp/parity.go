@@ -31,6 +31,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/asks"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
 
@@ -76,6 +77,9 @@ type Extra struct {
 	// given. Without it a node can only ever hold the agents that called IN, and
 	// can never reach out.
 	AddContact func(ctx context.Context, accountID, inviteURL, card, note, grant string) (AddContactResult, error)
+	// Asks serves the owner's asks and notices (asks.go): ask_owner, notify_owner, withdraw_ask,
+	// get_ask and list_asks. The same service answers them on the portal. Nil omits the tools.
+	Asks *asks.Service
 }
 
 // AddContactResult is what the owner learns from an initiated contact.

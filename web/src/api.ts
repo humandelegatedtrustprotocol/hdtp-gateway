@@ -141,13 +141,13 @@ export async function fetchSession(): Promise<Session> {
   return s;
 }
 
-export type LiveEvent = { kind: "message" | "request" | "pending" | "delivery"; account_id: string; thread_id?: string; contact_fpr?: string; status?: string };
+export type LiveEvent = { kind: "message" | "request" | "pending" | "delivery" | "ask"; account_id: string; thread_id?: string; contact_fpr?: string; status?: string };
 
 // Live updates: the /events stream names each event by kind. `onmessage` only
 // ever fired for the unnamed default, so deliveries and requests went unseen;
 // every kind is listened to, and the payload is passed along for callers that
 // care which contact it was about.
-const KINDS: LiveEvent["kind"][] = ["message", "request", "pending", "delivery"];
+const KINDS: LiveEvent["kind"][] = ["message", "request", "pending", "delivery", "ask"];
 export function subscribe(onEvent: (e?: LiveEvent) => void): () => void {
   const q = account ? "?account=" + encodeURIComponent(account) : "";
   const es = new EventSource("/events" + q);

@@ -47,9 +47,15 @@ func NotFound(sentence string, cause error) error {
 	return coded{code: "not_found", sentence: sentence, cause: cause}
 }
 
+// TooLarge marks a sentence the node wrote about an argument over its bound (an ask's surface) as a
+// too_large refusal, read as BadRequest's is.
+func TooLarge(sentence string, cause error) error {
+	return coded{code: "too_large", sentence: sentence, cause: cause}
+}
+
 type coded struct {
-	code, sentence string
-	cause          error
+	code, sentence, reason string
+	cause                  error
 }
 
 func (c coded) Error() string {
@@ -57,6 +63,28 @@ func (c coded) Error() string {
 		return c.sentence
 	}
 	return c.sentence + ": " + c.cause.Error()
+}
+
+// For marks a refusal this package coded (BadRequest, TooLarge, ...) with the rule it is for, as a
+// code (asks.Invalid's "invalid_surface:<rule>"): the owner MCP answers it as the refusal's reason,
+// beside its code and detail, which stay as they were. reason is one of a fixed set the node names,
+// never a caller's text. An err this package did not code is returned as it is.
+func For(reason string, err error) error {
+	var c coded
+	if !errors.As(err, &c) {
+		return err
+	}
+	c.reason = reason
+	return c
+}
+
+// Reason is the reason For put on the refusal in err's chain, or "" when it has none.
+func Reason(err error) string {
+	var c coded
+	if errors.As(err, &c) {
+		return c.reason
+	}
+	return ""
 }
 
 // Undelivered marks a message that was recorded and not delivered. why is the node's reason: a

@@ -87,6 +87,16 @@ type callEvent struct {
 	At         int64  `json:"at"`
 }
 
+// askMoved is one ask or notice that moved since the cursor, and the status it moved to: open (put),
+// answered, expired, withdrawn, or posted (a notice). What the owner answered is get_ask's
+// answer_text; the surface is not here.
+type askMoved struct {
+	AskID    string `json:"ask_id"`
+	ThreadID string `json:"thread_id"`
+	Status   string `json:"status"`
+	At       int64  `json:"at"`
+}
+
 // attention is a condition only the owner can clear.
 type attention struct {
 	Kind        string `json:"kind"` // integration_auth
@@ -120,6 +130,9 @@ type waitResult struct {
 	// media, availability), so an agent learns a peer ACTED, not only that a
 	// message arrived.
 	Calls []callEvent `json:"calls,omitempty"`
+	// Asks: the asks and notices that moved since the cursor, oldest first, so the agent that put
+	// an ask learns it was answered (or expired) without polling get_ask.
+	Asks []askMoved `json:"asks,omitempty"`
 	// NeedsAttention: conditions only the owner can clear — today, an
 	// integration whose token died (auth_error) and needs re-authorizing.
 	// Reported on every answer; a new one ends a wait (queued).
@@ -145,7 +158,8 @@ func AddWatchTools(s *mcp.Server, d Deps, allow func(ctx context.Context, accoun
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "wait_for_updates",
 		Description: "Block until something changes for this account — a message arrives, a contact asks to connect, " +
-			"a request needs answering, a contact waits at a new address, an integration needs re-authorizing — then " +
+			"a request needs answering, a contact waits at a new address, an integration needs re-authorizing, an ask " +
+			"to the owner is answered or expires — then " +
 			"return what moved since your cursor. Call it in a loop with the cursor it returns as since. Omitting since " +
 			"starts from now with no backlog.",
 		Annotations: public.Hints(true, false, true, false),
@@ -228,10 +242,10 @@ func (ot ownerTools) waitForUpdatesTool(ctx context.Context, req *mcp.CallToolRe
 }
 
 // news is whether a wait has something to answer with rather than park on: since the cursor, a
-// thread moved, a contact acted or a queue only the owner clears gained something; or the cursor
+// thread moved, a contact acted, an ask moved or a queue only the owner clears gained something; or the cursor
 // is not one the log can answer from. A queue that holds what it held at the cursor is not news.
 func (r waitResult) news() bool {
-	return len(r.Threads) > 0 || len(r.Calls) > 0 || r.queued || r.CursorExpired
+	return len(r.Threads) > 0 || len(r.Calls) > 0 || len(r.Asks) > 0 || r.queued || r.CursorExpired
 }
 
 // digestTool is the `digest` tool.
@@ -394,6 +408,9 @@ func (d Deps) changesSince(ctx context.Context, accountID string, since int64) (
 				continue
 			}
 			res.Calls = append(res.Calls, callEvent{ContactFpr: c.ContactFpr, Tool: c.Ref, Trust: trust, At: c.At})
+		case messaging.EventAsk:
+			e := messaging.EventOf(c)
+			res.Asks = append(res.Asks, askMoved{AskID: e.Ref, ThreadID: c.ThreadID, Status: e.Status, At: c.At})
 		case messaging.EventRequest, messaging.EventPending, messaging.EventAttention:
 			res.queued = true
 		}

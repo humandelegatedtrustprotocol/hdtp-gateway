@@ -153,6 +153,13 @@ func (s *Sweeper) Sweep(ctx context.Context, accountID string, window time.Durat
 	if res.Threads, err = s.Store.DeleteEmptyThreads(ctx, accountID); err != nil {
 		return res, err
 	}
+	// An ask or a notice goes with its thread (internal/services/asks).
+	if err = s.Store.Atomically(ctx, func(tx store.Store) error {
+		_, err := tx.DeleteOrphanOwnerAsks(ctx, accountID)
+		return err
+	}); err != nil {
+		return res, err
+	}
 
 	// The window's files: those older than it that no retained message names. Files judges both
 	// under the file's lock, and spares whatever a retained message still names, whatever its age.
