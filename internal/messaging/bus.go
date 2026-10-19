@@ -66,6 +66,16 @@ const (
 	EventAsk EventKind = "ask"
 )
 
+// The statuses an EventAsk carries, an ask's or a notice's: the ones internal/services/asks
+// writes, a webhook names (ask.answered, ask.expired) and wait_for_updates reports.
+const (
+	AskOpen      = "open"
+	AskAnswered  = "answered"
+	AskExpired   = "expired"
+	AskWithdrawn = "withdrawn"
+	AskPosted    = "posted"
+)
+
 // FeedCalls are the tools whose call means "a contact ACTED": the node publishes an EventCall
 // for each one that succeeds, and the owner MCP's feed reports them. Messages are not here —
 // threads carry those — and neither is `sealed_call`: its row fires on any opened envelope,

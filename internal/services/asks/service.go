@@ -34,13 +34,13 @@ const Lifetime = 24 * time.Hour
 // ListLimit is the most asks and notices a list returns.
 const ListLimit = 100
 
-// The statuses an ask or a notice has.
+// The statuses an ask or a notice has: the bus's, which its events carry.
 const (
-	StatusOpen      = "open"
-	StatusAnswered  = "answered"
-	StatusExpired   = "expired"
-	StatusWithdrawn = "withdrawn"
-	StatusPosted    = "posted"
+	StatusOpen      = messaging.AskOpen
+	StatusAnswered  = messaging.AskAnswered
+	StatusExpired   = messaging.AskExpired
+	StatusWithdrawn = messaging.AskWithdrawn
+	StatusPosted    = messaging.AskPosted
 )
 
 // The audit actions the service writes, one row per change and per refusal, in the node's naming.

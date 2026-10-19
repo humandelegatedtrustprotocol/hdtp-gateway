@@ -18,6 +18,11 @@ package webhooks
 //     of the one answered event), and the node's own housekeeping kinds (invalidate, account,
 //     settings).
 //
+// ask.answered and ask.expired are the node's alone: the cloud has no owner asks (a named
+// divergence, README). They say the owner answered an ask, or that it expired unanswered, so an
+// agent woken by them reads get_ask; an ask put, withdrawn or a notice posted is the agent's own
+// act and is not sent.
+//
 // request.pending, request.answered and call.made carry a subset of the cloud's data: the change
 // row holds the request id and the caller, not the capability, trust flag or expiry, and a call's
 // tool, not an integration or a mode.
@@ -93,6 +98,12 @@ var emitted = []struct {
 		}
 		return map[string]any{"request_id": e.Ref}, true
 	}},
+	{"ask.answered", func(e messaging.Event) (map[string]any, bool) {
+		return askOf(e, messaging.AskAnswered)
+	}},
+	{"ask.expired", func(e messaging.Event) (map[string]any, bool) {
+		return askOf(e, messaging.AskExpired)
+	}},
 	{"call.made", func(e messaging.Event) (map[string]any, bool) {
 		// Only the calls the owner's feed reports (a booking, a media send). The node's other
 		// EventCall, a contact's address or leaf moving (public's OnEvent), names no tool.
@@ -117,6 +128,14 @@ func deliveryOf(e messaging.Event, status string) (map[string]any, bool) {
 		return nil, false
 	}
 	return map[string]any{"thread_id": e.ThreadID, "message_id": e.MsgID}, true
+}
+
+// askOf is an ask of this account whose status became status.
+func askOf(e messaging.Event, status string) (map[string]any, bool) {
+	if e.Kind != messaging.EventAsk || e.Status != status || e.Ref == "" {
+		return nil, false
+	}
+	return map[string]any{"ask_id": e.Ref, "thread_id": e.ThreadID}, true
 }
 
 // Subscribable is every name a filter may hold: exactly the names the node emits.
