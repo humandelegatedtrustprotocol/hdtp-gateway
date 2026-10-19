@@ -68,12 +68,19 @@ func TestEveryAgentCapabilityHasAPortalAffordance(t *testing.T) {
 		"approve_address":        "POST /requests/addresses/{root}/approve",
 		"reject_address":         "POST /requests/addresses/{root}/reject",
 
+		// The owner's asks: a person reads them on the thread and the Needs you page.
+		"get_ask":   "GET /api/asks",
+		"list_asks": "GET /api/asks",
+
 		// Agent-only, deliberately:
 		"answer_request":   "", // an AGENT answers what a peer asked of it (§6.8)
 		"list_pending":     "", // the queue that answer_request drains
 		"call_contact":     "", // invoking a contact's tool: an agent action, not a page
 		"wait_for_updates": "", // the agent's own long poll; a person's is the portal's live view (GET /events)
 		"digest":           "", // what moved since a cursor, for an agent waking up; the dashboard is a person's
+		"ask_owner":        "", // an agent asks its owner; the owner answers (POST /asks/{id}/answer)
+		"notify_owner":     "", // an agent tells its owner what it did
+		"withdraw_ask":     "", // an agent takes back its own ask; the owner answers or lets it expire
 	}
 	// And nothing here describes a tool that is gone: an entry nobody reads is a claim nobody checks.
 	registered := map[string]bool{}

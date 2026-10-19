@@ -104,6 +104,11 @@ test("a locator's ids become names; the rest stays as written", () => {
   // The rest is a labelled value; an opaque id is marked so the page shortens it and offers a copy.
   assert.deepEqual(parts[2], { key: "tool", text: "send_message" });
   assert.deepEqual(resourceParts("invite:inv-72dfec84-1b10-418f", dir), [{ key: "invite", text: "inv-72dfec84-1b10-418f", id: true }]);
+  // An owner ask and a notice, as internal/services/asks writes them (ask_create, notice_create, ask_answer…).
+  assert.deepEqual(resourceParts("account:acct-1 ask:ask_5f0c2a9e41d07b3c8e6a1f2d9b4c7e01 thread:t-1 msg:m-1", dir).slice(1), [
+    { key: "ask", text: "ask_5f0c2a9e41d07b3c8e6a1f2d9b4c7e01", id: true }, { key: "thread", text: "t-1", id: true }, { key: "msg", text: "m-1", id: true },
+  ]);
+  assert.deepEqual(resourceParts("notice:notice_5f0c2a9e41d07b3c", dir), [{ key: "notice", text: "notice_5f0c2a9e41d07b3c", id: true }]);
   // An address is an address (node.go writes a settings change as url:<its URL>).
   assert.deepEqual(resourceParts("url:https://agent.example.com/hdtp", dir), [{ key: "url", url: "https://agent.example.com/hdtp" }]);
   // What says something already is said in words; a node settings key is a value, not a credential.

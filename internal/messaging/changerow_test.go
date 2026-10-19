@@ -93,3 +93,29 @@ func TestAMessagesChangeRowNamesTheMessageItsDirectionAndItsKind(t *testing.T) {
 		t.Fatalf("EventOf dropped the message: %+v", e)
 	}
 }
+
+// An ask's row keeps which ask and its status now, so a reader of the log (the webhooks, another
+// process's bus) is handed both, as the process that published it was.
+func TestAnAsksChangeRowKeepsTheAskAndItsStatus(t *testing.T) {
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "c.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ctx := context.Background()
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	a, err := st.CreateAccount(ctx, store.CreateAccountParams{Slug: "me", DisplayName: "Me", Algo: "p256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	NewBus(st).Publish(Event{Kind: EventAsk, AccountID: a.ID, ThreadID: "t1", ContactFpr: alina, Ref: "ask_1", Status: "answered"})
+	rows, err := st.ChangesAfter(ctx, 0, 10)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("the change log holds %d rows (%v), want 1", len(rows), err)
+	}
+	if e := EventOf(rows[0]); e.Kind != EventAsk || e.Ref != "ask_1" || e.Status != "answered" || e.ThreadID != "t1" || e.ContactFpr != alina {
+		t.Fatalf("EventOf read the ask's row as %+v", e)
+	}
+}

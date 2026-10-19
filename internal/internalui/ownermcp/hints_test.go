@@ -14,12 +14,14 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/core/store"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/identity"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/internalui/auth"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/services/asks"
 )
 
 // wantOwnerHints is what each owner tool says of itself, as read-only, destructive, idempotent,
 // open-world: the values BatonDeck's owner MCP gives the same action (gateway/src/mcp/owner/
-// actions.ts: `effect`, `idempotent`, `reaches`), and for the three tools the cloud has no action
-// for, or decided apart, the plan of 2026-10-10 (delete_thread, list_passkeys, remove_passkey).
+// actions.ts: `effect`, `idempotent`, `reaches`), and for the tools the cloud has no action
+// for, or decided apart, the plan of 2026-10-10 (delete_thread, list_passkeys, remove_passkey) and
+// that of 2026-10-19 (the five asks tools).
 // Open world is true only where the tool reaches a peer. Written here a second time so the
 // registrations are held to it.
 var wantOwnerHints = map[string][4]bool{
@@ -57,6 +59,12 @@ var wantOwnerHints = map[string][4]bool{
 	"audit_query":            {true, false, true, false},
 	"wait_for_updates":       {true, false, true, false},
 	"digest":                 {true, false, true, false},
+	// The owner's asks (plan of 2026-10-19): the cloud has no action for them.
+	"ask_owner":    {false, false, true, false},
+	"notify_owner": {false, false, true, false},
+	"withdraw_ask": {false, true, false, false},
+	"get_ask":      {true, false, true, false},
+	"list_asks":    {true, false, true, false},
 }
 
 // everyTool is a server with every optional tool registered: each Extra field and
@@ -80,6 +88,7 @@ func everyTool() *mcp.Server {
 		AddContact: func(context.Context, string, string, string, string, string) (AddContactResult, error) {
 			return AddContactResult{}, nil
 		},
+		Asks: asks.New(nil, nil, nil, nil, nil),
 	}
 	return NewServerWithExtra(d, e, auth.Identity{})
 }

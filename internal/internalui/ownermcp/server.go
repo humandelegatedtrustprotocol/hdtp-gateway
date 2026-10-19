@@ -11,9 +11,10 @@
 // package does not authenticate: it is handed an auth.Identity and decides, per account, what
 // that identity may touch.
 //
-// The tools are registered in three places: NewServerWithExtra (the core and the contact
+// The tools are registered in four places: NewServerWithExtra (the core and the contact
 // lifecycle), AddParityTools (the ones whose dependencies come in Extra; each is registered only
-// when its dependency is non-nil), AddWatchTools (wait_for_updates, digest). The README lists
+// when its dependency is non-nil), AddAskTools (the owner's asks and notices, when Extra.Asks is
+// set), AddWatchTools (wait_for_updates, digest). The README lists
 // them with their refusals.
 package ownermcp
 
@@ -142,10 +143,14 @@ func (d Deps) owner() contacts.Owner {
 }
 
 // refused answers a failure as a tool error carrying its code and detail (refusal.Of), the
-// shape deny() uses.
+// shape deny() uses, and its reason when it has one (refusal.Reason: which rule refused it).
 func refused(err error) (*mcp.CallToolResult, error) {
 	code, detail := refusal.Of(err)
-	b, jerr := json.Marshal(map[string]string{"code": code, "detail": detail})
+	answer := map[string]string{"code": code, "detail": detail}
+	if r := refusal.Reason(err); r != "" {
+		answer["reason"] = r
+	}
+	b, jerr := json.Marshal(answer)
 	if jerr != nil {
 		return nil, jerr
 	}
@@ -284,7 +289,8 @@ type InviteArgs struct {
 
 // ownerTools is what the owner surface's tools and resources act with: the dependencies, the
 // extras, the identity the token was validated as, and the Cedar decision for one account. Each
-// tool is a method on it, registered by NewServerWithExtra, AddParityTools or AddWatchTools.
+// tool is a method on it, registered by NewServerWithExtra, AddParityTools, AddAskTools or
+// AddWatchTools.
 type ownerTools struct {
 	d     Deps
 	e     Extra
@@ -505,6 +511,7 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 	}, ot.threadResource)
 
 	AddParityTools(s, d, e, ident, allow)
+	AddAskTools(s, d, e, ident, allow)
 	AddWatchTools(s, d, allow)
 
 	return s

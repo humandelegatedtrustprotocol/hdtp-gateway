@@ -458,6 +458,7 @@ type Store interface {
 	PresenceStore
 	LeaseStore
 	WebhookStore
+	AskStore
 }
 
 // WebhookEndpoint is one place an account's events are posted (internal/services/webhooks).
@@ -542,6 +543,65 @@ type WebhookStore interface {
 	// ForgetExpiredWebhookSecrets clears the secret a rotation replaced on every endpoint where it
 	// stopped being accepted by now (unix milliseconds), and returns how many were cleared.
 	ForgetExpiredWebhookSecrets(ctx context.Context, now int64) (int64, error)
+}
+
+// OwnerAsk is one thing an agent put before its owner about one message of one thread
+// (internal/services/asks): Kind ask, which waits for an answer, or notice, which does not. Surface
+// is the A2UI surface as JSON. Status is open, answered, expired or withdrawn for an ask, posted for
+// a notice; AnswerText the one line an answer became. Times are unix seconds; ExpiresAt is 0 for a
+// notice.
+type OwnerAsk struct {
+	ID         string
+	AccountID  string
+	Kind       string
+	ThreadID   string
+	ContactFpr string
+	ForMsgID   string
+	Surface    string
+	Status     string
+	AnswerText string
+	CreatedAt  int64
+	UpdatedAt  int64
+	ExpiresAt  int64
+}
+
+// AskStore keeps the asks and notices of an account's agent. Every method but the expiry sweep's
+// list is scoped to the account: another account's ask is not found, as one that does not exist is.
+type AskStore interface {
+	// InsertOwnerAsk writes a, and reports false, writing nothing, when the account already has an
+	// ask or notice of that kind about that message of that thread, or a is an open ask and the
+	// thread has one already.
+	InsertOwnerAsk(ctx context.Context, a OwnerAsk) (bool, error)
+	// GetOwnerAsk returns one of the account's asks or notices, or ErrNotFound.
+	GetOwnerAsk(ctx context.Context, accountID, id string) (OwnerAsk, error)
+	// GetOwnerAskFor returns the ask or notice of that kind about that message of that thread, or
+	// ErrNotFound.
+	GetOwnerAskFor(ctx context.Context, accountID, kind, threadID, forMsgID string) (OwnerAsk, error)
+	// GetOpenOwnerAsk returns the thread's open ask, or ErrNotFound.
+	GetOpenOwnerAsk(ctx context.Context, accountID, threadID string) (OwnerAsk, error)
+	// ListOwnerAsks returns up to limit of the account's asks and notices, newest first;
+	// ListOpenOwnerAsks its open asks alone, newest first; ListThreadOwnerAsks those of one
+	// thread and ListContactOwnerAsks those of every thread with one contact, newest first too, so a
+	// limit always keeps the newest.
+	ListOwnerAsks(ctx context.Context, accountID string, limit int) ([]OwnerAsk, error)
+	ListOpenOwnerAsks(ctx context.Context, accountID string, limit int) ([]OwnerAsk, error)
+	ListThreadOwnerAsks(ctx context.Context, accountID, threadID string, limit int) ([]OwnerAsk, error)
+	ListContactOwnerAsks(ctx context.Context, accountID, contactFpr string, limit int) ([]OwnerAsk, error)
+	// CountOpenOwnerAsks counts the account's open asks that have not expired by now.
+	CountOpenOwnerAsks(ctx context.Context, accountID string, now int64) (int64, error)
+	// CloseOwnerAsk moves an open ask that has not expired by now to status (answered or
+	// withdrawn) with the answer line, and reports false, changing nothing, for any other ask.
+	CloseOwnerAsk(ctx context.Context, accountID, id, status, answer string, now int64) (bool, error)
+	// ExpireOwnerAsk moves an open ask whose expiry is at or before now to expired, and reports
+	// false, changing nothing, for any other ask.
+	ExpireOwnerAsk(ctx context.Context, accountID, id string, now int64) (bool, error)
+	// ListDueOwnerAsks returns up to limit open asks, of every account, whose expiry is at or before
+	// now, soonest first: what the expiry sweep closes.
+	ListDueOwnerAsks(ctx context.Context, now int64, limit int) ([]OwnerAsk, error)
+	// DeleteThreadOwnerAsks deletes one thread's asks and notices and returns how many went;
+	// DeleteOrphanOwnerAsks those of the account whose thread is gone.
+	DeleteThreadOwnerAsks(ctx context.Context, accountID, threadID string) (int64, error)
+	DeleteOrphanOwnerAsks(ctx context.Context, accountID string) (int64, error)
 }
 
 // LeaseStore hands background work to one node process at a time (SPEC §11.1).

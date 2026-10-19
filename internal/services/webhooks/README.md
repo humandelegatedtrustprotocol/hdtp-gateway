@@ -28,6 +28,8 @@ The node's outbound webhooks: where an account's events are posted, the signing 
   | `media.received` | `message`, inbound, media | `thread_id, message_id, from` |
   | `request.pending` | `pending` | `request_id, fingerprint` |
   | `request.answered` | `answered` | `request_id` |
+  | `ask.answered` | `ask`, answered (the owner answered an ask, `internal/services/asks`) | `ask_id, thread_id` |
+  | `ask.expired` | `ask`, expired unanswered | `ask_id, thread_id` |
   | `call.made` | `call` naming a tool of `messaging.FeedCalls` | `fingerprint, capability` |
 
 - The receiver's verifier (`verify_test.go`): `ParseSignatureHeader` and `VerifySignature` (the window, then a constant-time compare). The node never verifies a signature, so the verifier is not in the binary. `sign_test.go` holds it, and `TestADeliveryIsSignedWithTheHeadersAReceiverNeedsAndLogged` verifies with it the delivery a receiver got.
@@ -76,7 +78,7 @@ Deliveries are not audited: the delivery log is their record, as in the cloud.
 - **Bounds:** at most 100 endpoints per account and a URL of at most 2,048 bytes. The cloud lists 100, and its checks refuse neither.
 - **Doors:** the portal only (ruling A). The cloud has its portal, `/v1` and six owner MCP actions (`webhooks`, `webhook_deliveries`, `create_webhook`, `rotate_webhook_secret`, `set_webhook_status`, `delete_webhook`, in `src/mcp/owner/actions.ts`), which list, create, rotate, pause, resume and remove endpoints and read their log. Held by `TestNoOwnerMCPToolTouchesAWebhook` (`internal/internalui/ownermcp`) and `TestNoCommandTouchesAWebhook` (`internal/cli`).
 - **Audit names:** snake_case with the node's resource string, where the cloud has `webhook.created` with JSON details.
-- **Events:** only the seven names above. `contact.*`, `booking.*`, `integration.attention` and `identity.*` are not emitted, because the change row does not say which of them happened (`events.go` says why for each). `request.pending`, `request.answered` and `call.made` carry a subset of the cloud's data.
+- **Events:** only the nine names above. `ask.answered` and `ask.expired` are the node's alone: the cloud has no owner asks. An ask put or withdrawn, and a notice posted, are the agent's own acts and are not sent. `contact.*`, `booking.*`, `integration.attention` and `identity.*` are not emitted, because the change row does not say which of them happened (`events.go` says why for each). `request.pending`, `request.answered` and `call.made` carry a subset of the cloud's data.
 
 ## Held by
 

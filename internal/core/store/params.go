@@ -251,3 +251,12 @@ func webhookRotate(accountID, id string, sealed []byte, until, now int64) sqlite
 		AccountID: accountID, ID: id,
 	}
 }
+
+// ownerAskInsert is an ask's or a notice's insert parameters, for both engines.
+func ownerAskInsert(a OwnerAsk) sqlitedb.InsertOwnerAskParams {
+	return sqlitedb.InsertOwnerAskParams{
+		ID: a.ID, AccountID: a.AccountID, Kind: a.Kind, ThreadID: a.ThreadID, ContactFpr: a.ContactFpr,
+		ForMsgID: a.ForMsgID, Surface: a.Surface, Status: a.Status, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt,
+		ExpiresAt: a.ExpiresAt,
+	}
+}

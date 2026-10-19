@@ -46,6 +46,7 @@ func TestOfAnswersEachRefusalItsCodeAndNoForeignText(t *testing.T) {
 		{"a token with no label", auth.ErrLabelRequired, "bad_request", auth.ErrLabelRequired.Error()},
 		{"a target in the wrong state", fmt.Errorf("unpair: %w", Conflict("x is the selected tunnel", storeFailure)), "conflict", "x is the selected tunnel"},
 		{"a target not held", errors.Join(storeFailure, NotFound("unknown account", storeFailure)), "not_found", "unknown account"},
+		{"an argument over its bound", errors.Join(storeFailure, TooLarge("the surface is over 16 KiB", storeFailure)), "too_large", "the surface is over 16 KiB"},
 		{"a peer not reached", Unavailable("the request did not reach the peer", storeFailure), "unavailable", "the request did not reach the peer"},
 		{"a budget that refused", fmt.Errorf("adding: %w", RateLimited("try again in 7 s", storeFailure)), "rate_limited", "try again in 7 s"},
 		{"an identity awaiting its wallet", fmt.Errorf("node: a awaits its wallet: %w", identity.ErrNoCertificate), "not_found", "node: a awaits its wallet: identity: no current certificate"},
@@ -118,4 +119,23 @@ func realInstallRefusal(t *testing.T) error {
 		t.Fatalf("the install did not answer a worded refusal: %v", err)
 	}
 	return err
+}
+
+// A reason rides beside a refusal and changes nothing of it: Of reads the refusal through it, as it
+// is or wrapped, and Reason reads the reason back; a refusal with none has none.
+func TestAReasonRidesBesideTheRefusal(t *testing.T) {
+	err := fmt.Errorf("put: %w", For("invalid_surface:own_message", BadRequest("an ask ends with the owner's own message", nil)))
+	if code, detail := Of(err); code != "bad_request" || detail != "an ask ends with the owner's own message" {
+		t.Fatalf("Of through a reason: %s %q", code, detail)
+	}
+	if r := Reason(err); r != "invalid_surface:own_message" {
+		t.Fatalf("Reason: %q", r)
+	}
+	if r := Reason(BadRequest("no reason", nil)); r != "" {
+		t.Fatalf("a refusal with no reason: %q", r)
+	}
+	// An error this package did not code takes no reason, and stays internal.
+	if err := For("invalid_surface:x", errors.New("a store's text")); Reason(err) != "" || err.Error() != "a store's text" {
+		t.Fatalf("For on an uncoded error: %v %q", err, Reason(err))
+	}
 }
