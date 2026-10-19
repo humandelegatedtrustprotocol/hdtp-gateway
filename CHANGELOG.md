@@ -54,6 +54,11 @@ changelog can be and is not summarized into a fictional release history.
   claimed. The send's own attempt holds it for its 30-second budget, so a first attempt that fails
   is retried once those 30 seconds have passed. A send replayed under its `msg_id` while another
   attempt holds the message is answered `pending`, and nothing is sent.
+- `npm audit` in `web/` reported two high advisories (#213), both in build tools the portal's
+  bundle does not contain: `brace-expansion` 5.0.9 (under ESLint's `minimatch`; GHSA-q2hr-2g5m-vwhr,
+  GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p) and `source-map-js` 1.2.1 (under Vite's `postcss`;
+  GHSA-68fv-2mgg-jv7q). The lockfile now takes 5.0.12 and 1.2.2, inside the ranges already
+  declared; `npm audit` finds none, and `web/dist` builds byte for byte the same.
 
 ### Removed
 
