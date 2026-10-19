@@ -51,6 +51,12 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Fixed
 
+- An agent's ask was refused `invalid_surface:placed_twice` again and again when its model listed each
+  Button's label Text in root's children as well as under the Button: nothing `tools/list` gives said a
+  component is placed once. The surface's schema, the Column's and the Button's descriptions and
+  `ask_owner`'s now say that every component but root is placed exactly once, in root's children or as a
+  Button's label, a Text of its own that root's children do not list; `ask_owner`'s shows one ready reply
+  and its label as the example. The rule itself is unchanged.
 - A ticked box on the portal's Settings page saved as false, so **Accept LAN connections** could
   not be turned on there (#221): the box posts `1`, and the save stored `true` only for a posted
   `true`. Every boolean knob is now read by one rule, `core.SettingTrue` (`true` or `1`), from the
