@@ -358,7 +358,7 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 		Annotations: public.Hints(true, false, true, false)},
 		ot.getInboxTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "read_thread", Description: "Messages in a thread, oldest first; reading marks the thread read through the newest",
+	mcp.AddTool(s, &mcp.Tool{Name: "read_thread", Description: "Messages in a thread, oldest first, each with its message_id (the message's msg_id); reading marks the thread read through the newest",
 		Annotations: public.Hints(true, false, true, false)},
 		ot.readThreadTool)
 
@@ -598,6 +598,9 @@ func (ot ownerTools) readThreadTool(ctx context.Context, req *mcp.CallToolReques
 		return fail(err)
 	}
 	type row struct {
+		// MessageID is the message's msg_id: the id the change log records and a webhook's data
+		// carries as message_id, so an agent can key its work by message.
+		MessageID string `json:"message_id"`
 		Direction string `json:"direction"`
 		Sender    string `json:"sender"`
 		Kind      string `json:"kind"`
@@ -612,7 +615,7 @@ func (ot ownerTools) readThreadTool(ctx context.Context, req *mcp.CallToolReques
 			trust = c.TrustFlag
 		}
 		// SPEC §7.6: every payload handed to the agent carries the trust label.
-		out = append(out, row{Direction: m.Direction, Sender: m.Sender, Kind: m.Kind, Body: m.Body, Trust: trust, CreatedAt: m.CreatedAt})
+		out = append(out, row{MessageID: m.MsgID, Direction: m.Direction, Sender: m.Sender, Kind: m.Kind, Body: m.Body, Trust: trust, CreatedAt: m.CreatedAt})
 	}
 	// The agent reading is the owner reading, as BatonDeck's read_thread is: the thread is read
 	// through the newest message this answer hands over (oldest first, so the last), and what

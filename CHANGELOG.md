@@ -23,6 +23,12 @@ changelog can be and is not summarized into a fictional release history.
   access to one (batondeck is private) sets `HDTP_ALLOW_MISSING_SIBLINGS=1`, and the hook prints
   first, one line each, the comparisons that will not run, then runs the gate without them.
 
+### Added
+
+- The owner MCP's `read_thread` gives each message its `message_id`, the message's `msg_id`: the
+  id the change log records and a webhook's `data` carries, so an agent can key its work by
+  message (#208).
+
 ### Fixed
 
 - A ticked box on the portal's Settings page saved as false, so **Accept LAN connections** could
