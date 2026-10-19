@@ -33,6 +33,10 @@ SELECT * FROM owner_asks WHERE account_id = ? ORDER BY created_at DESC, id DESC 
 -- The account's open asks, newest first: what Needs you shows.
 SELECT * FROM owner_asks WHERE account_id = ? AND kind = 'ask' AND status = 'open' ORDER BY created_at DESC, id DESC LIMIT ?;
 
+-- name: ListThreadOwnerAsks :many
+-- The asks and notices of one thread, oldest first.
+SELECT * FROM owner_asks WHERE account_id = ? AND thread_id = ? ORDER BY created_at, id LIMIT ?;
+
 -- name: ListContactOwnerAsks :many
 -- The asks and notices of every thread with one contact, oldest first: what the conversation shows.
 SELECT * FROM owner_asks WHERE account_id = ? AND contact_fpr = ? ORDER BY created_at, id LIMIT ?;

@@ -59,6 +59,11 @@ func (s *Postgres) ListOpenOwnerAsks(ctx context.Context, accountID string, limi
 	return pgOwnerAsks(s.q.ListOpenOwnerAsks(ctx, pgdb.ListOpenOwnerAsksParams{AccountID: accountID, Limit: pgLimit(limit)}))
 }
 
+// ListThreadOwnerAsks returns up to limit asks and notices of one thread, oldest first.
+func (s *Postgres) ListThreadOwnerAsks(ctx context.Context, accountID, threadID string, limit int) ([]OwnerAsk, error) {
+	return pgOwnerAsks(s.q.ListThreadOwnerAsks(ctx, pgdb.ListThreadOwnerAsksParams{AccountID: accountID, ThreadID: threadID, Limit: pgLimit(limit)}))
+}
+
 // ListContactOwnerAsks returns up to limit asks and notices of the threads with one contact, oldest
 // first.
 func (s *Postgres) ListContactOwnerAsks(ctx context.Context, accountID, contactFpr string, limit int) ([]OwnerAsk, error) {

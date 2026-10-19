@@ -583,10 +583,11 @@ type AskStore interface {
 	// ErrNotFound.
 	GetContactOpenOwnerAsk(ctx context.Context, accountID, contactFpr string) (OwnerAsk, error)
 	// ListOwnerAsks returns up to limit of the account's asks and notices, newest first;
-	// ListOpenOwnerAsks its open asks alone, newest first; ListContactOwnerAsks those of every
-	// thread with one contact, oldest first.
+	// ListOpenOwnerAsks its open asks alone, newest first; ListThreadOwnerAsks those of one
+	// thread and ListContactOwnerAsks those of every thread with one contact, oldest first.
 	ListOwnerAsks(ctx context.Context, accountID string, limit int) ([]OwnerAsk, error)
 	ListOpenOwnerAsks(ctx context.Context, accountID string, limit int) ([]OwnerAsk, error)
+	ListThreadOwnerAsks(ctx context.Context, accountID, threadID string, limit int) ([]OwnerAsk, error)
 	ListContactOwnerAsks(ctx context.Context, accountID, contactFpr string, limit int) ([]OwnerAsk, error)
 	// CountOpenOwnerAsks counts the account's open asks that have not expired by now.
 	CountOpenOwnerAsks(ctx context.Context, accountID string, now int64) (int64, error)

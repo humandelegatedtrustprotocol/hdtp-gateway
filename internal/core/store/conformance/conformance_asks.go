@@ -199,6 +199,15 @@ func asks(t *testing.T, newStore Factory) {
 		if got := ids(s.ListContactOwnerAsks(ctx, a.ID, "sha256:other", 10)); len(got) != 0 {
 			t.Fatalf("another contact's: %v", got)
 		}
+		if got := ids(s.ListThreadOwnerAsks(ctx, a.ID, "t1", 10)); len(got) != 2 || got[0] != "ask_1" || got[1] != "ntc_1" {
+			t.Fatalf("ListThreadOwnerAsks: %v, want t1's, oldest first", got)
+		}
+		if got := ids(s.ListThreadOwnerAsks(ctx, a.ID, "t1", 1)); len(got) != 1 {
+			t.Fatalf("the thread list's limit: %v", got)
+		}
+		if got := ids(s.ListThreadOwnerAsks(ctx, a.ID, "t9", 10)); len(got) != 0 {
+			t.Fatalf("a thread with none: %v", got)
+		}
 		// The contact's newest open ask: ask_2 is withdrawn, so ask_1; none for another contact.
 		if got, err := s.GetContactOpenOwnerAsk(ctx, a.ID, "sha256:p"); err != nil || got.ID != "ask_1" {
 			t.Fatalf("GetContactOpenOwnerAsk: %+v %v, want ask_1", got, err)

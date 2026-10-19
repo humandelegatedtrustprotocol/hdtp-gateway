@@ -459,3 +459,47 @@ func (q *Queries) ListOwnerAsks(ctx context.Context, arg ListOwnerAsksParams) ([
 	}
 	return items, nil
 }
+
+const listThreadOwnerAsks = `-- name: ListThreadOwnerAsks :many
+SELECT id, account_id, kind, thread_id, contact_fpr, for_msg_id, surface, status, answer_text, created_at, updated_at, expires_at FROM owner_asks WHERE account_id = $1 AND thread_id = $2 ORDER BY created_at, id LIMIT $3
+`
+
+type ListThreadOwnerAsksParams struct {
+	AccountID string
+	ThreadID  string
+	Limit     int32
+}
+
+// The asks and notices of one thread, oldest first.
+func (q *Queries) ListThreadOwnerAsks(ctx context.Context, arg ListThreadOwnerAsksParams) ([]OwnerAsk, error) {
+	rows, err := q.db.Query(ctx, listThreadOwnerAsks, arg.AccountID, arg.ThreadID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OwnerAsk
+	for rows.Next() {
+		var i OwnerAsk
+		if err := rows.Scan(
+			&i.ID,
+			&i.AccountID,
+			&i.Kind,
+			&i.ThreadID,
+			&i.ContactFpr,
+			&i.ForMsgID,
+			&i.Surface,
+			&i.Status,
+			&i.AnswerText,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ExpiresAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
