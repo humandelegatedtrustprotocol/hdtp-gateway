@@ -39,6 +39,15 @@ func (s *SQLite) GetOpenOwnerAsk(ctx context.Context, accountID, threadID string
 	return ownerAskFromRow(r), nil
 }
 
+// GetContactOpenOwnerAsk returns the newest open ask of any thread with the contact, or ErrNotFound.
+func (s *SQLite) GetContactOpenOwnerAsk(ctx context.Context, accountID, contactFpr string) (OwnerAsk, error) {
+	r, err := s.q.GetContactOpenOwnerAsk(ctx, sqlitedb.GetContactOpenOwnerAskParams{AccountID: accountID, ContactFpr: contactFpr})
+	if err != nil {
+		return OwnerAsk{}, err
+	}
+	return ownerAskFromRow(r), nil
+}
+
 // ListOwnerAsks returns up to limit of the account's asks and notices, newest first.
 func (s *SQLite) ListOwnerAsks(ctx context.Context, accountID string, limit int) ([]OwnerAsk, error) {
 	return ownerAsks(s.q.ListOwnerAsks(ctx, sqlitedb.ListOwnerAsksParams{AccountID: accountID, Limit: int64(limit)}))

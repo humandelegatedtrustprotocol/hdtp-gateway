@@ -47,6 +47,12 @@ func NotFound(sentence string, cause error) error {
 	return coded{code: "not_found", sentence: sentence, cause: cause}
 }
 
+// TooLarge marks a sentence the node wrote about an argument over its bound (an ask's surface) as a
+// too_large refusal, read as BadRequest's is.
+func TooLarge(sentence string, cause error) error {
+	return coded{code: "too_large", sentence: sentence, cause: cause}
+}
+
 type coded struct {
 	code, sentence string
 	cause          error

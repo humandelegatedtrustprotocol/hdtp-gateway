@@ -12,6 +12,7 @@ package messaging
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -59,6 +60,10 @@ const (
 	// EventSettings: the owner saved a setting (Ref names its key); every other process reads it
 	// from the store and applies it as the saving process did.
 	EventSettings EventKind = "settings"
+	// EventAsk: an ask or a notice the owner's agent put before the owner (internal/services/asks)
+	// was made, or an ask was answered, withdrawn or expired. Ref names it and Status is its status
+	// now; the change row keeps both in its ref, as "status/id".
+	EventAsk EventKind = "ask"
 )
 
 // FeedCalls are the tools whose call means "a contact ACTED": the node publishes an EventCall
@@ -80,7 +85,7 @@ type Event struct {
 	AccountID  string    `json:"account_id"`
 	ThreadID   string    `json:"thread_id,omitempty"`
 	ContactFpr string    `json:"contact_fpr,omitempty"`
-	// Status is the new delivery status on an EventDelivery.
+	// Status is the new delivery status on an EventDelivery, and the ask's status on an EventAsk.
 	Status string `json:"status,omitempty"`
 	// Ref names what the event is about beyond the thread and the contact: the tool of an
 	// EventCall, the request of an EventPending, EventAnswered or EventRelayed, the scope of an
@@ -217,8 +222,11 @@ func (b *Bus) deliverLocked(e Event) {
 
 // changeRef is what an event carries in the log's ref column: a delivery's status, or the Ref.
 func changeRef(e Event) string {
-	if e.Kind == EventDelivery {
+	switch e.Kind {
+	case EventDelivery:
 		return e.Status
+	case EventAsk:
+		return e.Status + "/" + e.Ref
 	}
 	return e.Ref
 }
@@ -227,9 +235,12 @@ func changeRef(e Event) string {
 func EventOf(c store.Change) Event {
 	e := Event{ID: c.ID, Kind: EventKind(c.Kind), AccountID: c.AccountID, ThreadID: c.ThreadID, ContactFpr: c.ContactFpr,
 		MsgID: c.MsgID, Direction: Direction(c.Direction), MsgKind: c.MsgKind}
-	if e.Kind == EventDelivery {
+	switch e.Kind {
+	case EventDelivery:
 		e.Status = c.Ref
-	} else {
+	case EventAsk:
+		e.Status, e.Ref, _ = strings.Cut(c.Ref, "/")
+	default:
 		e.Ref = c.Ref
 	}
 	return e

@@ -114,6 +114,38 @@ func (q *Queries) ExpireOwnerAsk(ctx context.Context, arg ExpireOwnerAskParams) 
 	return result.RowsAffected(), nil
 }
 
+const getContactOpenOwnerAsk = `-- name: GetContactOpenOwnerAsk :one
+SELECT id, account_id, kind, thread_id, contact_fpr, for_msg_id, surface, status, answer_text, created_at, updated_at, expires_at FROM owner_asks WHERE account_id = $1 AND contact_fpr = $2 AND kind = 'ask' AND status = 'open'
+ORDER BY created_at DESC, id DESC LIMIT 1
+`
+
+type GetContactOpenOwnerAskParams struct {
+	AccountID  string
+	ContactFpr string
+}
+
+// The newest open ask of any thread with one contact: the one a message the owner writes to them
+// answers.
+func (q *Queries) GetContactOpenOwnerAsk(ctx context.Context, arg GetContactOpenOwnerAskParams) (OwnerAsk, error) {
+	row := q.db.QueryRow(ctx, getContactOpenOwnerAsk, arg.AccountID, arg.ContactFpr)
+	var i OwnerAsk
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.Kind,
+		&i.ThreadID,
+		&i.ContactFpr,
+		&i.ForMsgID,
+		&i.Surface,
+		&i.Status,
+		&i.AnswerText,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
 const getOpenOwnerAsk = `-- name: GetOpenOwnerAsk :one
 SELECT id, account_id, kind, thread_id, contact_fpr, for_msg_id, surface, status, answer_text, created_at, updated_at, expires_at FROM owner_asks WHERE account_id = $1 AND thread_id = $2 AND kind = 'ask' AND status = 'open'
 `

@@ -46,6 +46,7 @@ func TestOfAnswersEachRefusalItsCodeAndNoForeignText(t *testing.T) {
 		{"a token with no label", auth.ErrLabelRequired, "bad_request", auth.ErrLabelRequired.Error()},
 		{"a target in the wrong state", fmt.Errorf("unpair: %w", Conflict("x is the selected tunnel", storeFailure)), "conflict", "x is the selected tunnel"},
 		{"a target not held", errors.Join(storeFailure, NotFound("unknown account", storeFailure)), "not_found", "unknown account"},
+		{"an argument over its bound", errors.Join(storeFailure, TooLarge("the surface is over 16 KiB", storeFailure)), "too_large", "the surface is over 16 KiB"},
 		{"a peer not reached", Unavailable("the request did not reach the peer", storeFailure), "unavailable", "the request did not reach the peer"},
 		{"a budget that refused", fmt.Errorf("adding: %w", RateLimited("try again in 7 s", storeFailure)), "rate_limited", "try again in 7 s"},
 		{"an identity awaiting its wallet", fmt.Errorf("node: a awaits its wallet: %w", identity.ErrNoCertificate), "not_found", "node: a awaits its wallet: identity: no current certificate"},

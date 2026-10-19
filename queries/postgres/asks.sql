@@ -19,6 +19,12 @@ SELECT * FROM owner_asks WHERE account_id = $1 AND kind = $2 AND thread_id = $3 
 -- The thread's open ask, if it has one (owner_asks_open_thread allows one).
 SELECT * FROM owner_asks WHERE account_id = $1 AND thread_id = $2 AND kind = 'ask' AND status = 'open';
 
+-- name: GetContactOpenOwnerAsk :one
+-- The newest open ask of any thread with one contact: the one a message the owner writes to them
+-- answers.
+SELECT * FROM owner_asks WHERE account_id = $1 AND contact_fpr = $2 AND kind = 'ask' AND status = 'open'
+ORDER BY created_at DESC, id DESC LIMIT 1;
+
 -- name: ListOwnerAsks :many
 -- The account's asks and notices, newest first.
 SELECT * FROM owner_asks WHERE account_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2;
