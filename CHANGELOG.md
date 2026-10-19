@@ -65,10 +65,10 @@ changelog can be and is not summarized into a fictional release history.
 
   Every difference the webhooks README lists is checked by that test, and the test fails on a
   difference it checks that the README does not list.
-- README: "Wake your agent with a webhook", with a receiver's verifier in Go and in JavaScript and
-  a link to hdtp-gateway-agent. Both verifiers are read out of the README and run against what the
-  node signs, and the how-to's list of events is held to the names the node sends
-  (`readme_snippets_test.go`). The harness scenario
+- README: "Wake your agent with a webhook", with a receiver's verifier in Go and a link to
+  hdtp-gateway-agent, a receiver written in TypeScript. The verifier is read out of the README and
+  run with `go run` against what the node signs, and the how-to's list of events is held to the
+  names the node sends (`readme_snippets_test.go`). The harness scenario
   `TestAContactsMessageWakesTheOwnersAgentWithASignedWebhook` (`make harness`) runs one `serve`
   process: the owner registers a receiver on loopback through the portal's `/webhooks/create`, a
   contact sends a message, and the receiver gets a signed `message.received` and verifies it.

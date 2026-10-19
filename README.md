@@ -224,29 +224,16 @@ func verify(secret, header string, body []byte, now time.Time) bool {
 }
 ```
 
-In JavaScript, on Node:
-
-```js
-import { createHmac, timingSafeEqual } from 'node:crypto'
-
-// verify reports whether body (the raw request body, as text) was signed by the node
-// with secret. header is the X-HDTP-Signature value.
-export function verify(secret, header, body, now = Date.now() / 1000) {
-  const parts = header.split(',').map((p) => p.trim().split('='))
-  const t = parts.find(([k]) => k === 't')?.[1] ?? ''
-  if (!/^\d+$/.test(t) || Math.abs(now - Number(t)) > 300) return false
-  const want = createHmac('sha256', secret).update(`${t}.${body}`).digest()
-  return parts.some(([k, v]) => k === 'v1' && /^[0-9a-f]{64}$/.test(v) && timingSafeEqual(Buffer.from(v, 'hex'), want))
-}
-```
-
 Answer with a 2xx within 10 seconds. A delivery is attempted once and never retried, so a receiver
 that was down misses that event: have your agent call `get_inbox` (and `list_pending`) when it
 starts and now and then, and treat the webhook as the wake, not the record. Twenty failures in a row
 pause the endpoint until you resume it on the same page, which also shows each endpoint's delivery
-log. Both snippets are run by the node's tests against what the node signs.
-[hdtp-gateway-agent](https://github.com/humandelegatedtrustprotocol/hdtp-gateway-agent) is an
-open-source agent that works this way: woken by the node's webhook, it answers contacts through the owner MCP.
+log. The node's tests compile and run the snippet above against what the node signs. A receiver in
+any other language follows the same grammar: the header, the HMAC over `<t>.<the raw body>`, the
+window.
+[hdtp-gateway-agent](https://github.com/humandelegatedtrustprotocol/hdtp-gateway-agent) is one,
+written in TypeScript: an open-source agent that the node's webhook wakes, and that answers contacts
+through the owner MCP.
 
 ### Decide what each contact may do
 
