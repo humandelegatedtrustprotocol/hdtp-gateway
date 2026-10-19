@@ -204,6 +204,9 @@ func leaveErasesEveryRow(t *testing.T, st store.Store, list func(*testing.T) []t
 			EventID: "evt-" + slug, EventType: "message.received", Status: "delivered", HTTPStatus: 200, CreatedAt: 1}))
 		_, err = st.ClaimWebhookCursor(ctx, a.ID, 0, 1)
 		must(err)
+		_, err = st.InsertOwnerAsk(ctx, store.OwnerAsk{ID: "ask-" + slug, AccountID: a.ID, Kind: "ask", ThreadID: "th-" + slug,
+			ContactFpr: "sha256:c-" + slug, ForMsgID: "m-" + slug, Surface: "[]", Status: "open", CreatedAt: 1, UpdatedAt: 1, ExpiresAt: 2})
+		must(err)
 		return a, in.ID
 	}
 	leaving, leavingIntegration := seed("leaving")

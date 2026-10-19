@@ -147,3 +147,5 @@ func cursorOf(id int64, err error) (int64, error) {
 	}
 	return id, err
 }
+
+func ownerAskFromRow(r sqlitedb.OwnerAsk) OwnerAsk { return OwnerAsk(r) }

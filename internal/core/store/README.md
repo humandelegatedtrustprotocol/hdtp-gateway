@@ -44,11 +44,14 @@ own:
 - `WebhookStore`: an account's webhook endpoints (their sealed signing secrets, the status and failure
   run), the log of each attempt and the dispatcher's cursor in the change log, claimed from the id it
   was read at; every method but the list of the accounts that have an endpoint is scoped to the account.
+- `AskStore`: the asks and notices an account's agent put before its owner, each about one message of
+  one thread: one per message and kind, one open ask per thread, closed or expired only while open and
+  by the clock; every method but the expiry sweep's list of due asks is scoped to the account.
 
 The row types are `Owner`, `Account`, `Leaf`, `Tombstone`, `FormerEndpoint`, `PendingAddress`,
 `MoveFanout`, `Setting`, `Membership`, `Credential`, `Contact`, `ExpiredContact`, `Invite`, `Thread`,
 `Blob`, `Message`, `Integration`, `Catalog`, `Exposure`, `PendingRequest`, `Token`, `AuditRow`,
-`AuditAnchorRow`, `AuditArchiveRow`, `AuditPage`, `Change`, `WebhookEndpoint`, `WebhookDelivery`, `StoredThreadID`, `KeptNames` and
+`AuditAnchorRow`, `AuditArchiveRow`, `AuditPage`, `Change`, `WebhookEndpoint`, `WebhookDelivery`, `OwnerAsk`, `StoredThreadID`, `KeptNames` and
 `CreateAccountParams`. `Message.Deadline`
 and `Account.HasRoot` are the two methods on them. `DefaultMessageExpiry` and
 `UndatedIdempotencyWindow` are the two durations the contract names.
@@ -56,7 +59,7 @@ and `Account.HasRoot` are the two methods on them. `DefaultMessageExpiry` and
 **The engines.** `OpenSQLite(path)` and `OpenPostgres(ctx, dsn)` return `*SQLite` and `*Postgres`. Each is
 written as a set of paired files, one per area of the schema (`contacts_sqlite.go` and
 `contacts_postgres.go`, and likewise `identity_state`, `integrations`, `invites`, `messaging`, `leave`,
-`retention`, `core_settings`, `audit_anchor`, `contacts_accept`, `webhooks`), with the engine's own lifecycle in
+`retention`, `core_settings`, `audit_anchor`, `contacts_accept`, `webhooks`, `asks`), with the engine's own lifecycle in
 `sqlite.go` and `postgres.go`. Two files hold what is shared so that it is written once:
 
 - `params.go` turns a domain value into a statement's parameters (the defaults a new row takes, the
