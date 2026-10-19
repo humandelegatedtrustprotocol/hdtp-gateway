@@ -1,6 +1,6 @@
 package internalui
 
-// The owner's asks on the portal (docs/release/owner-asks-plan-2026-10-19.md, N1): the open ask and
+// The owner's asks on the portal (docs/release/owner-asks-2026-10-19.md, N1): the open ask and
 // every notice drawn as a card on the conversation, the Needs you page of open asks, and the
 // owner's answer. Every route calls the asks service, the one the owner MCP's tools call, and the
 // service writes the audit rows, so these handlers write none.

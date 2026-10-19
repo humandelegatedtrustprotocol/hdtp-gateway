@@ -30,11 +30,13 @@ Its dependencies that live in the node arrive as callbacks in `Deps` and `Extra`
 - `Extra`: the dependencies of the parity tools. Each tool field that is nil leaves its tool
   unregistered; a nil `Log` records nothing. `AddContactResult`, `IntegrationView` are the shapes `AddContact` and `Integrations`
   return.
-- `AddParityTools`, `AddWatchTools`: register those two groups on a server; `NewServerWithExtra`
-  is their only caller in this repository.
+- `AddParityTools`, `AddAskTools`, `AddWatchTools`: register those three groups on a server;
+  `NewServerWithExtra` is their only caller in this repository. `PutSchema(kind)` is `ask_owner`'s
+  or `notify_owner`'s input schema, the catalog's surface schema inside it.
 - Argument types `AccountArg`, `AnswerArgs`, `ReadThreadArgs`, `SendArgs`, `PermissionsArgs`,
   `TrustArgs`, `PetnameArgs`, `RefreshArgs`, `ContactArgs`, `AddressArgs`, `InviteIDArgs`,
-  `InviteArgs`, `WaitArgs`, `DigestArgs`: the JSON-schema inputs of the tools.
+  `InviteArgs`, `WaitArgs`, `DigestArgs`, `PutArgs`, `AskIDArgs`, `ListAsksArgs`: the JSON-schema
+  inputs of the tools.
 - Resource URIs `URIInbox`, `URIRequests`, `URIPending`, `URIThreadPrefix`; `WaitMaxSec`.
 
 ## Tools
@@ -50,8 +52,9 @@ idempotent, open world), derived as BatonDeck's owner MCP derives them from its 
 where the tool reaches a peer. Reads, idempotent, closed: `list_accounts`, `get_inbox`,
 `read_thread` (it moves the owner's own read marker, and its description says so), `list_contacts`,
 `list_pending_addresses`, `list_invites`, `list_pending`, `export_card`, `identity_certificate`,
-`list_passkeys`, `list_integrations`, `audit_query`, `wait_for_updates`, `digest`. Adds, reaching a
-peer: `send_to_contact`. Adds, closed: `create_invite`. Alters and reaches a peer: `approve_contact`,
+`list_passkeys`, `list_integrations`, `audit_query`, `wait_for_updates`, `digest`, `get_ask`,
+`list_asks`. Adds, reaching a peer: `send_to_contact`. Adds, closed: `create_invite`. Adds,
+idempotent, closed: `ask_owner`, `notify_owner`. Alters, destructive, closed: `withdraw_ask`. Alters and reaches a peer: `approve_contact`,
 `reject_contact`, `remove_contact`, `refresh_contact`, `answer_request`, `call_contact`, `add_contact`.
 Alters, idempotent, closed: `delete_thread`, `block_contact`, `set_permissions`, `rename_contact`,
 `set_trust_flag`, `remove_passkey`, `set_exposure`. Alters, closed: `unblock_contact`,
@@ -91,11 +94,22 @@ Registered by `AddParityTools`, each only when its `Extra` field is non-nil:
 | `add_contact` | `AddContact` | Reaches out: redeems an invite link, or requests contact with a card; lands `pending_out` or `active`. Exactly one of `invite_url` and `card`. |
 | `audit_query` | `Audit` | The audit trail for the accounts the identity administers; `actor` filter; `limit` default 100, and any value over 1000 or not above 0 becomes 100. |
 
+Registered by `AddAskTools` when `Extra.Asks` is non-nil, each the asks service's own operation
+(`internal/services/asks`, SPEC §8.4), the one the portal's card and its Needs you page answer through:
+
+| Tool | Contract |
+|---|---|
+| `ask_owner` | Puts an A2UI v0.9.1 surface for the owner to answer on a thread, about one message of it (`thread_id`, `for_message_id`, `surface`). The input schema carries the catalog's; the SDK does not validate against it, `asks.Parse` does, so a refusal is coded: `bad_request`, `too_large` over `asks.MaxSurfaceBytes`, `not_found` for a thread or message the account does not hold, `conflict` while the thread has another open ask or its contact is not active. The same message asked about again answers the same ask. |
+| `notify_owner` | The same for a notice: Text and KeyValue only, status `posted`, no expiry. |
+| `withdraw_ask` | Takes back an open ask; `conflict` once it is answered, expired or withdrawn; `not_found` for an id the account does not hold. |
+| `get_ask` | One ask or notice: status, TLDR, surface, `answer_text` (the one line the owner's answer became). Reading an open ask past its time writes its expiry. |
+| `list_asks` | `{"asks": [...]}`, at most `asks.ListLimit`: newest first, or one contact's (`contact_fpr`) oldest first; `status` `open` for the asks waiting on the owner, and any other value `bad_request`. |
+
 Registered by `AddWatchTools`:
 
 | Tool | Contract |
 |---|---|
-| `wait_for_updates` | Blocks until something changes for the account and answers what moved since the caller's cursor. With `since` omitted it answers at once with a cursor and no backlog. `timeout_sec` is whole seconds from 1 to `WaitMaxSec` (25), which is also the default. The answer carries `threads`, `contact_requests`, `pending_requests`, `pending_addresses`, `calls`, `needs_attention`, `calls_truncated`, `cursor_expired` and `timed_out`. A wait ends early on what happened since the cursor — a moved thread, a contact's call, a new contact request, a new agent-answered request, a contact newly held at a new address, an integration newly needing re-authorization (`needs_attention`) — or on an expired cursor; the three counts and `needs_attention` are reported on every answer, and a queue that holds what it held at the cursor does not end a wait. BatonDeck's `hasNews` ends a wait on new threads, calls, contact requests and agent-answered requests only: there, an integration newly needing re-authorization never ends one, and its change feed (`identity/watch.ts`) carries no held-address count. |
+| `wait_for_updates` | Blocks until something changes for the account and answers what moved since the caller's cursor. With `since` omitted it answers at once with a cursor and no backlog. `timeout_sec` is whole seconds from 1 to `WaitMaxSec` (25), which is also the default. The answer carries `threads`, `contact_requests`, `pending_requests`, `pending_addresses`, `calls`, `asks` (each ask or notice that moved: `ask_id`, `thread_id`, `status`, `at`; left out when none did), `needs_attention`, `calls_truncated`, `cursor_expired` and `timed_out`. A wait ends early on what happened since the cursor — a moved thread, a contact's call, an ask or notice that moved, a new contact request, a new agent-answered request, a contact newly held at a new address, an integration newly needing re-authorization (`needs_attention`) — or on an expired cursor; the three counts and `needs_attention` are reported on every answer, and a queue that holds what it held at the cursor does not end a wait. BatonDeck's `hasNews` ends a wait on new threads, calls, contact requests and agent-answered requests only, and the cloud has no owner asks: there, an integration newly needing re-authorization never ends one, and its change feed (`identity/watch.ts`) carries no held-address count. |
 | `digest` | Per contact in a window (default the last 24 hours): messages in and out, unread, whether their word was last, plus the three queue counts. |
 
 Resources: `hdtp://inbox` (unread count per administered account), `hdtp://requests` (contacts in
@@ -198,7 +212,9 @@ those the contact already holds) with `bad_request`, rather than dropping it and
 integrations, exposure, certificate), `lifecycle_test.go` (the contact lifecycle,
 `set_permissions`, invites), `address_test.go`, `claim_test.go`, `pending_test.go`,
 `review_test.go`, `revoke_failure_test.go`, `contactcap_test.go`, `wait_test.go`, `wake_test.go`, `delete_test.go`, `delete_divergence_test.go` (the wait does not report a deletion), `passkeys_test.go`,
-`hints_test.go` (the four hints of every tool on the wire, and as a client decodes them).
+`hints_test.go` (the four hints of every tool on the wire, and as a client decodes them),
+`asks_test.go` (an ask answered and read back, every refusal coded, a narrow token, the surface
+schema on the wire).
 
 ## What it does not do
 
