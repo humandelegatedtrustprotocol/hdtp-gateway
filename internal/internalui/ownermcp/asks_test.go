@@ -121,8 +121,8 @@ func TestAnAgentAsksItsOwnerAndReadsTheAnswer(t *testing.T) {
 	if listed, _ := callJSON(t, a.cs, "list_asks", map[string]any{"account_id": a.acctA, "thread_id": a.thread}); !strings.Contains(listed, v.ID) {
 		t.Fatalf("list_asks of its thread: %s", listed)
 	}
-	if listed, _ := callJSON(t, a.cs, "list_asks", map[string]any{"account_id": a.acctA, "thread_id": "0123456789abcdef0123456789abcdef"}); strings.Contains(listed, v.ID) {
-		t.Fatalf("list_asks of another thread: %s", listed)
+	if listed, isErr := callJSON(t, a.cs, "list_asks", map[string]any{"account_id": a.acctA, "thread_id": "0123456789abcdef0123456789abcdef"}); !isErr || !strings.Contains(listed, `"not_found"`) {
+		t.Fatalf("list_asks of a thread the account does not hold: %s, want not_found", listed)
 	}
 	cursor, _ := callJSON(t, a.cs, "wait_for_updates", map[string]any{"account_id": a.acctA})
 	var c struct{ Cursor int64 }
@@ -180,6 +180,8 @@ func TestEveryAskToolRefusesByCode(t *testing.T) {
 		"an unknown ask":          {"get_ask", map[string]any{"account_id": a.acctA, "ask_id": "ask_none"}, "not_found"},
 		"withdraw an unknown ask": {"withdraw_ask", map[string]any{"account_id": a.acctA, "ask_id": "ask_none"}, "not_found"},
 		"a status not offered":    {"list_asks", map[string]any{"account_id": a.acctA, "status": "answered"}, "bad_request"},
+		"list an unknown thread":  {"list_asks", map[string]any{"account_id": a.acctA, "thread_id": "0123456789abcdef0123456789abcdef"}, "not_found"},
+		"list an unknown contact": {"list_asks", map[string]any{"account_id": a.acctA, "contact_fpr": "sha256:nobody"}, "not_found"},
 		"withdraw elsewhere":      {"withdraw_ask", map[string]any{"account_id": "acct_none", "ask_id": "ask_none"}, "permission_denied"},
 		"list elsewhere":          {"list_asks", map[string]any{"account_id": "acct_none"}, "permission_denied"},
 		"get elsewhere":           {"get_ask", map[string]any{"account_id": "acct_none", "ask_id": "ask_none"}, "permission_denied"},

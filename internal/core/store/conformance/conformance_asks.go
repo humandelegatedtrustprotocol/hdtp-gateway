@@ -211,19 +211,6 @@ func asks(t *testing.T, newStore Factory) {
 		if got := ids(s.ListThreadOwnerAsks(ctx, a.ID, "t9", 10)); len(got) != 0 {
 			t.Fatalf("a thread with none: %v", got)
 		}
-		// The contact's newest open ask: ask_2 is withdrawn, so ask_1; none for another contact.
-		if got, err := s.GetContactOpenOwnerAsk(ctx, a.ID, "sha256:p"); err != nil || got.ID != "ask_1" {
-			t.Fatalf("GetContactOpenOwnerAsk: %+v %v, want ask_1", got, err)
-		}
-		if ok, err := s.InsertOwnerAsk(ctx, ask(a, "ask_4", "t2", "m4", 1005)); !ok || err != nil {
-			t.Fatal(ok, err)
-		}
-		if got, _ := s.GetContactOpenOwnerAsk(ctx, a.ID, "sha256:p"); got.ID != "ask_4" {
-			t.Fatalf("GetContactOpenOwnerAsk: %+v, want the newest, ask_4", got)
-		}
-		if _, err := s.GetContactOpenOwnerAsk(ctx, a.ID, "sha256:other"); !errors.Is(err, store.ErrNotFound) {
-			t.Fatalf("another contact's open ask: %v, want not found", err)
-		}
 	})
 
 	// A thread's asks and notices go with it, and with no other thread.

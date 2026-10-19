@@ -7,7 +7,8 @@
 //
 // A ready reply the owner chooses, or what they type in the ask's TextField, is sent to the contact
 // as the owner's own message, labelled human, through the node's send (SPEC §7.1); any message the
-// owner writes to that contact from the portal answers the contact's open ask too (OwnerSend). A
+// owner writes from the portal on the ask's thread answers it too (OwnerSend), and one on another
+// thread answers nothing. A
 // date, a time or a button answers without sending anything. An ask is open for Lifetime and then
 // expires; a notice stays. Neither leaves the node: HDTP's wire is untouched.
 package asks
@@ -270,12 +271,27 @@ type Filter struct {
 	Contact string
 }
 
-// List returns up to ListLimit of the account's asks and notices.
+// List returns up to ListLimit of the account's asks and notices. A thread the account does not
+// hold, or a contact it has neither a row nor a thread with, is not_found, never an empty list.
 func (s *Service) List(ctx context.Context, accountID string, f Filter) ([]View, error) {
 	if _, err := s.store.GetAccountByID(ctx, accountID); errors.Is(err, store.ErrNotFound) {
 		return nil, refusal.NotFound("no account by that id on this node", nil)
 	} else if err != nil {
 		return nil, err
+	}
+	if f.Thread != "" {
+		if _, err := s.store.GetThread(ctx, accountID, f.Thread); errors.Is(err, store.ErrNotFound) {
+			return nil, refusal.NotFound("no thread by that id on this account", nil)
+		} else if err != nil {
+			return nil, err
+		}
+	}
+	if f.Contact != "" {
+		if known, err := s.knows(ctx, accountID, f.Contact); err != nil {
+			return nil, err
+		} else if !known {
+			return nil, refusal.NotFound("no contact by that fingerprint on this account", nil)
+		}
 	}
 	var rows []store.OwnerAsk
 	var err error
@@ -302,6 +318,25 @@ func (s *Service) List(ctx context.Context, accountID string, f Filter) ([]View,
 		out = append(out, v)
 	}
 	return out, nil
+}
+
+// knows says the account has a contact row for fpr, or a thread with it (a contact since removed).
+func (s *Service) knows(ctx context.Context, accountID, fpr string) (bool, error) {
+	if _, err := s.store.GetContact(ctx, accountID, fpr); err == nil {
+		return true, nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return false, err
+	}
+	threads, err := s.store.ListThreadsByAccount(ctx, accountID)
+	if err != nil {
+		return false, err
+	}
+	for _, t := range threads {
+		if t.ContactFpr == fpr {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // CountOpen counts the account's open asks: the portal's badge.
@@ -459,14 +494,12 @@ func (s *Service) close(ctx context.Context, a store.OwnerAsk, line, res string)
 	return s.view(a, now.Unix()), nil
 }
 
-// OwnerSend is send for a message the owner writes from the portal: when the contact has an open
-// ask, the message goes to that ask's thread and answers it ("Ana wrote: …").
+// OwnerSend is send for a message the owner writes from the portal: it goes to the thread it was
+// sent on, and when that thread has an open ask, it answers it ("Ana wrote: …"). A message on
+// another thread with the contact answers nothing.
 func (s *Service) OwnerSend(send Send) Send {
 	return func(ctx context.Context, accountID, contactFpr string, in messaging.Input) (messaging.Result, error) {
-		a, ok := s.contactAsk(ctx, accountID, contactFpr)
-		if ok {
-			in.ThreadID = a.ThreadID
-		}
+		a, ok := s.threadAsk(ctx, accountID, contactFpr, in.ThreadID)
 		r, err := send(ctx, accountID, contactFpr, in)
 		if ok {
 			s.answeredBySending(ctx, a, err, "wrote", in.Text)
@@ -478,10 +511,7 @@ func (s *Service) OwnerSend(send Send) Send {
 // OwnerSendMedia is OwnerSend for a file ("Ana sent a file: …").
 func (s *Service) OwnerSendMedia(send SendMedia) SendMedia {
 	return func(ctx context.Context, accountID, contactFpr string, in messaging.Input, filename, mime string, data []byte) (messaging.Result, error) {
-		a, ok := s.contactAsk(ctx, accountID, contactFpr)
-		if ok {
-			in.ThreadID = a.ThreadID
-		}
+		a, ok := s.threadAsk(ctx, accountID, contactFpr, in.ThreadID)
 		r, err := send(ctx, accountID, contactFpr, in, filename, mime, data)
 		if ok {
 			s.answeredBySending(ctx, a, err, "sent a file", filename)
@@ -490,10 +520,14 @@ func (s *Service) OwnerSendMedia(send SendMedia) SendMedia {
 	}
 }
 
-// contactAsk is the contact's newest open ask, if it has one still in time.
-func (s *Service) contactAsk(ctx context.Context, accountID, contactFpr string) (store.OwnerAsk, bool) {
-	a, err := s.store.GetContactOpenOwnerAsk(ctx, accountID, contactFpr)
-	if err != nil || a.ExpiresAt <= s.now().Unix() {
+// threadAsk is the open ask of the thread with the contact a message goes to, if it has one still
+// in time. A message that starts a thread (no thread id) has none.
+func (s *Service) threadAsk(ctx context.Context, accountID, contactFpr, threadID string) (store.OwnerAsk, bool) {
+	if threadID == "" {
+		return store.OwnerAsk{}, false
+	}
+	a, err := s.store.GetOpenOwnerAsk(ctx, accountID, threadID)
+	if err != nil || a.ContactFpr != contactFpr || a.ExpiresAt <= s.now().Unix() {
 		return store.OwnerAsk{}, false
 	}
 	return a, true
@@ -604,12 +638,16 @@ func (s *Service) ExpireDue(ctx context.Context) (int, error) {
 		if err != nil {
 			return n, err
 		}
+		expired := 0
 		for _, a := range due {
 			if s.expire(ctx, a, now).Status == StatusExpired {
-				n++
+				expired++
 			}
 		}
-		if len(due) < sweepBatch {
+		n += expired
+		// A full batch is followed by the next, unless none of it expired (every write failed): the
+		// next read would be the same rows, so this pass ends and the next minute's sweep tries again.
+		if len(due) < sweepBatch || expired == 0 {
 			return n, nil
 		}
 	}

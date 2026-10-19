@@ -40,15 +40,6 @@ func (s *Postgres) GetOpenOwnerAsk(ctx context.Context, accountID, threadID stri
 	return ownerAskFromRow(sqlitedb.OwnerAsk(r)), nil
 }
 
-// GetContactOpenOwnerAsk returns the newest open ask of any thread with the contact, or ErrNotFound.
-func (s *Postgres) GetContactOpenOwnerAsk(ctx context.Context, accountID, contactFpr string) (OwnerAsk, error) {
-	r, err := s.q.GetContactOpenOwnerAsk(ctx, pgdb.GetContactOpenOwnerAskParams{AccountID: accountID, ContactFpr: contactFpr})
-	if err != nil {
-		return OwnerAsk{}, err
-	}
-	return ownerAskFromRow(sqlitedb.OwnerAsk(r)), nil
-}
-
 // ListOwnerAsks returns up to limit of the account's asks and notices, newest first.
 func (s *Postgres) ListOwnerAsks(ctx context.Context, accountID string, limit int) ([]OwnerAsk, error) {
 	return pgOwnerAsks(s.q.ListOwnerAsks(ctx, pgdb.ListOwnerAsksParams{AccountID: accountID, Limit: pgLimit(limit)}))

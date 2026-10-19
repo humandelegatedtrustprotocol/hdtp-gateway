@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -380,6 +381,45 @@ func TestAnAskExpiresOnTheClock(t *testing.T) {
 	}
 }
 
+// A pass of the sweep that expires none of a full batch (every write failed) ends: it does not read
+// the same rows again and again.
+func TestASweepThatExpiresNothingEnds(t *testing.T) {
+	r := newRig(t)
+	failing := &failingExpiry{Store: r.st}
+	svc := New(failing, nil, nil, func(string, string, string) {}, func(string, string, string) {})
+	done := make(chan struct{})
+	var n int
+	var err error
+	go func() { n, err = svc.ExpireDue(context.Background()); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("the sweep was still going after %d reads of a batch it could not expire", failing.lists.Load())
+	}
+	if n != 0 || err != nil || failing.lists.Load() != 1 {
+		t.Fatalf("expired %d (%v) over %d reads, want 0 over 1", n, err, failing.lists.Load())
+	}
+}
+
+// failingExpiry is a store with a full batch always due, none of which it can expire.
+type failingExpiry struct {
+	store.Store
+	lists atomic.Int64
+}
+
+func (f *failingExpiry) ListDueOwnerAsks(_ context.Context, _ int64, limit int) ([]store.OwnerAsk, error) {
+	f.lists.Add(1)
+	due := make([]store.OwnerAsk, limit)
+	for i := range due {
+		due[i] = store.OwnerAsk{AccountID: "acct_x", ID: fmt.Sprintf("ask_%d", i), Kind: KindAsk, Status: StatusOpen}
+	}
+	return due, nil
+}
+
+func (f *failingExpiry) ExpireOwnerAsk(context.Context, string, string, int64) (bool, error) {
+	return false, errors.New("the disk is full")
+}
+
 // A read before the sweep expires the ask too, once.
 func TestAReadExpiresADueAskOnce(t *testing.T) {
 	r := newRig(t)
@@ -399,9 +439,10 @@ func TestAReadExpiresADueAskOnce(t *testing.T) {
 	}
 }
 
-// A message the owner writes to the contact goes to the thread of their open ask, even when another
-// thread is newer, and answers it with what was written.
-func TestTheOwnersOwnMessageAnswersTheContactsOpenAsk(t *testing.T) {
+// A message the owner writes goes to the thread it was sent on, never another, and answers the open
+// ask of that thread alone: a message on a newer thread with the contact leaves the older thread's
+// ask open.
+func TestTheOwnersMessageAnswersTheOpenAskOfItsThreadAlone(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
 	v := r.ask(validAsks["the story's ask"])
@@ -415,11 +456,29 @@ func TestTheOwnersOwnMessageAnswersTheContactsOpenAsk(t *testing.T) {
 		return r.msg.Record(ctx, accountID, contactFpr, messaging.DirOut, in)
 	}
 	send := r.svc.OwnerSend(plain)
-	if _, err := send(ctx, r.account, bob, messaging.Input{MsgID: "ui-1", ThreadID: newer.ThreadID, Text: "Let me check my diary", Origin: messaging.OriginPortal}); err != nil {
+	// On the newer thread: it goes there, and the older thread's ask stays open.
+	if _, err := send(ctx, r.account, bob, messaging.Input{MsgID: "ui-0", ThreadID: newer.ThreadID, Text: "About the other thing", Origin: messaging.OriginPortal}); err != nil {
 		t.Fatal(err)
 	}
-	if len(routed) != 1 || routed[0].ThreadID != r.thread {
-		t.Fatalf("the owner's message went to %+v, want the ask's thread %s", routed, r.thread)
+	if len(routed) != 1 || routed[0].ThreadID != newer.ThreadID {
+		t.Fatalf("a message on the newer thread went to %+v, want %s", routed, newer.ThreadID)
+	}
+	if got, _ := r.svc.Get(ctx, r.account, v.ID); got.Status != StatusOpen {
+		t.Fatalf("a message on another thread answered the ask: %+v", got)
+	}
+	// A message that starts a thread answers nothing either.
+	if _, err := send(ctx, r.account, bob, messaging.Input{MsgID: "ui-n", Text: "A new topic", Origin: messaging.OriginPortal}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := r.svc.Get(ctx, r.account, v.ID); got.Status != StatusOpen || routed[1].ThreadID != "" {
+		t.Fatalf("a message starting a thread: %+v, routed %+v", got, routed[1])
+	}
+	// On the ask's own thread: it goes there and answers it with what was written.
+	if _, err := send(ctx, r.account, bob, messaging.Input{MsgID: "ui-1", ThreadID: r.thread, Text: "Let me check my diary", Origin: messaging.OriginPortal}); err != nil {
+		t.Fatal(err)
+	}
+	if routed[2].ThreadID != r.thread {
+		t.Fatalf("the owner's message went to %+v, want the ask's thread %s", routed[2], r.thread)
 	}
 	got, _ := r.svc.Get(ctx, r.account, v.ID)
 	if got.Status != StatusAnswered || got.AnswerText != `Ana wrote: "Let me check my diary"` {
@@ -429,8 +488,8 @@ func TestTheOwnersOwnMessageAnswersTheContactsOpenAsk(t *testing.T) {
 	if _, err := send(ctx, r.account, bob, messaging.Input{MsgID: "ui-2", ThreadID: newer.ThreadID, Text: "and another", Origin: messaging.OriginPortal}); err != nil {
 		t.Fatal(err)
 	}
-	if routed[1].ThreadID != newer.ThreadID {
-		t.Fatalf("with no open ask the message went to %s", routed[1].ThreadID)
+	if routed[3].ThreadID != newer.ThreadID {
+		t.Fatalf("with no open ask the message went to %s", routed[3].ThreadID)
 	}
 	// A send the node refused outright (not recorded) answers nothing.
 	v2, err := r.svc.Ask(ctx, r.account, newer.ThreadID, "m9", []byte(validAsks["the story's ask"]))
@@ -440,7 +499,7 @@ func TestTheOwnersOwnMessageAnswersTheContactsOpenAsk(t *testing.T) {
 	refusing := r.svc.OwnerSend(func(context.Context, string, string, messaging.Input) (messaging.Result, error) {
 		return messaging.Result{}, refusal.Conflict("not serving", nil)
 	})
-	if _, err := refusing(ctx, r.account, bob, messaging.Input{MsgID: "ui-3", Text: "x", Origin: messaging.OriginPortal}); err == nil {
+	if _, err := refusing(ctx, r.account, bob, messaging.Input{MsgID: "ui-3", ThreadID: newer.ThreadID, Text: "x", Origin: messaging.OriginPortal}); err == nil {
 		t.Fatal("the refusal was swallowed")
 	}
 	if got, _ := r.svc.Get(ctx, r.account, v2.ID); got.Status != StatusOpen {
@@ -448,19 +507,19 @@ func TestTheOwnersOwnMessageAnswersTheContactsOpenAsk(t *testing.T) {
 	}
 	// An ask past its time catches nothing: the message goes where it was sent.
 	r.clock = r.clock.Add(Lifetime)
-	if _, err := send(ctx, r.account, bob, messaging.Input{MsgID: "ui-4", ThreadID: r.thread, Text: "late", Origin: messaging.OriginPortal}); err != nil {
+	if _, err := send(ctx, r.account, bob, messaging.Input{MsgID: "ui-4", ThreadID: newer.ThreadID, Text: "late", Origin: messaging.OriginPortal}); err != nil {
 		t.Fatal(err)
 	}
-	if last := routed[len(routed)-1]; last.ThreadID != r.thread {
-		t.Fatalf("a message went to the expired ask's thread %s", last.ThreadID)
+	if last := routed[len(routed)-1]; last.ThreadID != newer.ThreadID {
+		t.Fatalf("a message on the expired ask's thread went to %s", last.ThreadID)
 	}
 	if got, _ := r.svc.Get(ctx, r.account, v2.ID); got.Status != StatusExpired || got.AnswerText != "" {
 		t.Fatalf("a message answered an expired ask: %+v", got)
 	}
 }
 
-// A file the owner sends the contact answers their open ask too, on its thread.
-func TestTheOwnersFileAnswersTheContactsOpenAsk(t *testing.T) {
+// A file the owner sends on the ask's thread answers it too; one sent on another thread does not.
+func TestTheOwnersFileAnswersTheOpenAskOfItsThread(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
 	v := r.ask(validAsks["the story's ask"])
@@ -469,7 +528,13 @@ func TestTheOwnersFileAnswersTheContactsOpenAsk(t *testing.T) {
 		thread = in.ThreadID
 		return r.msg.Record(ctx, accountID, contactFpr, messaging.DirOut, in)
 	})
-	if _, err := send(ctx, r.account, bob, messaging.Input{MsgID: "ui-f", Origin: messaging.OriginPortal}, "diary.pdf", "application/pdf", []byte("%PDF")); err != nil {
+	if _, err := send(ctx, r.account, bob, messaging.Input{MsgID: "ui-e", Origin: messaging.OriginPortal}, "elsewhere.pdf", "application/pdf", []byte("%PDF")); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := r.svc.Get(ctx, r.account, v.ID); thread != "" || got.Status != StatusOpen {
+		t.Fatalf("a file starting a thread went to %q and left the ask %+v", thread, got)
+	}
+	if _, err := send(ctx, r.account, bob, messaging.Input{MsgID: "ui-f", ThreadID: r.thread, Origin: messaging.OriginPortal}, "diary.pdf", "application/pdf", []byte("%PDF")); err != nil {
 		t.Fatal(err)
 	}
 	if thread != r.thread {
@@ -528,6 +593,7 @@ func TestAListNarrowsToOneThread(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
 	first := r.ask(validAsks["the story's ask"])
+	r.clock = r.clock.Add(time.Second)
 	other, err := r.msg.Record(ctx, r.account, bob, messaging.DirIn, messaging.Input{Origin: messaging.OriginPeer, Sender: messaging.SenderAgent, MsgID: "m7", Text: "another topic"})
 	if err != nil {
 		t.Fatal(err)
@@ -561,11 +627,32 @@ func TestAListNarrowsToOneThread(t *testing.T) {
 	if got := ids(Filter{Thread: other.ThreadID}); got != second.ID {
 		t.Fatalf("the other thread's: %s", got)
 	}
-	if got := ids(Filter{Thread: r.thread, Contact: "sha256:someone-else"}); got != "" {
-		t.Fatalf("a thread under another contact's filter: %s", got)
+	if got := ids(Filter{Contact: bob}); got != n.ID+","+second.ID+","+first.ID {
+		t.Fatalf("the contact's: %s", got)
 	}
-	if got := ids(Filter{Thread: "0123456789abcdef0123456789abcdef"}); got != "" {
-		t.Fatalf("a thread that is not there: %s", got)
+	// A thread or a contact the account does not know is not_found, never an empty list.
+	for name, f := range map[string]Filter{
+		"a thread that is not there":            {Thread: "0123456789abcdef0123456789abcdef"},
+		"a contact that is not there":           {Contact: "sha256:someone-else"},
+		"a thread under an unknown contact":     {Thread: r.thread, Contact: "sha256:someone-else"},
+		"an unknown thread, only the open ones": {Thread: "0123456789abcdef0123456789abcdef", Open: true},
+	} {
+		if l, err := r.svc.List(ctx, r.account, f); codeOf(err) != "not_found" {
+			t.Errorf("%s: %+v %v, want not_found", name, l, err)
+		}
+	}
+	// The controls: a contact with no asks lists none, and so does one whose row is gone but whose
+	// thread stays.
+	if _, err := r.st.InsertContact(ctx, store.Contact{AccountID: r.account, Fingerprint: "sha256:carol", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.st.InsertThread(ctx, store.Thread{ID: "fedcba9876543210fedcba9876543210", AccountID: r.account, ContactFpr: "sha256:dave", CreatedAt: 1, LastAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	for _, fpr := range []string{"sha256:carol", "sha256:dave"} {
+		if got := ids(Filter{Contact: fpr}); got != "" {
+			t.Fatalf("%s's: %s", fpr, got)
+		}
 	}
 }
 

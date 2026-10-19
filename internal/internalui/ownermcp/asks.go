@@ -85,14 +85,14 @@ var (
 		"and a Button's action.event.context reads those paths: pressing it is the answer (a ChoicePicker or a "+
 		"DateTimeInput read this way too). A ready reply or what they write is sent to the contact as the owner's "+
 		"message (labelled human) and answers the ask; a date, or a button that reads nothing, answers without "+
-		"sending. Any other message the owner sends that contact answers it too. One open ask per thread (conflict while "+
+		"sending. Any other message the owner sends on the thread answers it too. One open ask per thread (conflict while "+
 		"one is open); asking again about the same message answers the same ask. It expires after %s. Read the answer "+
 		"with get_ask: answer_text is one line (`Ana chose: \"Confirm Wed 15:00\"`); wait_for_updates lists it as it "+
 		"moves. At most %d bytes and %d components (too_large, bad_request).",
 		asks.Version, asks.MaxTLDRBytes, asks.MaxOptions, asks.Lifetime, asks.MaxSurfaceBytes, asks.MaxComponents)
 	noticeAbout = fmt.Sprintf("Tell your owner something done for them, as a card on the thread: an A2UI %s surface "+
 		"like ask_owner's with nothing to answer (Text and KeyValue only, no data model), a TLDR Text first. It does not "+
-		"expire and holds no thread; telling twice about one message is one notice.", asks.Version)
+		"expire, and it does not stop the thread holding an open ask; telling twice about one message is one notice.", asks.Version)
 )
 
 // AddAskTools registers the asks tools when the node serves asks (Extra.Asks).
@@ -116,7 +116,7 @@ func AddAskTools(s *mcp.Server, d Deps, e Extra, ident auth.Identity, allow func
 		Annotations: public.Hints(true, false, true, false)},
 		ot.getAskTool)
 	mcp.AddTool(s, &mcp.Tool{Name: "list_asks",
-		Description: fmt.Sprintf("This account's asks and notices, newest first, at most %d: each with its status and answer_text. status open lists the asks waiting on the owner; thread_id one thread's and contact_fpr one contact's, oldest first", asks.ListLimit),
+		Description: fmt.Sprintf("This account's asks and notices, newest first, at most %d: each with its status and answer_text. status open lists the asks waiting on the owner; thread_id one thread's and contact_fpr one contact's, newest first too; not_found for a thread or contact the account does not have", asks.ListLimit),
 		Annotations: public.Hints(true, false, true, false)},
 		ot.listAsksTool)
 }

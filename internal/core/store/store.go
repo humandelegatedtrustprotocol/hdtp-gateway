@@ -579,9 +579,6 @@ type AskStore interface {
 	GetOwnerAskFor(ctx context.Context, accountID, kind, threadID, forMsgID string) (OwnerAsk, error)
 	// GetOpenOwnerAsk returns the thread's open ask, or ErrNotFound.
 	GetOpenOwnerAsk(ctx context.Context, accountID, threadID string) (OwnerAsk, error)
-	// GetContactOpenOwnerAsk returns the newest open ask of any thread with the contact, or
-	// ErrNotFound.
-	GetContactOpenOwnerAsk(ctx context.Context, accountID, contactFpr string) (OwnerAsk, error)
 	// ListOwnerAsks returns up to limit of the account's asks and notices, newest first;
 	// ListOpenOwnerAsks its open asks alone, newest first; ListThreadOwnerAsks those of one
 	// thread and ListContactOwnerAsks those of every thread with one contact, newest first too, so a

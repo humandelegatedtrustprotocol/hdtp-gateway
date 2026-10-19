@@ -164,10 +164,17 @@ func TestTheAsksRoutesRefuseWhatTheyMustAndAnswerTheOwnersOwn(t *testing.T) {
 	if listed.code != http.StatusOK || listed.body["open"] != float64(1) || !strings.Contains(string(raw), ask.ID) || strings.Contains(string(raw), theirAsk.ID) {
 		t.Fatalf("the open list: %d %s", listed.code, raw)
 	}
-	for thread, want := range map[string]bool{ask.ThreadID: true, theirAsk.ThreadID: false} {
-		l := send(http.MethodGet, "/api/asks", as(mine.ID, "thread", thread), true, false)
-		if raw, _ := json.Marshal(l.body); l.code != http.StatusOK || strings.Contains(string(raw), ask.ID) != want || strings.Contains(string(raw), theirAsk.ID) {
-			t.Fatalf("the list of thread %s: %d %s", thread, l.code, raw)
+	if l := send(http.MethodGet, "/api/asks", as(mine.ID, "thread", ask.ThreadID), true, false); l.code != http.StatusOK || !strings.Contains(func() string { b, _ := json.Marshal(l.body); return string(b) }(), ask.ID) {
+		t.Fatalf("the list of its thread: %d %v", l.code, l.body)
+	}
+	// Another account's thread, or a contact the account does not know, is not found: never a list
+	// that is empty.
+	for name, q := range map[string]url.Values{
+		"another account's thread": as(mine.ID, "thread", theirAsk.ThreadID),
+		"an unknown contact":       as(mine.ID, "contact", "sha256:nobody"),
+	} {
+		if l := send(http.MethodGet, "/api/asks", q, true, false); l.code != http.StatusNotFound || l.body["error"] != "not_found" {
+			t.Fatalf("the list of %s: %d %v, want 404 not_found", name, l.code, l.body)
 		}
 	}
 	a := send(http.MethodPost, "/asks/"+ask.ID+"/answer", choose, true, true)
