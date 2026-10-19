@@ -23,6 +23,13 @@ changelog can be and is not summarized into a fictional release history.
   access to one (batondeck is private) sets `HDTP_ALLOW_MISSING_SIBLINGS=1`, and the hook prints
   first, one line each, the comparisons that will not run, then runs the gate without them.
 
+### Fixed
+
+- A ticked box on the portal's Settings page saved as false, so **Accept LAN connections** could
+  not be turned on there (#221): the box posts `1`, and the save stored `true` only for a posted
+  `true`. Every boolean knob is now read by one rule, `core.SettingTrue` (`true` or `1`), from the
+  environment, the store and the portal alike.
+
 ### Removed
 
 - The live-only portal scripts under `web/tools/` (`portal-live.mjs`, `portal-oauth-live.mjs`,

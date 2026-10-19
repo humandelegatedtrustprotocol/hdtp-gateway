@@ -50,7 +50,7 @@ func (c *Config) ApplyStoreSettings(values map[string]string) error {
 		case "client_cert":
 			c.ClientCert = ClientCert(v)
 		case "lan_connections":
-			b := v == "true" || v == "1"
+			b := SettingTrue(v)
 			c.lanExplicit = &b
 		case "limit.contacts":
 			c.LimitContacts = atoiOrZero(v)
@@ -127,6 +127,11 @@ func envFor(key string) string {
 	}
 	return ""
 }
+
+// SettingTrue is the one reading of a boolean knob's string, whatever wrote it: the environment
+// ("true" or "1"), the store, and the portal's checkbox, which posts "1" when ticked
+// (web/src/views/settings.tsx). Anything else, absence included, is false.
+func SettingTrue(v string) bool { return v == "true" || v == "1" }
 
 func boolStr(b bool) string {
 	if b {

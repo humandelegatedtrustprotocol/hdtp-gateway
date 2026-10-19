@@ -398,10 +398,9 @@ func (d SettingsDeps) postSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		value := strings.TrimSpace(r.PostForm.Get(key))
 		if settingMeta[key].kind == "bool" {
-			value = "false"
-			if r.PostForm.Get(key) == "true" {
-				value = "true"
-			}
+			// Stored as the resolver's own "true" or "false", read by the one rule the
+			// environment is read by: a ticked box posts "1".
+			value = strconv.FormatBool(core.SettingTrue(value))
 		}
 		// An ingress adapter without a completed pairing cannot start —
 		// refuse it here, where the owner can act, rather than at the next
