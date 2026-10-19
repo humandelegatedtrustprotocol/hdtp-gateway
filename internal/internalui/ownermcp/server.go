@@ -209,12 +209,12 @@ type DeleteThreadArgs struct {
 	ThreadID  string `json:"thread_id" jsonschema:"the thread to delete, as get_inbox names it"`
 }
 
-// SendArgs are send_to_contact's arguments. MsgID is the idempotency key. ThreadID is empty to
-// start a new thread; Topic is for that case only.
+// SendArgs are send_to_contact's arguments. MsgID is the idempotency key. ThreadID continues a
+// thread, and is empty to start a new one (HDTP §7); Topic is for that case only.
 type SendArgs struct {
 	AccountID  string `json:"account_id"`
 	ContactFpr string `json:"contact_fpr"`
-	ThreadID   string `json:"thread_id,omitempty"`
+	ThreadID   string `json:"thread_id,omitempty" jsonschema:"the thread to continue, as get_inbox lists it or a send answered it (ThreadID); none starts a new thread"`
 	MsgID      string `json:"msg_id"`
 	Text       string `json:"text"`
 	Topic      string `json:"topic,omitempty" jsonschema:"a new thread's topic, at most 256 bytes; refused for a thread that exists"`
@@ -366,7 +366,7 @@ func NewServerWithExtra(d Deps, e Extra, ident auth.Identity) *mcp.Server {
 		Annotations: public.Hints(false, true, true, false)},
 		ot.deleteThreadTool)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "send_to_contact", Description: "Send a message to a contact (labeled agent, SPEC §7.1)",
+	mcp.AddTool(s, &mcp.Tool{Name: "send_to_contact", Description: "Send a message to a contact, labeled agent (SPEC §7.1). A message without thread_id starts a new thread, under topic if one is given, so a reply or a follow-up names its thread: the thread_id get_inbox lists, or the ThreadID this tool answered for the thread's first message. A thread_id of another contact's thread is refused (bad_request) and nothing is recorded. Answers the message's ThreadID and Status",
 		Annotations: public.Hints(false, false, false, true)},
 		ot.sendToContactTool)
 
