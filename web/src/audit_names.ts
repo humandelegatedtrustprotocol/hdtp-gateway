@@ -197,7 +197,7 @@ const LOCATORS: Record<string, Kind> = {
 };
 
 /** The prefixes whose value is an opaque id, shown short with a copy button rather than in full. */
-const OPAQUE = new Set(["invite", "media", "thread", "request", "msg", "segment"]);
+const OPAQUE = new Set(["invite", "media", "thread", "request", "msg", "segment", "ask", "notice"]);
 
 /**
  * A row's `resource` (`account:<id> contact:<fpr> tool:send_message`), as parts: the ids a person
