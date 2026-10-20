@@ -103,6 +103,13 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Fixed
 
+- Saving the portal's Settings page on a node holding an identity that awaits its certificate (the
+  quickstart's state between `account create` and `account install-leaf`) answered "could not apply
+  seal: the node could not complete this" (#226), on every save, since the form posts every knob, and
+  an identity listed after the waiting one kept its old seal at the gate. The seal of an identity the
+  node does not serve is now written to its row, audited `settings_seal account:<id> not_served
+  <seal>`, and served once the identity is certified; the seal of an identity the store does not hold
+  is `not_found`.
 - An agent's ask was refused `invalid_surface:placed_twice` again and again when its model listed each
   Button's label Text in root's children as well as under the Button: nothing `tools/list` gives said a
   component is placed once. The surface's schema, the Column's and the Button's descriptions and

@@ -34,6 +34,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/messaging"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/tunnel"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
@@ -923,20 +924,24 @@ func (a *account) sealValue() core.Seal {
 // SetSeal changes an account's seal policy while the node serves: the gate and
 // the card both pick it up on the next call, with no restart (SPEC §8.2).
 // A mode that forces sealing wins, so the caller cannot lower it below what the
-// deployment can honor.
+// deployment can honor. An account the store holds and this process does not serve
+// takes it into its row alone (setSealUnserved); one the store does not hold is not found.
 func (n *Node) SetSeal(ctx context.Context, accountID string, want core.Seal) error {
 	n.mu.RLock()
 	a := n.accounts[accountID]
 	n.mu.RUnlock()
-	if a == nil {
-		return fmt.Errorf("node: unknown account %s", accountID)
-	}
 	// Persist the EFFECTIVE value, never the requested one. The row is what card
 	// emitters read and the cell is what the gate enforces; writing the raw
 	// request here would let a forced mode split them apart, which is the exact
 	// defect this method was introduced to close.
 	eff := core.EffectiveSeal(n.cfg.Mode, want)
+	if a == nil {
+		return n.setSealUnserved(ctx, accountID, eff)
+	}
 	if err := n.opts.Store.UpdateAccountSeal(ctx, accountID, string(eff)); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return refusal.NotFound("unknown account", err)
+		}
 		return err
 	}
 	a.seal.Store(eff)
@@ -954,6 +959,28 @@ func (n *Node) SetSeal(ctx context.Context, accountID string, want core.Seal) er
 	}
 	n.accountChanged(accountID, a.rec.Slug)
 	n.opts.auditAs("owner", "settings_seal", "account:"+accountID, string(a.sealValue()))
+	return nil
+}
+
+// setSealUnserved is SetSeal for an account the store holds and this process does not serve: one
+// awaiting its wallet's leaf, or one it could not open. There is no gate or card here to move. The
+// row takes the seal, so it never disagrees with the owner's setting, and whatever builds the
+// account next serves under it: adoption and a start read SealPolicy, another process's reload reads
+// the row, and a process that does serve it reloads it now. Refusing here failed every Settings save
+// on a node holding such an account, and stopped the apply before the accounts listed after it (#226).
+func (n *Node) setSealUnserved(ctx context.Context, accountID string, eff core.Seal) error {
+	rec, err := n.opts.Store.GetAccountByID(ctx, accountID)
+	if err == nil {
+		err = n.opts.Store.UpdateAccountSeal(ctx, accountID, string(eff))
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		return refusal.NotFound("unknown account", err)
+	}
+	if err != nil {
+		return err
+	}
+	n.accountChanged(rec.ID, rec.Slug)
+	n.opts.auditAs("owner", "settings_seal", "account:"+accountID+" not_served", string(eff))
 	return nil
 }
 
