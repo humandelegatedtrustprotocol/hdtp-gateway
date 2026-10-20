@@ -352,8 +352,8 @@ What follows from them, applied by the session:
 - N-PORTAL-RESTART probe (2026-10-20, Docker 29.8.2, Compose 5.6.0). On main's shape, the node owns the network namespace and the forwarder joins it, so stopping the node strands the forwarder (#256 reproduced). The orchestrator's ruling is shape B: a holder service, a `sleep` with `init` and `cap_drop: [ALL]`, owns the namespace, the published port and the `hdtp-gateway` alias, and the node and the portal both join it. In the probe, every node and portal path came back in 0.01–0.12 s. Only a by-hand restart of the holder itself strands both. cloud-init's override (the edge address) has to move with the new shape, so it ships in the post-tag N-RELEASE PR together with the default-tag bump. In this PR, deploy-check must validate the VM override against the compose.yaml of the templates' default tag. A Docker daemon restart was not observed; moby's restore loop was read instead.
 - N-PORTAL-RESTART is PR #263 (head a1a0e23). The post-tag N-RELEASE PR must also: move cloud-init's `edge` address to `node-network`, and write upgrade prose in docs/deploy.md, because a VM upgraded in place keeps its old override, which Compose refuses ("mutually exclusive network_mode and networks"). After the release, hdtp-docs needs `make refresh`, since step-by-step.md is generated from the quickstart.
 - N-IMAGE merged as #266. These go into the N-R1 release-prep commit, from #266's review:
-  - RELEASING.md:111-112: make the visibility step its own step after `gh release`, and drop "creates the package private" until N-R4 observes it;
-  - docs/quickstart.md:116: "again" is loose;
+  - RELEASING.md:71-72: make the visibility step its own step after `gh release`, and drop "creates the package private" until N-R4 observes it;
+  - docs/quickstart.md:115: "again" is loose;
   - docs/quickstart.md:31: the Docker/Compose versions, re-measured on the pull path at N-R6.
 
 ## Status, 2026-10-20 08:30
@@ -378,10 +378,10 @@ Merged:
 | A-README / A-R1 | agent #55 | cae056a |
 | owner tools fixture | batondeck #351 | ac4446e |
 
-An independent verification on 2026-10-20 checked the merges together. Node main 6c77582 passed `make check`, `make analyze` and `make sqlc-check`, and agent main cae056a passed `make check` (199 tests). The agent's owner-tools fixture is identical to node main's tools.
+An independent verification on 2026-10-20 checked the merges together. Node main 6c77582 passed `make check`, `make analyze` and `make sqlc-check`, and agent main cae056a passed `make check` (199 tests). The twelve owner tools the agent calls (its fixture, captured at 5b5a03b) match node main: the owner MCP has not changed since, apart from its README and one comment.
 
 Left:
 - N-R1 to N-R7: release prep, with the three #266 review nits; the tag; dist and sbom; the image push; the pull path observed; the gh release; the owner makes the packages public (Z5).
 - The post-tag PR: cloud-init, CFN and ARM pull and move to node-network; the default tag becomes v0.3.0; deploy.md gets upgrade prose.
 - A-R2 to A-R4: the agent's 0.1.0 tag, image and release.
-- After the release: hdtp-docs `make refresh`; hdtp-gateway-site index.html:298-299; the umbrella pointers, since the gitlinks still name hdtp-gateway 64e0f2f and batondeck 8dc0f9bc, and hdtp-gateway-agent is not yet a gitlink.
+- After the release: hdtp-docs `make refresh`; hdtp-gateway-site index.html:298-299; the umbrella pointers, since umbrella main's gitlinks still name hdtp-gateway 2170fda and batondeck 7a96313, and hdtp-gateway-agent is not yet a gitlink.

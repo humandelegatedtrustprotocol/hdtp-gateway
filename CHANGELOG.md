@@ -121,6 +121,9 @@ Nothing yet.
 
 ### Fixed
 
+- The owner MCP's `set_exposure` audited its rows, ok and error, as `integration:<id>` with no account,
+  so they fell outside every account's audit scope. Both now begin `account:<id> integration:<id>`, as
+  the portal's exposure rows do (`TestSetExposureAuditsUnderTheAccount`).
 - Saving the portal's Settings page on a node holding an identity that awaits its certificate (the
   quickstart's state between `account create` and `account install-leaf`) answered "could not apply
   seal: the node could not complete this" (#226), on every save, since the form posts every knob, and

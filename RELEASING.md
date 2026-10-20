@@ -85,8 +85,8 @@ rebuild a tag and compare.
    Linux binaries link (`github.com/vishvananda/netlink` among them); they are left as they were
    published.
 
-7. The package's visibility is the organisation owner's. After the first push of a version, check
-   it on the package's page, and make it public there for `docker compose up` to pull it without a
+7. The package's visibility is the organisation owner's. After the first push, check it on the
+   package's page, and make it public there for `docker compose up` to pull it without a
    login.
 
 ## Verifying a release you downloaded
