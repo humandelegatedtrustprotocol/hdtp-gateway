@@ -33,17 +33,18 @@ carry it inside their templates, Google Cloud and DigitalOcean render it with
    major 29 — the version the quickstart measured — by an apt preference;
 2. makes a service user, `hdtp`, in the `docker` group, owning `/opt/hdtp`;
 3. fetches this repository at one release tag into `/opt/hdtp` (the tag is a parameter; the
-   templates default to `v0.1.5`);
-4. vendors the limits sidecar's crates as `make limitd-vendor` does, in the Rust image the
-   `Dockerfile` builds the sidecar with, since the VM has no cargo;
-5. runs the shipped `compose.yaml` with an override beside it: the node told its public URL
-   (`HDTP_PUBLIC_URL=https://<hostname>`, so the Settings page shows it locked and `account csr`
-   knows the address), and **Caddy** published on 80, 443 and 443/udp with a certificate for the hostname
-   from its automatic HTTPS (Let's Encrypt or ZeroSSL), each request carried to the node's
-   listener over TLS. The compose build compiles the node (Go) and the sidecar (Rust) on the VM:
-   minutes, and not measured on any instance size, which is why the defaults have 4 GiB of memory or
-   more rather than 2;
-6. writes a login message: where the setup link is and how to open it.
+   templates default to `v0.3.0`);
+4. runs the tag's `compose.yaml` (`docker compose up -d`) with an override beside it. That
+   `compose.yaml` pulls the node and its limits sidecar as the published image,
+   `ghcr.io/humandelegatedtrustprotocol/hdtp-gateway` at the tag's version, which `make image`
+   builds for linux/amd64 and linux/arm64: nothing is compiled on the VM. The override tells the
+   node its public URL (`HDTP_PUBLIC_URL=https://<hostname>`, so the Settings page shows it locked
+   and `account csr` knows the address), and runs **Caddy** published on 80, 443 and 443/udp with
+   a certificate for the hostname from its automatic HTTPS (Let's Encrypt or ZeroSSL), each request
+   carried to the node's listener over TLS. Caddy reaches the node at the address the override
+   gives `node-network`, the service whose network the node runs in (`compose.yaml`). The defaults
+   have 4 GiB of memory or more; no instance size was measured;
+5. writes a login message: where the setup link is and how to open it.
 
 What the node gets from this, read from the code and not from the provider:
 
@@ -68,18 +69,26 @@ What the node gets from this, read from the code and not from the provider:
 - **The data is the VM's disk.** SQLite in the `hdtp-data` volume, Caddy's certificates in
   `caddy-data`. Nothing leaves the VM; nothing backs it up but you ([`docs/operations.md`](operations.md)).
 
-What was measured, on this machine rather than on a provider (Docker 29.8.2, Compose v5.5.1,
-2026-10-09): the shipped `compose.yaml` with the override and the Caddyfile this file writes, the
-hostname resolved to loopback and Caddy's internal CA standing in for ACME. The node started with
+What was measured, on a maintainer's machine rather than on a provider (Docker 29.8.2, Compose
+v5.6.0, linux/arm64, 2026-10-20): v0.3.0's `compose.yaml` with the override and the Caddyfile this
+file writes, the image `ghcr.io/humandelegatedtrustprotocol/hdtp-gateway:0.3.0` pulled (index
+`sha256:57e1e505fe5d394fd6634ee332500f577326854ef79b11b738c52ad3b1406d7b`, with linux/amd64 and
+linux/arm64 images), the hostname resolved to loopback, and Caddy's internal CA standing in for
+ACME. Three things differed from a VM: the Caddyfile was mounted from another directory than
+`/opt/hdtp`, it carried `tls internal`, and for `doctor`'s probe `node-network` carried an
+`extra_hosts` entry naming Caddy's address for the hostname. The node started with
 `public: https://<hostname>` and `mode=direct`; an identity was created, its request signed by the
 `hdtp` CLI and the chain installed; through Caddy, with the hostname as the server name, the
 reachability probe answered `200` with its nonce and the instance's URL, and `tools/list` on
 `/a/<slug>/mcp` answered the guest tier's tools; `doctor` then reported the leaf, the sidecar
-answering and the probe `wrong_cert`, as the bullet above says. Not measured: a provider's VM,
-the first boot's package and build steps, and a certificate from a public CA.
+answering and the probe `wrong_cert`, as the bullet above says. Before the identity existed, the
+node's log showed Caddy's connections arriving from Caddy's address on the edge network. Not
+measured: a provider's VM, the first boot's package steps, a pull without a registry login, and a
+certificate from a public CA.
 
-The node's sources and `compose.yaml` on the VM are the release tag's; the override and the
-Caddyfile are this file's, at the commit you deployed from. `docker compose` in `/opt/hdtp` reads
+The node's sources and `compose.yaml` on the VM are the release tag's, and the node is the image
+that `compose.yaml` names; the override and the Caddyfile are this file's, at the commit you
+deployed from. `docker compose` in `/opt/hdtp` reads
 both files and `.env` by itself.
 
 ## AWS
@@ -266,18 +275,69 @@ every login after that shows the message of the day with these steps.
 
 The templates create a VM, not a service. A new release is what the first boot ran
 (`deploy/cloud-init.yaml`), again, in `/opt/hdtp`, the data volume untouched: fetch and check out
-the tag, lay out the limits sidecar's crates for its offline build (a new tag can need other ones),
-and build and start. Logged in as the provider's user, with `Release` set to the tag you move to:
+the tag, write the override, and start, which pulls the image the tag's `compose.yaml` names.
+Logged in as the provider's user, with `Release` set to the tag you move to:
 
 ```
 Release=v1.2.3
 sudo runuser -l hdtp -c "cd /opt/hdtp && git fetch -q --depth 1 origin tag ${Release} && git checkout -q ${Release}"
-sudo docker run --rm -e CARGO_NET_GIT_FETCH_WITH_CLI=true -v /opt/hdtp:/src -w /src rust:1.92-alpine sh -ec 'apk add --no-cache git >/dev/null && rm -rf .build/limitd-vendor && mkdir -p .build/limitd-vendor && cargo vendor --locked --manifest-path cmd/hdtp-limitd/Cargo.toml .build/limitd-vendor/crates > .build/limitd-vendor/config.toml'
-sudo chown -R hdtp:hdtp /opt/hdtp/.build
-sudo runuser -l hdtp -c 'cd /opt/hdtp && docker compose build && docker compose up -d'
+sudo tee /opt/hdtp/compose.override.yaml >/dev/null <<'EOF'
+services:
+  hdtp-gateway:
+    environment:
+      HDTP_PUBLIC_URL: $HDTP_PUBLIC_URL
+      HDTP_PROXY_ADDRESS: 172.30.41.10
+
+  node-network:
+    networks:
+      edge:
+        ipv4_address: 172.30.41.20
+
+  caddy:
+    # Pinned by digest, the tag kept for the reader: `caddy:2-alpine` as resolved on
+    # 2026-10-09 (the multi-platform index; its images were built 2026-10-05).
+    image: caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      HDTP_HOSTNAME: $HDTP_HOSTNAME
+    volumes:
+      - /opt/hdtp/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      hdtp-gateway:
+        condition: service_started
+    networks:
+      edge:
+        ipv4_address: 172.30.41.10
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: 172.30.41.0/24
+
+volumes:
+  caddy-data:
+  caddy-config:
+EOF
+sudo runuser -l hdtp -c 'cd /opt/hdtp && docker compose up -d'
 ```
 
-`make deploy-check` holds these lines to the first boot's. Removing the stack, the resource group, the instance or the Droplet removes the disk and
-with it the node's keys, settings, contacts and audit trail; your wallet files are on your
+The override is the one `deploy/cloud-init.yaml` writes at this commit. A VM keeps the override of
+the commit it was deployed from, and the one written before the node ran in `node-network`'s network gives
+`hdtp-gateway` the edge address; from v0.3.0 on, `compose.yaml` gives `hdtp-gateway`
+`network_mode: service:node-network`, and Compose refuses the two together: ``service hdtp-gateway
+declares mutually exclusive `network_mode` and `networks`: invalid compose project``. A VM first
+booted before the move to the published image also keeps what its builds left, the vendored
+crates under `/opt/hdtp/.build` and the images Compose built; nothing runs them after the upgrade.
+
+`make deploy-check` holds these lines to the first boot's, the override byte for byte. An upgrade
+in place has not been run, on a provider's VM or elsewhere. Removing the stack, the resource group,
+the instance or the Droplet removes the disk and with it the node's keys, settings, contacts and audit trail; your wallet files are on your
 machine and your root is not on the node at all (the quickstart's [last
 section](quickstart.md#stopping-and-starting)).

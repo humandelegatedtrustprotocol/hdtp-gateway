@@ -10,7 +10,16 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- The cloud templates (`deploy/cloud-init.yaml` and its AWS and Azure copies, the Google Cloud and
+  DigitalOcean scripts) default to v0.3.0 and pull the published image where they built the node
+  and its sidecar on the VM: the first boot no longer vendors the sidecar's crates or runs
+  `docker compose build`. The override they write gives the edge address to `node-network`, the
+  service whose network the node runs in since v0.3.0; an override from before is refused by
+  Compose with v0.3.0's `compose.yaml`, and `docs/deploy.md`'s upgrade writes the new one before
+  the start. `make deploy-check` holds the default tag's `compose.yaml` to the image `make image`
+  pushes for that tag, and the upgrade's override to the first boot's byte for byte.
 
 ## [0.3.0] — 2026-10-20
 

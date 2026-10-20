@@ -1,11 +1,11 @@
 #cloud-config
 # One first boot for hdtp-gateway on a VM (docs/deploy.md). It installs Docker from Docker's own apt
 # repository held to one major, makes a service user, puts the node's sources at one release tag
-# under /opt/hdtp, vendors the limits sidecar's crates the way `make limitd-vendor` does (in a
-# container, since the VM has no cargo), and runs the shipped compose.yaml with an override beside
-# it: Caddy in front for TLS on the instance's hostname, the node told its public URL and which
-# address may name a caller. The portal stays on the VM's loopback, as in compose.yaml: the login
-# message says how to reach it.
+# under /opt/hdtp, and runs the shipped compose.yaml with an override beside it: the node and its
+# limits sidecar from the image that tag's compose.yaml pulls (ghcr.io, published by `make image`;
+# nothing is compiled on the VM), Caddy in front for TLS on the instance's hostname, the node told
+# its public URL and which address may name a caller. The portal stays on the VM's loopback, as in
+# compose.yaml: the login message says how to reach it.
 #
 # Two placeholders, Hostname and Release, each written between a dollar-brace and a brace, are
 # substituted by what carries this file (deploy/aws, deploy/azure, deploy/render-cloud-init.sh).
@@ -46,6 +46,9 @@ write_files:
   # Merged over the node's own compose.yaml by `docker compose` (it reads compose.override.yaml
   # beside compose.yaml by itself): Caddy published on 80 and 443, and the node on one private
   # network with it, at fixed addresses, so that HDTP_PROXY_ADDRESS names Caddy and nothing else.
+  # The node's network is node-network's (compose.yaml: the node runs in that service's network
+  # namespace, and Compose refuses a network on a service with a network_mode), so the node's
+  # address on the edge network is node-network's; the node's own settings stay on hdtp-gateway.
   - path: /opt/hdtp/compose.override.yaml
     permissions: "0644"
     content: |
@@ -54,6 +57,8 @@ write_files:
           environment:
             HDTP_PUBLIC_URL: $HDTP_PUBLIC_URL
             HDTP_PROXY_ADDRESS: 172.30.41.10
+
+        node-network:
           networks:
             edge:
               ipv4_address: 172.30.41.20
@@ -125,7 +130,7 @@ write_files:
       The portal is on this VM's loopback only. From your own machine, open an SSH tunnel
           ssh -L 8080:127.0.0.1:8080 <your login>@${Hostname}
       and then open the setup link, http://localhost:8080/setup?token=..., in your browser.
-      Until the first boot has finished building the node, the log is empty: `cloud-init status`
+      Until the first boot has pulled and started the node, the log is empty: `cloud-init status`
       says `done` when it has.
 
       EOF
@@ -149,11 +154,8 @@ runcmd:
   # The node's sources at the release tag, beside the files written above (nothing in the tree
   # has those names, so the checkout leaves them in place).
   - runuser -l hdtp -c 'cd /opt/hdtp && git init -q && git remote add origin https://github.com/humandelegatedtrustprotocol/hdtp-gateway.git && git fetch -q --depth 1 origin tag ${Release} && git checkout -q ${Release}'
-  # `make limitd-vendor`, in the Rust image the Dockerfile's sidecar stage builds with: the crates
-  # laid out under .build/limitd-vendor, which the compose build reads as the context `limitdvendor`.
-  - docker run --rm -e CARGO_NET_GIT_FETCH_WITH_CLI=true -v /opt/hdtp:/src -w /src rust:1.92-alpine sh -ec 'apk add --no-cache git >/dev/null && rm -rf .build/limitd-vendor && mkdir -p .build/limitd-vendor && cargo vendor --locked --manifest-path cmd/hdtp-limitd/Cargo.toml .build/limitd-vendor/crates > .build/limitd-vendor/config.toml'
-  - chown -R hdtp:hdtp /opt/hdtp/.build
-  # The build and the start. Minutes: the node in Go and the sidecar in Rust are compiled here.
-  - runuser -l hdtp -c 'cd /opt/hdtp && docker compose build && docker compose up -d'
+  # The start: `docker compose up -d` pulls the images the tag's compose.yaml and the override
+  # name (the node and its sidecar from ghcr.io, the forwarder, Caddy) and starts them.
+  - runuser -l hdtp -c 'cd /opt/hdtp && docker compose up -d'
 
 final_message: "hdtp-gateway: first boot finished after $UPTIME seconds. Log in and read the message of the day."
