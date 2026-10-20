@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -78,39 +79,68 @@ func TestQuickstartCommandsAreServedByTheImageAndCompose(t *testing.T) {
 	limitdHealthcheckAsksTheSidecar(t, "compose.yaml", at(readYAML(t, filepath.Join(root, "compose.yaml")), "services", "limitd"))
 }
 
-// The portal forwarder shares the node's network (network_mode service:hdtp-gateway), and after
-// `docker compose restart hdtp-gateway` it answered nothing until it was restarted too (#169). `restart: true` under its depends_on entry asks
-// Compose to restart it whenever Compose restarts the node (`docker compose restart hdtp-gateway`).
-// A restart the runtime makes (a crash, `docker restart`) does not go through Compose (#204): the
-// forwarder shares the node's process namespace too, so it dies with the node and its own restart
-// policy starts it again in the node's new network, and it holds no capabilities, so it cannot
-// signal or trace the node. Measured on Docker 29.8.2 on 2026-10-19 (docs/quickstart.md § 4).
-func TestThePortalForwarderRestartsWithTheNode(t *testing.T) {
-	root := repoRoot(t)
-	portal := at(readYAML(t, filepath.Join(root, "compose.yaml")), "services", "portal")
+// The node and the portal forwarder share one network, so the forwarder's 127.0.0.1 is the node's
+// loopback, where the portal binds. That network is held by node-network, a container that runs a
+// sleep and nothing else, and neither the node nor the forwarder owns it (#256). When the node owned
+// it, `docker compose stop hdtp-gateway` and then `start` left the portal answering nothing: the
+// forwarder, sharing the node's processes (#204), died with it, its one restart failed while the
+// node was down ("cannot join network namespace of a non running container") and Docker did not
+// try again. A container keeps the network it joined, so the holder must be the one container
+// nothing has a reason to restart, and Compose restarts both joiners whenever it restarts the holder
+// (`restart: true`). Measured on Docker 29.8.2 on 2026-10-20 (docs/quickstart.md § 4).
+func TestTheNodesNetworkOutlivesTheNodeAndTheForwarder(t *testing.T) {
+	doc := readYAML(t, filepath.Join(repoRoot(t), "compose.yaml"))
+	services, _ := at(doc, "services").(map[string]any)
+	holder := services["node-network"]
+	if holder == nil {
+		t.Fatal("compose.yaml has no node-network service holding the node's network")
+	}
 	for _, c := range []struct {
 		key  string
 		want any
 		why  string
 	}{
-		{"network_mode", "service:hdtp-gateway", "the node's portal binds the container's loopback, which only its own network reaches"},
-		{"pid", "service:hdtp-gateway", "after a crash or `docker restart` the forwarder keeps the node's old network, where nothing listens, unless it dies with the node"},
-		{"restart", "unless-stopped", "the forwarder that died with the node is started again only by its own restart policy"},
+		{"image", at(services, "init-data", "image"), "the holder runs the alpine compose already pins for init-data, and no other image"},
+		{"command", []any{"sleep", "infinity"}, "the holder runs nothing that can fail"},
+		{"init", true, "without an init as PID 1 the sleep ignores the stop signal"},
+		{"read_only", true, "the holder writes nothing"},
+		{"cap_drop", []any{"ALL"}, "the holder needs no capability"},
+		{"restart", "unless-stopped", "the holder comes back with Docker"},
+		{"ports", []any{"127.0.0.1:8080:8081"}, "the portal is published from the network's owner, on host loopback only (SPEC §8.3)"},
 	} {
-		if got := at(portal, c.key); got != c.want {
-			t.Errorf("compose.yaml: the portal's %s is %v, want %v: %s", c.key, got, c.want, c.why)
+		if got := at(holder, c.key); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("compose.yaml: node-network's %s is %v, want %v: %s", c.key, got, c.want, c.why)
 		}
 	}
-	if got, _ := at(portal, "cap_drop").([]any); !reflect.DeepEqual(got, []any{"ALL"}) {
-		t.Errorf("compose.yaml: the portal's cap_drop is %v, want [ALL]: it shares the node's processes, and its root must not signal or trace them", got)
+	if aliases, _ := at(holder, "networks", "default", "aliases").([]any); !slices.Contains(aliases, any("hdtp-gateway")) {
+		t.Errorf("compose.yaml: node-network's default network has aliases %v, want hdtp-gateway: ngrok, bore and a cloudflared route dial hdtp-gateway:8443", aliases)
 	}
-	dep := at(portal, "depends_on", "hdtp-gateway")
-	if dep == nil {
-		t.Fatal("compose.yaml: the portal service does not depend on hdtp-gateway")
+	for _, name := range []string{"hdtp-gateway", "portal"} {
+		svc := services[name]
+		if got := at(svc, "network_mode"); got != "service:node-network" {
+			t.Errorf("compose.yaml: %s's network_mode is %v, want service:node-network: the node's portal binds the loopback of the network both share", name, got)
+		}
+		if got := at(svc, "ports"); got != nil {
+			t.Errorf("compose.yaml: %s publishes %v; a container that joins another's network publishes nothing, node-network publishes the portal", name, got)
+		}
+		if got := at(svc, "restart"); got != "unless-stopped" {
+			t.Errorf("compose.yaml: %s's restart is %v, want unless-stopped: after a crash its restart policy brings it back into node-network's network", name, got)
+		}
+		if got := at(svc, "depends_on", "node-network", "restart"); got != true {
+			t.Errorf("compose.yaml: %s's depends_on.node-network.restart is %v, want true: after node-network restarts, a container that kept the old network answers nothing until it is restarted too", name, got)
+		}
 	}
-	if got := at(dep, "restart"); got != true {
-		t.Errorf("compose.yaml: the portal's depends_on.hdtp-gateway.restart is %v, want true: "+
-			"after `docker compose restart hdtp-gateway` the forwarder answers nothing until it is restarted too", got)
+	if got, _ := at(services, "portal", "cap_drop").([]any); !reflect.DeepEqual(got, []any{"ALL"}) {
+		t.Errorf("compose.yaml: the portal's cap_drop is %v, want [ALL]: it shares the node's network and needs no capability", got)
+	}
+	// Nothing joins the node's own namespaces: a container that did would be stranded by every stop
+	// of the node, which is #256.
+	for name, svc := range services {
+		for _, key := range []string{"network_mode", "pid", "ipc"} {
+			if got := at(svc, key); got == "service:hdtp-gateway" {
+				t.Errorf("compose.yaml: %s's %s is service:hdtp-gateway; a stop of the node strands it (#256)", name, key)
+			}
+		}
 	}
 }
 

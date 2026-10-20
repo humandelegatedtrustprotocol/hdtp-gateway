@@ -10,13 +10,16 @@
 // What it holds, and to what:
 //   - deploy/cloud-init.yaml: a cloud-config; its two placeholders and nothing else written as a
 //     dollar-brace; the compose override it writes names only services compose.yaml has plus
-//     caddy, sets the node only environment names internal/core/config.go reads, pins the Caddy
+//     caddy, gives a network only to a service that has no network_mode there (Compose refuses
+//     both), sets the node only environment names internal/core/config.go reads, pins the Caddy
 //     image by digest as compose.yaml pins its images, and puts Caddy at the one address the node
 //     is told to trust (HDTP_PROXY_ADDRESS); its Caddyfile dials the node's address and port, sets
 //     the header internal/public/listener.go reads the caller's address from and drops the one it
 //     reads a chain from; its runcmd fetches the release tag, vendors the sidecar's crates as the
 //     Makefile's limitd-vendor does, in the Rust image the Dockerfile builds the sidecar with, and
-//     holds Docker to the major docs/quickstart.md measured;
+//     holds Docker to the major docs/quickstart.md measured. The compose.yaml it is held to is the
+//     one a VM runs: the file at the release tag the templates default to (`git show <tag>:compose.yaml`),
+//     not this tree's, which the next release will carry;
 //   - deploy/aws/hdtp-gateway.cfn.json and deploy/azure/azuredeploy.json: the keys their formats
 //     require (the minimal schemas below, each from the provider's public reference, cited), the
 //     embedded cloud-init equal to the file byte for byte, every placeholder substituted from a
@@ -65,6 +68,14 @@ function realTree() {
   return {
     read: (p) => readFileSync(join(root, p), 'utf8'),
     exists: (p) => existsSync(join(root, p)),
+    // A file as a tag has it: what a VM that checks out that tag runs.
+    show: (ref, p) => {
+      try {
+        return execFileSync('git', ['show', `${ref}:${p}`], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+      } catch {
+        throw new Error(`git show ${ref}:${p} failed: is ${ref} a tag of this repository?`)
+      }
+    },
     tags: () => new Set(execFileSync('git', ['tag', '-l'], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean)),
   }
 }
@@ -91,6 +102,15 @@ export function check(tree) {
   const vendorDir = readConst(makefile, /^LIMITD_VENDOR := (.+)$/m, 'LIMITD_VENDOR')
   const rustTag = readConst(tree.read('Dockerfile'), /^FROM (rust:[^\s]+) AS limitd$/m, "the Dockerfile's limitd stage image")
   const dockerMajor = readConst(tree.read('docs/quickstart.md'), /Docker (\d+)\.\d+\.\d+/, 'the Docker version the quickstart measured')
+  // The compose.yaml a VM runs: the one at the tag the templates default to (the AWS template's
+  // default is the source, as below), which the override and the login message must fit.
+  let vmRelease = null
+  guard(CFN, () => { vmRelease = JSON.parse(tree.read(CFN)).Parameters?.Release?.Default })
+  const vmCompose = `${vmRelease}:${COMPOSE}`
+  const readVMCompose = () => {
+    if (!vmRelease) throw new Error('no default release tag, so no compose.yaml a VM runs')
+    return parseYAML(tree.show(vmRelease, COMPOSE), vmCompose)
+  }
 
   const text = tree.read(CLOUD_INIT)
   let ci = null
@@ -121,15 +141,19 @@ export function check(tree) {
     if (env.HDTP_HOSTNAME !== '${Hostname}') fail(CLOUD_INIT, '.env must set HDTP_HOSTNAME=${Hostname}: the name Caddy serves')
     if (!envNames.has('HDTP_PUBLIC_URL')) fail(CLOUD_INIT, 'the node no longer reads HDTP_PUBLIC_URL')
 
-    // The override, held to compose.yaml and to the node.
+    // The override, held to the release's compose.yaml and to the node.
     let override = null
     let compose = null
     guard(CLOUD_INIT, () => { override = parseYAML(files['/opt/hdtp/compose.override.yaml']?.content || '', 'compose.override.yaml') })
-    guard(COMPOSE, () => { compose = parseYAML(tree.read(COMPOSE), COMPOSE) })
+    guard(COMPOSE, () => { compose = readVMCompose() })
     const caddyfile = files['/opt/hdtp/caddy/Caddyfile']?.content || ''
     if (override && compose) {
       const known = new Set([...Object.keys(compose.services || {}), 'caddy'])
-      for (const s of Object.keys(override.services || {})) if (!known.has(s)) fail(CLOUD_INIT, `the override names a service compose.yaml has not got: ${s}`)
+      for (const s of Object.keys(override.services || {})) if (!known.has(s)) fail(CLOUD_INIT, `the override names a service ${vmCompose} has not got: ${s}`)
+      for (const [s, svc] of Object.entries(override.services || {})) {
+        const mode = compose.services?.[s]?.network_mode
+        if (svc?.networks && mode) fail(CLOUD_INIT, `the override gives ${s} a network, and ${vmCompose} gives it network_mode ${mode}: Compose refuses both on one service`)
+      }
       const node = override.services?.['hdtp-gateway']
       const caddy = override.services?.caddy
       if (!node || !caddy) fail(CLOUD_INIT, 'the override must configure hdtp-gateway and run caddy')
@@ -226,19 +250,23 @@ export function check(tree) {
     // The release goes into a single-quoted shell line of the cloud-init: anything but a tag breaks it.
     if (!s.includes('=~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ')) fail(RENDER, 'does not hold the release to a tag, ^v[0-9]+\\.[0-9]+\\.[0-9]+$')
   })
-  // The portal's published port, as compose.yaml publishes it: what the login message and the
+  // The portal's published port, as the release's compose.yaml publishes it (the one mapping of
+  // the forwarder's port 8081, on whichever service publishes it): what the login message and the
   // document tell the operator to tunnel and open.
   guard(COMPOSE, () => {
-    const published = String(parseYAML(tree.read(COMPOSE), COMPOSE).services?.['hdtp-gateway']?.ports?.[0] || '')
-    const m = published.match(/^127\.0\.0\.1:(\d+):\d+$/)
-    if (!m) throw new Error(`compose.yaml publishes the portal as ${JSON.stringify(published)}, not on host loopback`)
+    const all = Object.values(readVMCompose().services || {}).flatMap((svc) => (svc?.ports || []).map(String))
+    const mapped = all.filter((p) => /:8081$/.test(p))
+    if (mapped.length !== 1) throw new Error(`${vmCompose} publishes the forwarder's port 8081 ${mapped.length} times, not once: ${JSON.stringify(mapped)}`)
+    const published = mapped[0]
+    const m = published.match(/^127\.0\.0\.1:(\d+):8081$/)
+    if (!m) throw new Error(`${vmCompose} publishes the portal as ${JSON.stringify(published)}, not on host loopback`)
     const port = m[1]
     const motd = ci?.write_files?.find((f) => f.path === '/etc/update-motd.d/99-hdtp-gateway')?.content || ''
     for (const [file, s] of [[CLOUD_INIT, motd], [DOC, tree.read(DOC)]]) {
-      for (const want of [`http://localhost:${port}`, `ssh -L ${port}:127.0.0.1:${port}`]) if (!s.includes(want)) fail(file, `does not say ${want}: compose.yaml publishes the portal at ${published}`)
+      for (const want of [`http://localhost:${port}`, `ssh -L ${port}:127.0.0.1:${port}`]) if (!s.includes(want)) fail(file, `does not say ${want}: ${vmCompose} publishes the portal at ${published}`)
       for (const other of s.matchAll(/localhost:(\d+)|-L (\d+):127\.0\.0\.1:(\d+)/g)) {
         const found = other[1] || other[2]
-        if (found !== port || (other[3] && other[3] !== port)) fail(file, `names port ${found}; compose.yaml publishes the portal at ${published}`)
+        if (found !== port || (other[3] && other[3] !== port)) fail(file, `names port ${found}; ${vmCompose} publishes the portal at ${published}`)
       }
     }
   })
@@ -470,9 +498,11 @@ function selftest() {
   // The subset parser on the full parser's facts: compose.yaml as internal/integrationtest reads it.
   const compose = parseYAML(real.read(COMPOSE), COMPOSE)
   const facts = [
-    [Object.keys(compose.services).join(','), 'init-data,hdtp-gateway,limitd,portal,postgres,cloudflared,ngrok,bore'],
-    [compose.services['hdtp-gateway'].ports[0], '127.0.0.1:8080:8081'],
-    [compose.services.portal.network_mode, 'service:hdtp-gateway'],
+    [Object.keys(compose.services).join(','), 'init-data,hdtp-gateway,node-network,limitd,portal,postgres,cloudflared,ngrok,bore'],
+    [compose.services['node-network'].ports[0], '127.0.0.1:8080:8081'],
+    [compose.services['node-network'].networks.default.aliases.join(','), 'hdtp-gateway'],
+    [String(compose.services['node-network'].init), 'true'],
+    [compose.services.portal.network_mode, 'service:node-network'],
     [compose.services.limitd.command.join(' '), '-config /etc/hdtp-limitd/limits.json'],
     [compose.services.postgres.profiles[0], 'postgres'],
     [compose.services.postgres.environment.POSTGRES_PASSWORD, '${POSTGRES_PASSWORD:-}'],
@@ -537,6 +567,10 @@ function selftest() {
     edit(CLOUD_INIT, 'ssh -L 8080:127.0.0.1:8080 <your login>', 'ssh -L 9090:127.0.0.1:9090 <your login>', CLOUD_INIT, 'the login message tunnelling a port compose.yaml does not publish'),
     edit(RENDER, '=~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ', '== v[0-9]*.[0-9]*.[0-9]* ', RENDER, 'the release checked by a glob, which lets a quote through into the cloud-init'),
     edit('README.md', '](docs/deploy.md)', '](docs/deploying.md)', 'README.md', 'the README pointing nowhere'),
+    // The release's compose.yaml, which a VM runs, not this tree's.
+    edit(`${release}:${COMPOSE}`, '"127.0.0.1:8080:8081"', '"127.0.0.1:9090:8081"', CLOUD_INIT, "the release's compose.yaml publishing the portal on a port the login message does not tunnel"),
+    edit(`${release}:${COMPOSE}`, '\n  hdtp-gateway:\n', '\n  node:\n', CLOUD_INIT, "the override configuring a service the release's compose.yaml has not got"),
+    edit(`${release}:${COMPOSE}`, '\n  hdtp-gateway:\n', '\n  hdtp-gateway:\n    network_mode: "service:node-network"\n', CLOUD_INIT, "the override giving a network to a service the release's compose.yaml gives a network_mode"),
   ]
   // The two embedded copies drifting from the file, one line each: a change of one character.
   plants[plants.findIndex((p) => p.what === 'placeholder: set below')] = edit(CFN, '"#cloud-config",', '"#cloud-config ",', CFN, 'the embedded cloud-init drifting from the file')
@@ -550,6 +584,12 @@ function selftest() {
       read: (p) => {
         const s = real.read(p)
         if (p !== plant.file) return s
+        planted = true
+        return plant.apply(s)
+      },
+      show: (ref, p) => {
+        const s = real.show(ref, p)
+        if (`${ref}:${p}` !== plant.file) return s
         planted = true
         return plant.apply(s)
       },

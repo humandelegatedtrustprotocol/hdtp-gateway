@@ -9,8 +9,9 @@ the same image ([how](#how-the-pictures-were-made)); nothing in them is drawn or
 
 ## What you will have at the end
 
-- A **node**: containers for the HDTP node, its limits sidecar and the forwarder that puts the
-  owner's portal on `http://localhost:8080`, opened by a **passkey** and nothing else.
+- A **node**: containers for the HDTP node, its limits sidecar, the forwarder that puts the
+  owner's portal on `http://localhost:8080`, opened by a **passkey** and nothing else, and the
+  container that holds the network the node and the forwarder share.
 - An **address** other people's agents will reach you at, such as
   `https://alex.example.com/a/alex/mcp`.
 - An **identity** that is yours, not the node's: a root key in a wallet file on your machine, which
@@ -76,21 +77,29 @@ limitd-vendor: .build/limitd-vendor
 ```
 
 `docker compose up -d` builds two images from the `Dockerfile` (the node in Go, the sidecar in
-Rust, both on distroless) and starts four services: a one-shot `init-data` that hands the data
-volume to the node's user, `hdtp-gateway`, `limitd`, and `portal`, a forwarder that publishes the
-node's loopback portal on **your machine's loopback only**, `127.0.0.1:8080`. The first build
-downloads the Go and Rust base images and compiles both binaries; on the measuring machine those
-layers were already cached and the whole command took six seconds, ending:
+Rust, both on distroless) and starts five services: a one-shot `init-data` that hands the data
+volume to the node's user, `hdtp-gateway`, `limitd`, `node-network`, which holds the network the
+node and the forwarder share and publishes the forwarder's port, and `portal`, a forwarder that
+puts the node's loopback portal on **your machine's loopback only**, `127.0.0.1:8080`. The first
+build downloads the Go and Rust base images and compiles both binaries; on the measuring machine
+on 2026-10-20 those layers were already cached and the whole command took 3.3 seconds, ending:
 
 ```
- Container clean-hdtp-gateway-1 Started
- Container clean-portal-1 Starting
- Container clean-limitd-1 Started
- Container clean-portal-1 Started
+ Container npr-clean-node-network-1 Started
+ Container npr-clean-portal-1 Starting
+ Container npr-clean-init-data-1 Waiting
+ Container npr-clean-portal-1 Started
+ Container npr-clean-init-data-1 Exited
+ Container npr-clean-limitd-1 Starting
+ Container npr-clean-limitd-1 Started
+ Container npr-clean-init-data-1 Exited
+ Container npr-clean-hdtp-gateway-1 Starting
+ Container npr-clean-hdtp-gateway-1 Started
 ```
 
-(`clean` was the directory's name; yours will be `hdtp-gateway`.) The clone step itself was not
-measured against GitHub: the repository was not yet public when the guide was written (it has been
+(`npr-clean` was the project's name, given with `-p`, and an override moved the published port
+off 8080, which these lines do not show; yours will be `hdtp-gateway`, the directory's name.) The
+clone step itself was not measured against GitHub: the repository was not yet public when the guide was written (it has been
 since 2026-10-09), so the measuring clone was made from a local copy of the same commit.
 
 **Without Docker.** From v0.2.0 each release carries two binaries per platform (Linux and macOS,
@@ -195,15 +204,20 @@ needs the token, as the setting `tunnel.cloudflare.token` (or `TUNNEL_TOKEN` in 
 environment); without it that node stops at start with `serve: tunnel: cloudflare needs a tunnel
 token to run cloudflared`. The adapter is chosen under
 **Settings → Tunnel adapter** and takes effect at the next start: `docker compose restart
-hdtp-gateway`. The portal forwarder shares the node's network, and `compose.yaml` asks Compose to
-restart it whenever Compose restarts the node (`restart: true` under its `depends_on`). It shares the
-node's processes too (`pid: "service:hdtp-gateway"`), so when the node stops without Compose — a
-crash, or `docker restart` — the forwarder stops with it and its own restart policy starts it again
-in the node's new network; it holds no capabilities (`cap_drop: [ALL]`), so it cannot signal or read
-the node's processes. On Docker 29.8.2 on 2026-10-19 the portal answered `/healthz` 0.49 to 0.76 s
-after `docker restart` returned (four runs), and 0.51 s after an isolated crash (SIGTERM to the node); crashes seconds
-apart waited longer, up to 3.4 s for the third, because Docker doubles its restart delay for a
-container that keeps stopping. The portal's
+hdtp-gateway`. The node and the portal forwarder share one network, held by `node-network`, a
+container that runs nothing but a sleep, so a stop, a restart or a crash of either one leaves the
+other where it was, and each comes back by itself (#256). On Docker 29.8.2 on 2026-10-20 the portal
+answered `/healthz` within 0.17 s of the start of `docker compose restart hdtp-gateway` (one run); 0.01 s
+after `docker compose start hdtp-gateway` returned, following `docker compose stop hdtp-gateway`
+(three runs), and 0.02 s after it returned following a three-minute stop; 0.01 s after
+`docker restart` of the node returned (three runs); and 0.12 s after an isolated crash (SIGTERM to
+the node's PID 1, three runs). Crashes back to back waited longer, 0.22, 0.43 and 0.85 s, because
+Docker doubles its restart delay for a container that keeps stopping. `node-network` itself is
+restarted with `docker compose restart node-network`, which restarts the node and the forwarder
+after it (0.31 s to the first answer, one run). Restarted any other way (`docker restart`, or a stop and a
+start of it alone), it leaves both in its old network: the portal answers nothing, the node's own
+healthcheck still says healthy, and `docker compose up -d` does not repair it, but
+`docker compose restart node-network` does. A restart of the Docker daemon was not observed. The portal's
 cookie names come from the configuration file and the environment, never from a public URL saved
 on this page or one the adapter brings, so your portal session outlives the restart. Two stacks
 on one host with the same data path and portal bind therefore share cookie names, and signing in
@@ -461,7 +475,9 @@ hash-chained, refusals recorded as loudly as successes:
 ## Stopping and starting
 
 `docker compose stop` stops the containers and keeps the data volume; `docker compose start`
-brings the same node back, and `doctor` shows the same leaf. `docker compose down -v` removes the
+brings the same node back, and `doctor` shows the same leaf. The node alone stops and starts the
+same way (`docker compose stop hdtp-gateway`, then `docker compose start hdtp-gateway`), and the
+portal answers again as soon as it is up. `docker compose down -v` removes the
 containers **and the volume**: the node's keys, settings, contacts and audit trail. Your wallet
 files are on your machine and are untouched by either; your root is not on the node at all.
 
