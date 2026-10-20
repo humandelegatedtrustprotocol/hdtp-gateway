@@ -10,6 +10,10 @@ changelog can be and is not summarized into a fictional release history.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.0] — 2026-10-20
+
 ### Changed
 
 - `docker compose up` pulls the published image (SPEC §12.3), named by
