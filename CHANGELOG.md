@@ -43,6 +43,40 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Added
 
+- Outbound webhooks, ported from BatonDeck (#209). An owner registers an endpoint on the portal's
+  *Webhooks* page, the one door (no owner MCP tool or CLI command touches one). The page also
+  rotates, pauses, resumes and removes an endpoint, and shows its delivery log. The node posts
+  `message.received`, `message.delivered`, `message.failed`, `media.received`, `request.pending`,
+  `request.answered` and `call.made` (and the node's own `ask.answered` and `ask.expired`, below)
+  as the cloud's envelope (ids only, never content), signed in
+  the cloud's grammar under `X-HDTP-Signature`. Each event gets one attempt, never retried, with a
+  10 s timeout. 20 failures in a row pause the endpoint until the owner resumes it, and a rotated
+  secret stays accepted for 24 h. Unlike the cloud, `http://`, loopback, LAN and IP-literal URLs
+  are allowed, since only the owner can register one. The differences from the cloud are listed in
+  `internal/services/webhooks/README.md`.
+- The webhooks' parity with the cloud, held by `internal/services/webhooks/cloud_parity_test.go`,
+  which reads the sibling batondeck checkout. It checks:
+  - the subscribable names, less a named list the node does not emit, and a named list only the
+    node emits (`ask.answered`, `ask.expired`);
+  - each event's data, or a named subset of it;
+  - the envelope, the signature and the constants;
+  - the refusals the node shares with the cloud, in the cloud's words;
+  - the endpoint and delivery views.
+
+  Every difference the webhooks README lists is checked by that test, and the test fails on a
+  difference it checks that the README does not list.
+- README: "Wake your agent with a webhook", with a receiver's verifier in Go and a link to
+  hdtp-gateway-agent, a receiver written in TypeScript. The verifier is read out of the README and
+  run with `go run` against what the node signs, and the how-to's list of events is held to the
+  names the node sends (`readme_snippets_test.go`). The harness scenario
+  `TestAContactsMessageWakesTheOwnersAgentWithASignedWebhook` (`make harness`) runs one `serve`
+  process: the owner registers a receiver on loopback through the portal's `/webhooks/create`, a
+  contact sends a message, and the receiver gets a signed `message.received` and verifies it.
+- Migration 0006 indexes `webhook_deliveries` by `created_at` (#218), so the hourly retention pass
+  no longer reads the whole table: at a million rows (one account, one endpoint) its delete of one
+  hour's rows took 112 ms without the index and 6 ms with it on SQLite, and 70 ms and 1 ms on
+  PostgreSQL. `TestEveryQueryHasAPlan` counts `webhook_deliveries` as a growing table, and its
+  SQLite half fails without the index.
 - The owner MCP's `export_card` and the portal's `GET /api/card` give `display_name`, the card's
   name (its FN, the account's display name), so an agent can name its owner without reading the
   vCard.

@@ -2,7 +2,9 @@
 // (SPEC §8.5): it is stateless, so there is no stream to push on, and the bus
 // is explicitly "a hint, not the ledger" (§7.8).
 //
-// These two tools are how the agent finds out instead. `wait_for_updates` blocks until
+// These two tools are how the agent finds out over the owner MCP. (A webhook the owner
+// registered on the portal can wake it too: internal/services/webhooks posts one, not this
+// server.) `wait_for_updates` blocks until
 // something happens (or the timeout elapses) and answers with what changed since
 // the caller's cursor, so a loop is one call and a restart loses nothing.
 // `digest` answers the end-of-day question — what arrived, from whom, and what

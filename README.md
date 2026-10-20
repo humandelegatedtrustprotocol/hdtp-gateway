@@ -157,6 +157,84 @@ ready replies on the conversation and on the portal's Needs you page, and the re
 message in that one tap (SPEC §8.4). It requires named, revocable bearer tokens on
 every bind, loopback included.
 
+### Wake your agent with a webhook
+
+Rather than hold `wait_for_updates` open, your agent can be woken. On the portal, *Webhooks* →
+**Add an endpoint** takes the URL your agent listens on and the events it wants (none ticked means every one),
+and shows the endpoint's signing secret once. Only the node's owner registers one, so `http://`,
+`localhost`, a LAN name and an IP address are all fine: an agent on the same host or in the same
+compose project is the receiver this is for.
+
+Each event is one `POST` of a small JSON body. It carries ids, never a message's text or media:
+
+```json
+{"id":"evt_42","type":"message.received","created_at":1800000000000,
+ "identity":"<the account's id>","data":{"thread_id":"…","message_id":"…","from":"sha256:…"}}
+```
+
+The events are `message.received`, `media.received`, `message.delivered`, `message.failed`,
+`request.pending`, `request.answered` and `call.made`, with BatonDeck's names, envelope and
+signature grammar; only the headers' prefix differs (`X-HDTP-` where BatonDeck's is `X-BatonDeck-`).
+Two are the node's alone: `ask.answered` and `ask.expired`, when the owner answers an ask your agent
+put or it expires unanswered. `identity` is the account id every owner MCP tool takes: on
+`message.received`, call `read_thread` with it and `data.thread_id`; on `ask.answered`, `get_ask`
+with `data.ask_id`. The headers are
+`X-HDTP-Event-Id`, `X-HDTP-Event-Type`, `X-HDTP-Delivery` (the delivery log's row) and
+`X-HDTP-Signature: t=<seconds>,v1=<hex>`. The `v1` is the HMAC-SHA256, keyed by the whole secret
+(`whsec_` included), of `<t>.<the raw body>`. While a rotated secret is still accepted (24 hours)
+there are two `v1`s, the new one first, and either one is enough. Refuse a `t` more than 300
+seconds from your clock, or a captured delivery can be replayed for ever. In Go:
+
+```go
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// verify reports whether body, as it arrived, was signed by the node with secret.
+// header is the X-HDTP-Signature value.
+func verify(secret, header string, body []byte, now time.Time) bool {
+	var t string
+	var sigs []string
+	for _, part := range strings.Split(header, ",") {
+		switch k, v, _ := strings.Cut(strings.TrimSpace(part), "="); k {
+		case "t":
+			t = v
+		case "v1":
+			sigs = append(sigs, v)
+		}
+	}
+	ts, err := strconv.ParseInt(t, 10, 64)
+	if err != nil || now.Unix()-ts > 300 || ts-now.Unix() > 300 {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(t + "." + string(body)))
+	want := hex.EncodeToString(mac.Sum(nil))
+	for _, s := range sigs {
+		if hmac.Equal([]byte(s), []byte(want)) {
+			return true
+		}
+	}
+	return false
+}
+```
+
+Answer with a 2xx within 10 seconds. A delivery is attempted once and never retried, so a receiver
+that was down misses that event: have your agent call `get_inbox` (and `list_pending`) when it
+starts and now and then, and treat the webhook as the wake, not the record. Twenty failures in a row
+pause the endpoint until you resume it on the same page, which also shows each endpoint's delivery
+log. The node's tests compile and run the snippet above against what the node signs. A receiver in
+any other language follows the same grammar: the header, the HMAC over `<t>.<the raw body>`, the
+window.
+[hdtp-gateway-agent](https://github.com/humandelegatedtrustprotocol/hdtp-gateway-agent) is one,
+written in TypeScript: an open-source agent that the node's webhook wakes, and that answers contacts
+through the owner MCP.
+
 ### Decide what each contact may do
 
 Permissions are dotted and per-contact — `message.text`, `message.media`,

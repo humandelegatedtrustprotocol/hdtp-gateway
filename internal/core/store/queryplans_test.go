@@ -40,6 +40,7 @@ import (
 var growing = map[string]bool{
 	"messages": true, "threads": true, "contacts": true, "audit_events": true, "blobs": true,
 	"idempotency": true, "invites": true, "pending_requests": true, "move_fanout": true, "sessions": true,
+	"webhook_deliveries": true,
 }
 
 // Justified on BOTH engines, for the same reason on each.

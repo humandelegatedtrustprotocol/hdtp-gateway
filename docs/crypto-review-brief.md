@@ -142,7 +142,7 @@ node's `go.mod` requires (the tag `go/vX.Y.Z` names the Go module's version) bes
 
 ```
 cd hdtp-identity && cargo test                       # the Rust core against Appendix B
-cd hdtp-identity/go && make test                     # the Go port against the same vectors
+cd hdtp-identity/go && go test ./...                 # the Go port against the same vectors
 cd hdtp-identity && node js/check.mjs && node js/parity.mjs && node js/intrude.mjs
 make check                                           # this node, in this repository
 ```

@@ -48,6 +48,8 @@ CREATE TABLE webhook_deliveries (
     CONSTRAINT webhook_deliveries_status_check CHECK (status IN ('delivered', 'failed'))
 );
 CREATE INDEX webhook_deliveries_endpoint ON webhook_deliveries (account_id, endpoint_id, created_at);
+-- The retention pass deletes by created_at alone, across every account and endpoint (#218).
+CREATE INDEX webhook_deliveries_created ON webhook_deliveries (created_at);
 
 -- How far the dispatcher has read each identity's change log: the id of the last change it
 -- claimed. A claim moves the cursor from the id it read, so two node processes on one store never
