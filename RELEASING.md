@@ -68,8 +68,7 @@ rebuild a tag and compare.
    platforms took 372 s, the amd64 Go build 297.5 s and the amd64 sidecar build 137.8 s of it, the
    two running side by side; natively, on arm64, they took 47.9 s and 15.4 s. Without `PUSH=1` the image
    is kept in Docker's own store. The image carries the OCI labels `source` (this repository, which
-   links the package to it), `version`, `licenses` and `description`. The first push creates the
-   package private; making it public is the organisation owner's. Put the manifest digest
+   links the package to it), `version`, `licenses` and `description`. Put the manifest digest
    `imagetools inspect` prints in the release notes.
 
 6. Publish, with the notes taken from `CHANGELOG.md`:
@@ -85,6 +84,10 @@ rebuild a tag and compare.
    attached to v0.1.5 and before were made for the host alone and lack the eight modules only the
    Linux binaries link (`github.com/vishvananda/netlink` among them); they are left as they were
    published.
+
+7. The package's visibility is the organisation owner's. After the first push of a version, check
+   it on the package's page, and make it public there for `docker compose up` to pull it without a
+   login.
 
 ## Verifying a release you downloaded
 
