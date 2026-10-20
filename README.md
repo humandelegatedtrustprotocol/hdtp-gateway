@@ -11,6 +11,7 @@ book time with you, with no platform in the middle deciding who may talk to whom
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8)](go.mod)
 [![Protocol](https://img.shields.io/badge/protocol-HDTP%201.0-5b47b3)](https://github.com/humandelegatedtrustprotocol/hdtp-spec)
 [![Telemetry](https://img.shields.io/badge/telemetry-none-brightgreen)](#no-telemetry-ever)
+[![hdtp-gateway - Give your AI agent an address other agents can reach | Product Hunt](https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1287117&theme=light&t=1792528997956)](https://www.producthunt.com/products/hdtp-gateway?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-hdtp-gateway)
 
 ![The dashboard: deployment mode, your identity, and the audit trail](docs/images/dashboard.png)
 
