@@ -3,6 +3,7 @@ package ownermcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -313,6 +314,76 @@ func TestTheSurfaceSchemaOnTheWireIsTheCatalogs(t *testing.T) {
 	}
 	if found != 2 {
 		t.Fatalf("found %d of ask_owner and notify_owner", found)
+	}
+}
+
+// U1's dry run: every surface the agent's model wrote listed each Button's label Text in root's children
+// as well, and each was refused placed_twice; nothing it read said that a component goes in one place. What
+// it reads is what tools/list gives: the surface's schema and its $defs, and the tool's description.
+func TestTheAskToolsSayEachComponentIsPlacedOnce(t *testing.T) {
+	a := newAskEnv(t, owner)
+	tools, err := a.cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := 0
+	for _, tool := range tools.Tools {
+		kind := map[string]string{"ask_owner": asks.KindAsk, "notify_owner": asks.KindNotice}[tool.Name]
+		if kind == "" {
+			continue
+		}
+		found++
+		raw, _ := json.Marshal(tool.InputSchema)
+		type described struct {
+			Description string `json:"description"`
+		}
+		var in struct {
+			Properties map[string]described `json:"properties"`
+			Defs       map[string]described `json:"$defs"`
+		}
+		if err := json.Unmarshal(raw, &in); err != nil {
+			t.Fatal(err)
+		}
+		said := map[string]string{"the surface's schema": in.Properties["surface"].Description, "the Column": in.Defs["Column"].Description}
+		if kind == asks.KindAsk {
+			said["the Button"] = in.Defs["Button"].Description
+			said["the description"] = tool.Description
+		}
+		for where, text := range said {
+			if !strings.Contains(text, asks.PlacedOnce) {
+				t.Errorf("%s: %s does not say where a component goes: %q", tool.Name, where, text)
+			}
+		}
+		if kind == asks.KindAsk {
+			for _, c := range replyExample {
+				if !strings.Contains(tool.Description, c) {
+					t.Errorf("ask_owner's description does not show %s", c)
+				}
+			}
+		}
+	}
+	if found != 2 {
+		t.Fatalf("found %d of ask_owner and notify_owner", found)
+	}
+	// The example is a ready reply the node takes; its label listed in root's children as well, or the
+	// TextField as the Send's label, is what the node refuses.
+	example := strings.Replace(strings.Replace(askSurface,
+		`{"id":"r1-label","component":"Text","text":"Confirm Wed 15:00"}`, replyExample[1], 1),
+		`{"id":"r1","component":"Button","child":"r1-label","variant":"primary","action":{"event":{"name":"reply","context":{"reply":"Confirm Wed 15:00"}}}}`, replyExample[0], 1)
+	if example == askSurface {
+		t.Fatal("the example did not replace the story's first ready reply")
+	}
+	if _, err := asks.Parse([]byte(example), asks.KindAsk); err != nil {
+		t.Fatalf("the description's example is refused: %v", err)
+	}
+	for name, surface := range map[string]string{
+		"the label in root's children too":  strings.Replace(example, `"terms","r1"`, `"terms","r1-label","r1"`, 1),
+		"the TextField as the Send's label": strings.Replace(example, `"child":"send-label"`, `"child":"own"`, 1),
+	} {
+		var inv asks.Invalid
+		if _, err := asks.Parse([]byte(surface), asks.KindAsk); !errors.As(err, &inv) || inv.Rule != "placed_twice" {
+			t.Errorf("%s: %v, want placed_twice", name, err)
+		}
 	}
 }
 

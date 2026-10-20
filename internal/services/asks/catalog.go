@@ -64,6 +64,11 @@ const (
 // it sends that text to the contact as the owner's own message.
 const ReplyEvent = "reply"
 
+// PlacedOnce is where each component goes, as checkTree holds it (placed_twice, placed_nowhere,
+// root_placed, button_label), in the words the schema, the Column, the Button and ask_owner give it.
+const PlacedOnce = "Every component but root is placed exactly once: listed in root's children, or named as a Button's child, its label. " +
+	"Each Button, the Send too, has a label Text of its own as its child, and root's children do not list that Text."
+
 // The kinds of what a surface is for.
 const (
 	KindAsk    = "ask"
@@ -115,7 +120,7 @@ type component struct {
 
 // catalog is every component, in the order the schema lists them.
 var catalog = []component{
-	{name: "Column", about: "The root, and only the root (id \"root\"), first in the list: its children, top to bottom. The first is a Text, the TLDR, second in the list.",
+	{name: "Column", about: "The root, and only the root (id \"root\"), first in the list: its children, top to bottom. The first is a Text, the TLDR, second in the list. " + PlacedOnce,
 		props: []prop{{name: "children", kind: childrenProp, required: true, max: MaxComponents - 1, about: "The ids of the components under the root, in order."}}},
 	{name: "Text", about: "A line of text. The first child of root is the TLDR: what the owner needs to know, in at most " + strconv.Itoa(MaxTLDRBytes) + " bytes.",
 		props: []prop{
@@ -146,7 +151,7 @@ var catalog = []component{
 			{name: "max", kind: isoProp, about: "ISO 8601."},
 			{name: "label", kind: textProp, max: maxLabelBytes},
 		}},
-	{name: "Button", role: answers, about: "A button whose label is a Text (child). Pressing it answers the ask. A ready reply is a Button whose event is \"" + ReplyEvent + "\" and whose context is {reply: the reply's text}: one tap sends that text to the contact as the owner's own message. Any other Button answers with its context, each {path} read from the data model.",
+	{name: "Button", role: answers, about: "A button whose label is a Text (child), never a TextField. " + PlacedOnce + " Pressing it answers the ask. A ready reply is a Button whose event is \"" + ReplyEvent + "\" and whose context is {reply: the reply's text}: one tap sends that text to the contact as the owner's own message. Any other Button answers with its context, each {path} read from the data model.",
 		props: []prop{
 			{name: "child", kind: idProp, required: true, about: "The id of the Text that is its label."},
 			{name: "variant", kind: enumProp, enum: []string{"default", "primary", "borderless"}},
@@ -248,7 +253,7 @@ func SurfaceSchema(kind string) *jsonschema.Schema {
 				}},
 		}}
 	what := "An A2UI " + Version + " surface: a createSurface message naming catalogId " + CatalogID +
-		", then an updateComponents message for the same surfaceId. Its components list the root first, a Column of id \"root\", then the TLDR, the Text that is root's first child."
+		", then an updateComponents message for the same surfaceId. Its components list the root first, a Column of id \"root\", then the TLDR, the Text that is root's first child. " + PlacedOnce
 	prefix := []*jsonschema.Schema{create, update}
 	most := 2
 	if kind == KindAsk {

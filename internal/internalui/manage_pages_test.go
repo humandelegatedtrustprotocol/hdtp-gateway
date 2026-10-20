@@ -168,7 +168,7 @@ func TestInviteLifecyclePages(t *testing.T) {
 	// list shows the row
 	rr2 := httptest.NewRecorder()
 	mux.ServeHTTP(rr2, httptest.NewRequest("GET", "/api/invites?account="+acct, nil))
-	if !strings.Contains(rr2.Body.String(), `"Label":"party"`) || !strings.Contains(rr2.Body.String(), `"MaxUses":5`) {
+	if !strings.Contains(rr2.Body.String(), `"label":"party"`) || !strings.Contains(rr2.Body.String(), `"max_uses":5`) {
 		t.Fatalf("invites payload: %s", rr2.Body.String())
 	}
 	// #210: the answer is the fields the Invites page reads (people.tsx's type Invite), and no
@@ -202,6 +202,13 @@ func TestInviteLifecyclePages(t *testing.T) {
 	invs, _ := st.ListInvites(ctx, acct)
 	if len(invs) != 1 || !invs[0].AutoAccept {
 		t.Fatalf("invite row: %+v", invs)
+	}
+	// #225: each invite is the row the owner MCP's list_invites answers, from the one projection.
+	var sent struct {
+		Invites json.RawMessage `json:"invites"`
+	}
+	if want, err := json.Marshal(contacts.InviteRows(invs)); err != nil || json.Unmarshal(rr2.Body.Bytes(), &sent) != nil || string(sent.Invites) != string(want) {
+		t.Errorf("GET /api/invites sends %s; list_invites's rows are %s (%v)", sent.Invites, want, err)
 	}
 	// revoke
 	if rr := postForm(t, mux, "/invites/"+invs[0].ID+"/revoke?account="+acct, url.Values{}); rr.Code != http.StatusSeeOther {

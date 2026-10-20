@@ -12,6 +12,24 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Changed
 
+- **Breaking, owner MCP and portal answers** (one shape per operation, Building rule 1):
+  - `send_to_contact` answers `{status, message_id, thread_id}`, the cloud's `sendMessage`
+    answer, where it answered `messaging.Result` in Go's field names, `{ThreadID, Status}`, with no
+    message id; `message_id` is the `msg_id` the message was recorded under, the id `read_thread`,
+    the change log and the webhook envelope carry for it. A message recorded and not delivered is
+    a tool error carrying `code`, `detail`, `status`, `message_id` and `thread_id`, where it
+    carried `ThreadID` and `Status` (#234). A client that read `ThreadID` reads `thread_id`.
+  - `list_invites` answers `{invites: [...]}`, where it answered a bare array; each invite's id is
+    `id`, where it was `invite_id`, and `revoked_at` is null while the invite is live, where it was
+    left out (#225). `revoke_invite` still takes it as `invite_id`.
+  - The portal's `GET /api/invites` sends each invite in that same row (`contacts.InviteRow`), where
+    it sent Go's field names (`ID`, `Label`, `MaxUses`, …, `RevokedAt` 0 while live), and with the
+    invite's `permissions`, which the Invites page shows for an invite minted with a grant of its
+    own and no preset (#225). It is the cloud's invite row without `url` (this node keeps only the
+    token's hash) and with `permissions`, a divergence a test holds against the cloud's source.
+  - The resource `hdtp://thread/<id>` answers `read_thread`'s messages (each with its
+    `message_id`), where it answered the store's rows, `{thread, messages}` in Go's field names;
+    unlike `read_thread`, reading it marks nothing read (#223).
 - The pre-push hook needs the sibling checkouts its guards read: batondeck (the cloud's
   conformance battery and fixtures), hdtp-identity and hdtp-spec. It sets
   `HDTP_REQUIRE_SIBLINGS=1`, and a guard whose checkout is not found fails where it skipped; under a
@@ -58,6 +76,12 @@ changelog can be and is not summarized into a fictional release history.
   node does not serve is now written to its row, audited `settings_seal account:<id> not_served
   <seal>`, and served once the identity is certified; the seal of an identity the store does not hold
   is `not_found`.
+- An agent's ask was refused `invalid_surface:placed_twice` again and again when its model listed each
+  Button's label Text in root's children as well as under the Button: nothing `tools/list` gives said a
+  component is placed once. The surface's schema, the Column's and the Button's descriptions and
+  `ask_owner`'s now say that every component but root is placed exactly once, in root's children or as a
+  Button's label, a Text of its own that root's children do not list; `ask_owner`'s shows one ready reply
+  and its label as the example. The rule itself is unchanged.
 - A ticked box on the portal's Settings page saved as false, so **Accept LAN connections** could
   not be turned on there (#221): the box posts `1`, and the save stored `true` only for a posted
   `true`. Every boolean knob is now read by one rule, `core.SettingTrue` (`true` or `1`), from the
@@ -73,10 +97,13 @@ changelog can be and is not summarized into a fictional release history.
   not be loaded) answered `internal` on the owner MCP's `send_to_contact` and the portal (#207). It
   is now `conflict`, naming the identity's state, and an identity the store does not hold is
   `not_found`.
+- A fetch of a contact's link (the portal's `POST /media/fetch`) for an identity the node does not
+  serve answered 500 `internal` (#224). It is refused as a send is: 409 `conflict` for one awaiting
+  its certificate or not loaded, 404 `not_found` for one the store does not hold.
 - Every `send_to_contact` an agent made opened a new thread on both nodes (#232). A send without
   `thread_id` starts a new thread (HDTP §7, as the cloud's does), and nothing the tool said told its
   caller so: its description named no thread, and `thread_id` had no description. Both now say that
-  a reply or a follow-up names the `thread_id` `get_inbox` lists, or the `ThreadID` the send
+  a reply or a follow-up names the `thread_id` `get_inbox` lists, or the `thread_id` the send
   answered. What a send does is unchanged.
 - A sent message could be sent twice: once by the send and again by the retry sweep, which
   audited it `delivered` and then `delivered_on_retry` (#219). The sweep's list showed the message

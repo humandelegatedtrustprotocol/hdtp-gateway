@@ -74,15 +74,23 @@ func PutSchema(kind string) *jsonschema.Schema {
 // Draft is the JSON Schema dialect ask_owner's and notify_owner's input schemas are written in.
 const Draft = "https://json-schema.org/draft/2020-12/schema"
 
+// replyExample is one ready reply as ask_owner's description shows it: the Button, then the Text that is
+// its label, which root's children do not list.
+var replyExample = [2]string{
+	`{"id":"r1","component":"Button","child":"r1-label","action":{"event":{"name":"reply","context":{"reply":"Confirm Wed 15:00"}}}}`,
+	`{"id":"r1-label","component":"Text","text":"Confirm Wed 15:00"}`,
+}
+
 // askAbout and noticeAbout are the two tools' descriptions, their numbers read from the catalog.
 var (
 	askAbout = fmt.Sprintf("Ask your owner something only they can decide, as a card on the thread and on their Needs you page: "+
 		"an A2UI %s surface in the node's catalog (A2UI's basic components plus the node's KeyValue; the schema of surface) "+
 		"listing the root Column first and its first child, a one-line TLDR Text (at most %d bytes), second; then what "+
 		"they need to know (Text, KeyValue); then up to %d ready replies, each a Button whose action.event is "+
-		"{\"name\":\"reply\",\"context\":{\"reply\":\"<the text>\"}} so one tap sends it; and every ask ends with "+
+		"{\"name\":\"reply\",\"context\":{\"reply\":\"<the text>\"}} so one tap sends it, for example %s with its label "+
+		"%s, root's children listing \"r1\" and not \"r1-label\"; and every ask ends with "+
 		"their own message: root's last two children are a TextField for writing it, then the Button that sends it (not a "+
-		"ready reply; its context reads the TextField's path). An input binds its value to a {path} in the data model "+
+		"ready reply; its context reads the TextField's path; its label a Text of its own, not the TextField). %s An input binds its value to a {path} in the data model "+
 		"and a Button's action.event.context reads those paths: pressing it is the answer (a ChoicePicker or a "+
 		"DateTimeInput read this way too). A ready reply or what they write is sent to the contact as the owner's "+
 		"message (labelled human) and answers the ask; a date, or a button that reads nothing, answers without "+
@@ -90,7 +98,8 @@ var (
 		"one is open); asking again about the same message answers the same ask. It expires after %s. Read the answer "+
 		"with get_ask: answer_text is one line (`Ana chose: \"Confirm Wed 15:00\"`); wait_for_updates lists it as it "+
 		"moves. At most %d bytes and %d components (too_large, bad_request).",
-		asks.Version, asks.MaxTLDRBytes, asks.MaxOptions, asks.Lifetime, asks.MaxSurfaceBytes, asks.MaxComponents)
+		asks.Version, asks.MaxTLDRBytes, asks.MaxOptions, replyExample[0], replyExample[1], asks.PlacedOnce,
+		asks.Lifetime, asks.MaxSurfaceBytes, asks.MaxComponents)
 	noticeAbout = fmt.Sprintf("Tell your owner something done for them, as a card on the thread: an A2UI %s surface "+
 		"like ask_owner's with nothing to answer (Text and KeyValue only, no data model), a TLDR Text first. It does not "+
 		"expire, and it does not stop the thread holding an open ask; telling twice about one message is one notice.", asks.Version)

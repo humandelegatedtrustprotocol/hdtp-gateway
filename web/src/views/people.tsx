@@ -20,15 +20,17 @@ type Pending = { fingerprint: string; display_name: string; via_invite?: boolean
 type Address = { root: string; name?: string; pinned_endpoint?: string; endpoint: string; why: string; at: number };
 type RequestsData = { pending: Pending[] | null; addresses: Address[] | null; presets: string[] };
 
+// The row the owner MCP's list_invites answers too (contacts.InviteRow): revoked_at is null while
+// the invite is live, and permissions is the grant a redemption gives.
 type Invite = {
-  ID: string; Label: string; MaxUses: number; Uses: number;
-  AutoAccept: boolean; Preset: string; RevokedAt: number; ExpiresAt: number;
+  id: string; label: string; preset: string; uses: number; max_uses: number;
+  auto_accept: boolean; permissions: string[]; expires_at: number; revoked_at: number | null;
 };
 type InvitesData = { invites: Invite[] | null; presets: string[]; public_url: string };
 
 /** An invite's facts as words.ts's inviteState reads them: the node's times are unix seconds. */
 function inviteFacts(x: Invite) {
-  return { revoked: x.RevokedAt !== 0, expiresAt: x.ExpiresAt * 1000, uses: x.Uses, maxUses: x.MaxUses };
+  return { revoked: x.revoked_at !== null, expiresAt: x.expires_at * 1000, uses: x.uses, maxUses: x.max_uses };
 }
 
 type Tab = "contacts" | "requests" | "invites";
@@ -356,20 +358,21 @@ function InvitesTab({ d, reload, onNote }: {
       )}
       <Table head={["Label", { label: "Uses", num: true }, "Preset", "Expires", "State", ""]} empty={<EmptyState title="No invites yet" />}>
         {(d.invites ?? []).map((x) => { const state = inviteState(inviteFacts(x)); return (
-          <tr key={x.ID}>
-            <td>{x.Label ? <span className="name" title={x.Label}>{x.Label}</span> : <span className="muted">—</span>}</td>
-            <td className="num">{usesText(x.Uses, x.MaxUses)}</td>
-            <td>{x.Preset}</td>
-            <td title={whenTitle(x.ExpiresAt * 1000)}>{x.ExpiresAt * 1000 > Date.now() ? ago(x.ExpiresAt * 1000) : dateOf(x.ExpiresAt * 1000)}</td>
+          <tr key={x.id}>
+            <td>{x.label ? <span className="name" title={x.label}>{x.label}</span> : <span className="muted">—</span>}</td>
+            <td className="num">{usesText(x.uses, x.max_uses)}</td>
+            {/* An invite minted with a grant of its own (the owner MCP's create_invite) names no preset. */}
+            <td>{x.preset || x.permissions.join(", ")}</td>
+            <td title={whenTitle(x.expires_at * 1000)}>{x.expires_at * 1000 > Date.now() ? ago(x.expires_at * 1000) : dateOf(x.expires_at * 1000)}</td>
             {/* `used up` is not a refusal and not a fault: neutral. Auto-accept is a fact about how the invite
                 works, so it is said under its state rather than in a column of its own. */}
-            <td><Badge status={state} tone={state === "used_up" ? "neutral" : undefined} />{x.AutoAccept && <span className="cell-note">auto‑accept</span>}</td>
+            <td><Badge status={state} tone={state === "used_up" ? "neutral" : undefined} />{x.auto_accept && <span className="cell-note">auto‑accept</span>}</td>
             <td>
               {/* Only a live invite has anything left to revoke: redemption already refuses the rest. */}
               {state === "live" && (
                 <Toolbar>
                   <Button variant="quiet" onClick={async () => {
-                    await postForm(`/invites/${encodeURIComponent(x.ID)}/revoke`, {});
+                    await postForm(`/invites/${encodeURIComponent(x.id)}/revoke`, {});
                     reload();
                   }}>
                     Revoke
