@@ -30,6 +30,7 @@ import (
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/limits/limitstest"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/outbound"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/public"
+	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/refusal"
 	"github.com/humandelegatedtrustprotocol/hdtp-gateway/internal/testid"
 	hdtpidentity "github.com/humandelegatedtrustprotocol/hdtp-identity/go"
 )
@@ -951,6 +952,57 @@ func TestSetSealNoneRemovesSealedCallFromTheSurface(t *testing.T) {
 	}
 	if !listed() {
 		t.Fatal("sealed_call did not return with the policy")
+	}
+}
+
+// SetSeal of an identity the store holds and this node does not serve (one awaiting its wallet)
+// writes its row and audits it as not served, without serving it; one the store does not hold is
+// not found. It used to answer "node: unknown account" with no code for both, which failed every
+// Settings save on a node holding an identity between `account create` and its leaf (#226). The
+// served identity is the control that must take the seal live.
+func TestSetSealOfAnAccountNotServedWritesItsRowAndAnUnknownOneIsNotFound(t *testing.T) {
+	ctx := context.Background()
+	e, accts := newEnv(t, "alice")
+	n, err := New(ctx, e.options())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := e.idm.CreateAccount(ctx, "bob", "BOB", identity.AlgoP256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := n.SetSeal(ctx, bob.ID, core.SealNone); err != nil {
+		t.Fatalf("the seal of an identity awaiting its wallet: %v", err)
+	}
+	if row, err := e.st.GetAccountByID(ctx, bob.ID); err != nil || row.Seal != string(core.SealNone) {
+		t.Fatalf("its row: seal %q, %v; want none", row.Seal, err)
+	}
+	if _, err := n.Card(ctx, bob.ID); !errors.Is(err, identity.ErrNoCertificate) {
+		t.Fatalf("setting its seal served it: card %v", err)
+	}
+	if err := n.SetSeal(ctx, "nonesuch", core.SealNone); err == nil {
+		t.Fatal("the seal of an identity the store does not hold was set")
+	} else if code, detail := refusal.Of(err); code != "not_found" || detail != "unknown account" {
+		t.Fatalf("an unknown identity: %s %q (%v), want not_found", code, detail, err)
+	}
+	if err := n.SetSeal(ctx, accts[0].ID, core.SealNone); err != nil {
+		t.Fatal(err)
+	}
+	if got := n.accounts[accts[0].ID].sealValue(); got != core.SealNone {
+		t.Fatalf("the served identity's gate: %s, want none", got)
+	}
+	e.mu.Lock()
+	rows := append([]string(nil), e.rows...)
+	e.mu.Unlock()
+	want := []string{"settings_seal account:" + bob.ID + " not_served none", "settings_seal account:" + accts[0].ID + " none"}
+	var got []string
+	for _, r := range rows {
+		if strings.HasPrefix(r, "settings_seal ") {
+			got = append(got, r)
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("seal audit rows %q, want %q", got, want)
 	}
 }
 

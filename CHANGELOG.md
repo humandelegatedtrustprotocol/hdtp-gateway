@@ -117,6 +117,13 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Fixed
 
+- Saving the portal's Settings page on a node holding an identity that awaits its certificate (the
+  quickstart's state between `account create` and `account install-leaf`) answered "could not apply
+  seal: the node could not complete this" (#226), on every save, since the form posts every knob, and
+  an identity listed after the waiting one kept its old seal at the gate. The seal of an identity the
+  node does not serve is now written to its row, audited `settings_seal account:<id> not_served
+  <seal>`, and served once the identity is certified; the seal of an identity the store does not hold
+  is `not_found`.
 - An agent's ask was refused `invalid_surface:placed_twice` again and again when its model listed each
   Button's label Text in root's children as well as under the Button: nothing `tools/list` gives said a
   component is placed once. The surface's schema, the Column's and the Button's descriptions and
@@ -127,11 +134,19 @@ changelog can be and is not summarized into a fictional release history.
   not be turned on there (#221): the box posts `1`, and the save stored `true` only for a posted
   `true`. Every boolean knob is now read by one rule, `core.SettingTrue` (`true` or `1`), from the
   environment, the store and the portal alike.
-- After a crash or a `docker restart` of the node, the compose portal answered nothing until its
-  forwarder was restarted by hand (#204): a restart Compose does not make kept the forwarder in the
-  node's old network. The forwarder now shares the node's processes as well (`pid:
-  "service:hdtp-gateway"`, with `cap_drop: [ALL]`), so it stops with the node and its restart policy
-  brings it back; the portal answered in under 1 s after either (0.49 to 0.76 s, five runs).
+- The compose portal answered nothing after a crash or a `docker restart` of the node (#204), and
+  after `docker compose stop hdtp-gateway` and then `start`, however long the stop (#256), until its
+  forwarder was restarted by hand or `docker compose up` was run. The forwarder joined the node's
+  network: a restart Compose does not make kept it in the old one, and once it shared the node's
+  processes to escape that, a stop of the node took it down and its one restart failed ("cannot
+  join network namespace of a non running container"), which Docker does not retry. The network
+  now belongs to `node-network`, a container that runs only a sleep (`alpine:3.20`, read-only, no
+  capabilities), which publishes the portal on host loopback as before and carries the name
+  `hdtp-gateway` on the compose network; the node and the forwarder both join it. On Docker 29.8.2
+  the portal answered 0.02 s after `docker compose start hdtp-gateway` returned following a
+  three-minute stop, and 0.12 s after a crash. `docker compose up -d` moves a running stack to this
+  shape. Restart `node-network` with `docker compose restart node-network` only: restarted any
+  other way it leaves the node and the forwarder in its old network (docs/quickstart.md § 4).
 - `GET /api/invites` sent the stored invite rows, each invite's token hash included (#210). It
   now sends the fields the Invites page reads and no others.
 - A send from an identity the node does not serve (one awaiting its certificate, or one that could
