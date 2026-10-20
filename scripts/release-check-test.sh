@@ -2,7 +2,9 @@
 # Runs this checkout's `make dist` against fixture repositories, with no network and nothing
 # published: refused on a dirty tree (untracked file, modified file), on an untagged HEAD and on a
 # HEAD tagged with another version; passing on a clean checkout of the tag, with binaries that
-# record vcs.modified=false. Then the binary check alone: a build from a modified tree, a build
+# record vcs.modified=false. `make image` against the same fixtures and a stubbed docker: refused
+# on a dirty tree, an untagged HEAD and a compose.yaml that pulls another version; otherwise both
+# platforms, both tags and the version, --push only with PUSH=1. Then the binary check alone: a build from a modified tree, a build
 # with no VCS stamp and a build of another commit are each refused. The limits sidecar's part of
 # dist (limitd-vendor, scripts/limitd-dist.sh) runs against stubs of cargo, docker, rustup and
 # rustc, which record what they were asked: the assets it writes and SHA256SUMS lists, and its
@@ -36,6 +38,7 @@ fixture() {
   printf '[package]\nname = "hdtp-limitd"\n' > "$dir/cmd/hdtp-limitd/Cargo.toml"
   printf 'FROM rust:1.92-alpine AS limitd\n' > "$dir/Dockerfile"
   printf '/dist/\n/.build/\n' > "$dir/.gitignore"
+  printf 'services:\n  hdtp-gateway:\n    image: "${HDTP_IMAGE:-ghcr.io/humandelegatedtrustprotocol/hdtp-gateway:%s}"\n' "${COMPOSE_VERSION:-9.9.9}" > "$dir/compose.yaml"
   (cd "$dir" && g init -q && g add -A && g commit -q -m fixture && g tag -a v9.9.9 -m v9.9.9)
   echo "$dir"
 }
@@ -56,6 +59,7 @@ STUB
 cat > "$tmp/stub/docker" <<'STUB'
 #!/bin/sh
 echo "docker $*" >> "$STUB_LOG"
+[ "$1" = buildx ] && exit 0
 out= prev=
 for a in "$@"; do [ "$prev" = -v ] && case $a in *:/out) out=${a%:/out} ;; esac; prev=$a; done
 eval "script=\${$#}"
@@ -184,6 +188,52 @@ elif ! grep -q "not clean" "$tmp/out"; then
 else
   pass "sbom on an untracked file: refused"
 fi
+
+# image: the published image's build, against the stubbed docker (which builds and pushes nothing).
+# The control first: a clean checkout of the tag builds both platforms with the vendored crates and
+# the version, under both tags, and keeps it (--load) unless PUSH=1.
+image() {
+  : > "$STUB_LOG"
+  PATH=$tmp/stub:$PATH make -s -C "$1" -f "$makefile" image VERSION=9.9.9 ${2:+PUSH=$2} >"$tmp/out" 2>&1
+}
+want_build='^docker buildx build --platform linux/amd64,linux/arm64 --build-context limitdvendor=.build/limitd-vendor --build-arg VERSION=9.9.9 -t ghcr.io/humandelegatedtrustprotocol/hdtp-gateway:9.9.9 -t ghcr.io/humandelegatedtrustprotocol/hdtp-gateway:latest'
+d=$(fixture image)
+if image "$d"; then
+  if grep -q "$want_build --load \.\$" "$STUB_LOG" && ! grep -q -- '--push' "$STUB_LOG" &&
+    grep -q '^cargo vendor --locked --manifest-path cmd/hdtp-limitd/Cargo.toml' "$STUB_LOG"; then
+    pass "image of the clean tag: two platforms, both tags, the version, the vendored crates, kept and not pushed"
+  else
+    bad "image of the clean tag: built, but not as make image must:"; cat "$STUB_LOG" >&2
+  fi
+else
+  bad "image of the clean tag: refused:"; cat "$tmp/out" >&2
+fi
+for p in 1 0; do
+  case $p in 1) want=--push ;; *) want=--load ;; esac
+  if image "$d" "$p" && grep -q "$want_build $want \.\$" "$STUB_LOG"; then
+    pass "image with PUSH=$p: $want"
+  else
+    bad "image with PUSH=$p: not $want:"; cat "$tmp/out" "$STUB_LOG" >&2
+  fi
+done
+expect_image_refused() {
+  local name=$1 dir=$2 why=$3
+  if image "$dir"; then
+    bad "$name: image built"
+  elif ! grep -q "$why" "$tmp/out"; then
+    bad "$name: refused, but not for '$why':"; cat "$tmp/out" >&2
+  elif grep -q '^docker ' "$STUB_LOG"; then
+    bad "$name: refused, but after calling docker"
+  else
+    pass "$name: image refused"
+  fi
+}
+d=$(fixture imageuntracked); touch "$d/stray"
+expect_image_refused "image on an untracked file" "$d" "not clean"
+d=$(fixture imageuntagged); (cd "$d" && g commit -q --allow-empty -m later)
+expect_image_refused "image of HEAD past the tag" "$d" "not v9.9.9"
+d=$(COMPOSE_VERSION=9.9.8 fixture imagecompose)
+expect_image_refused "image of a tag whose compose.yaml pulls another version" "$d" "compose.yaml does not pull ghcr.io/humandelegatedtrustprotocol/hdtp-gateway:9.9.9"
 
 # The binary check on builds dist would not make, each in a tree that is otherwise a clean tag.
 d=$(fixture binaries)

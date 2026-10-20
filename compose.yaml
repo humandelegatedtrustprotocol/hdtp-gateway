@@ -4,7 +4,9 @@
 # which a first run has not got. The container healthcheck exercises the portal,
 # over TLS when internal TLS is configured.
 # The node's limits sidecar runs beside it (`limitd`, SPEC §5.7): until it answers, the node refuses
-# every sealed call. `make limitd-vendor` first: the build reads the sidecar's crates from it.
+# every sealed call. Both run the published image (`make image`, RELEASING.md), pulled from ghcr.io;
+# HDTP_IMAGE names another. To build the image from this checkout instead, `make limitd-vendor`, then
+# `docker compose -f compose.yaml -f compose.build.yaml up -d --build` (compose.build.yaml says why).
 # Optional profiles: `postgres` (external store), `cloudflared` (edge adapter), `ngrok` and `bore`
 # (tunnel sidecars; docs/quickstart.md § 4 says what the node needs beside each).
 services:
@@ -19,11 +21,7 @@ services:
     restart: "no"
 
   hdtp-gateway:
-    # `make limitd-vendor` first: the build reads the sidecar's crates from it (Dockerfile).
-    build:
-      context: .
-      additional_contexts:
-        limitdvendor: ./.build/limitd-vendor
+    image: "${HDTP_IMAGE:-ghcr.io/humandelegatedtrustprotocol/hdtp-gateway:0.3.0}"
     restart: unless-stopped
     depends_on:
       init-data:
@@ -43,10 +41,7 @@ services:
   # the /data volume its socket is in. It decides every call budget of every account; edit a copy of
   # that file and mount it over the shipped one to change a number.
   limitd:
-    build:
-      context: .
-      additional_contexts:
-        limitdvendor: ./.build/limitd-vendor
+    image: "${HDTP_IMAGE:-ghcr.io/humandelegatedtrustprotocol/hdtp-gateway:0.3.0}"
     restart: unless-stopped
     entrypoint: ["/hdtp-limitd"]
     command: ["-config", "/etc/hdtp-limitd/limits.json"]

@@ -12,6 +12,12 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Changed
 
+- `docker compose up` pulls the published image (SPEC §12.3), named by
+  `${HDTP_IMAGE:-ghcr.io/humandelegatedtrustprotocol/hdtp-gateway:<version>}`, where it built the
+  `Dockerfile` from the checkout: the quickstart needs neither Rust nor `make limitd-vendor`. The
+  build from source moved to `compose.build.yaml`
+  (`docker compose -f compose.yaml -f compose.build.yaml up -d --build`, after `make limitd-vendor`),
+  which tags its build `hdtp-gateway:source` so a later plain `up` pulls rather than running it.
 - **Breaking, owner MCP and portal answers** (one shape per operation, Building rule 1):
   - `send_to_contact` answers `{status, message_id, thread_id}`, the cloud's `sendMessage`
     answer, where it answered `messaging.Result` in Go's field names, `{ThreadID, Status}`, with no
@@ -43,6 +49,14 @@ changelog can be and is not summarized into a fictional release history.
 
 ### Added
 
+- **The published image.** From this release, `ghcr.io/humandelegatedtrustprotocol/hdtp-gateway`
+  is published, tagged with the version and `latest`, for linux/amd64 and linux/arm64: the
+  `Dockerfile`'s image, the node and its limits sidecar, built by `make image` from a fresh clone of
+  the tag (`--push` only with `PUSH=1`; it refuses outside a clean checkout of tag v`VERSION`, as
+  `make dist` does, and refuses a version `compose.yaml` does not pull). The image carries the OCI
+  labels `source`, `version`, `licenses` and `description`. `make release-check` runs the target
+  against fixtures with a stubbed docker, and `make deploy-check` holds `compose.yaml`'s image to the
+  Makefile's name (RELEASING.md, SPEC §12.3).
 - Outbound webhooks, ported from BatonDeck (#209). An owner registers an endpoint on the portal's
   *Webhooks* page, the one door (no owner MCP tool or CLI command touches one). The page also
   rotates, pauses, resumes and removes an endpoint, and shows its delivery log. The node posts

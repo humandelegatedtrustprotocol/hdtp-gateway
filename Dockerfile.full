@@ -4,11 +4,11 @@
 # UPGRADING FROM AN EARLIER -full IMAGE: this one runs as uid 65532, matching
 # the shipped image, where earlier builds ran as node (1000). A /data volume
 # written by one of those needs `chown -R 65532:65532` once, or the node exits
-# on boot with "lock: open /data/hdtp.lock: permission denied". No image is
-# published, so this affects local builds only.
+# on boot with "lock: open /data/hdtp.lock: permission denied". No -full image
+# is published, so this affects local builds only.
 # The limits sidecar (cmd/hdtp-limitd, SPEC §5.7), a static binary beside the node's. Its crates are
 # `make limitd-vendor`'s, received as the named context `limitdvendor` (the Makefile's
-# --build-context, compose.yaml's additional_contexts), so this build fetches nothing and holds no
+# --build-context), so this build fetches nothing and holds no
 # credential. Alpine's Rust links against musl, so the
 # binary is static and runs on distroless's static base.
 FROM rust:1.92-alpine AS limitd

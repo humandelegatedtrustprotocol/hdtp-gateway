@@ -7,9 +7,10 @@ package integrationtest
 //
 //	go: go.mod requires go >= 1.26.6 (running go 1.25.14; GOTOOLCHAIN=local)
 //
-// That breaks `docker compose up`, which SPEC §12.4 and the README quickstart both
-// present as the first thing a new owner does. `make check` cannot notice, because it
-// never builds an image. This test is the comparison nobody was making.
+// That breaks the image build — `make image`, which builds the image `docker compose up` pulls
+// (SPEC §12.3, §12.4, the README quickstart), and compose.build.yaml's build from a checkout.
+// `make check` cannot notice, because it never builds an image. This test is the comparison
+// nobody was making.
 //
 // The `toolchain` line is the other half. The golang image sets GOTOOLCHAIN=local, under which
 // a toolchain line is ignored rather than refused: an image older than the toolchain go.mod
@@ -93,8 +94,8 @@ func TestImageToolchainSatisfiesGoMod(t *testing.T) {
 		if got := parseGoVersion(t, im); got.below(want) {
 			t.Errorf("%s: %q is below go.mod's %s line (go%s). The golang image sets GOTOOLCHAIN=local: "+
 				"an image below the `go` line cannot build, and one below the `toolchain` line builds "+
-				"with its own older Go, since local ignores that line. Either way `docker compose up` "+
-				"(SPEC §12.4, and the README quickstart) does not ship what go.mod names, and make check "+
+				"with its own older Go, since local ignores that line. Either way the image `make image` "+
+				"publishes, and `docker compose up` pulls (SPEC §12.3, §12.4), does not ship what go.mod names, and make check "+
 				"cannot notice: it builds with go.mod's toolchain and never builds an image.",
 				f, strings.TrimSpace(im[0]), line, want)
 		}

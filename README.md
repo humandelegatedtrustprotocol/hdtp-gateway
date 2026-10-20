@@ -16,7 +16,7 @@ book time with you, with no platform in the middle deciding who may talk to whom
 
 > **Status: feature-complete against [`SPEC.md`](SPEC.md); released since v0.1.0** (each
 > [release](https://github.com/humandelegatedtrustprotocol/hdtp-gateway/releases) carries the binaries,
-> SHA256SUMS, the SBOM and THIRD_PARTY_NOTICES). The [Quickstart](#quickstart) builds from source. Questions and bugs go to this
+> SHA256SUMS, the SBOM and THIRD_PARTY_NOTICES, and from v0.3.0 the image on ghcr.io). The [Quickstart](#quickstart) runs the published image. Questions and bugs go to this
 > repository's issues ([SUPPORT.md](SUPPORT.md)), vulnerabilities to [SECURITY.md](SECURITY.md),
 > and [CONTRIBUTING.md](CONTRIBUTING.md) is the place to start a change.
 
@@ -79,18 +79,23 @@ the whole address book.
 
 ## Quickstart
 
-Five minutes from nothing to a working node. You need Docker with Compose, Rust (cargo, for the
-first command), and the `hdtp` wallet CLI used below, which is built from
+Five minutes from nothing to a working node. You need Docker with Compose, and the `hdtp` wallet
+CLI used below, which is built from
 [hdtp-identity](https://github.com/humandelegatedtrustprotocol/hdtp-identity): the repository
 the node's Go module and the limits sidecar's `hdtp-limits` crate also come from
 (see [CONTRIBUTING.md](CONTRIBUTING.md#the-identity-module)). The long form, with every screen
 and every command's output, is [docs/quickstart.md](docs/quickstart.md).
 
+In a clone of this repository, one command starts the node; `compose.yaml` pulls the published
+image, `ghcr.io/humandelegatedtrustprotocol/hdtp-gateway` (SPEC §12.3):
+
 ```
-make limitd-vendor      # the limits sidecar's crates, laid out for the image build
 docker compose up -d    # the node and its limits sidecar (SPEC §5.7)
 docker compose logs hdtp-gateway | grep -A2 "setup"
 ```
+
+To run a build of your own checkout instead, `make limitd-vendor` (it needs Rust's cargo), then
+`docker compose -f compose.yaml -f compose.build.yaml up -d --build`.
 
 The log prints your portal URL and a **one-time setup token**. Open it — the
 wizard registers your first **passkey**, which is the node's only login, on every

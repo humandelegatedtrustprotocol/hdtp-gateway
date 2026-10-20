@@ -24,6 +24,9 @@
 //   - deploy/gcp/deploy.sh and deploy/digitalocean/deploy.sh: the render script, the image family,
 //     the user-data flag, the firewall ports; deploy/render-cloud-init.sh: every placeholder, and
 //     the refusal of any other;
+//   - compose.yaml: the node and its sidecar pull the name `make image` tags (the Makefile's IMAGE,
+//     tagged <version> and latest), one version for both, and build nothing; compose.build.yaml
+//     builds both from the checkout with the vendored crates, under a name that is not IMAGE;
 //   - every release tag the templates default to is one this repository has, and the same one
 //     the Azure sample parameters, the two scripts' usage and docs/deploy.md name;
 //   - docs/deploy.md: one status row per provider, each saying "not yet run" or dated; every
@@ -44,6 +47,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const CLOUD_INIT = 'deploy/cloud-init.yaml'
 const COMPOSE = 'compose.yaml'
+const COMPOSE_BUILD = 'compose.build.yaml'
 const CFN = 'deploy/aws/hdtp-gateway.cfn.json'
 const ARM = 'deploy/azure/azuredeploy.json'
 const ARM_PARAMS = 'deploy/azure/azuredeploy.parameters.json'
@@ -242,6 +246,7 @@ export function check(tree) {
       }
     }
   })
+  guard(COMPOSE, () => checkImage(tree, fail, makefile, vendorDir))
   guard(DOC, () => checkDocs(tree, fail, makefile))
   return problems
 }
@@ -379,6 +384,42 @@ function checkShell(tree, fail) {
   }
 }
 
+// The published image (`make image`) and what pulls it: compose.yaml runs the node and its sidecar
+// from the name the Makefile tags, at one version, with HDTP_IMAGE to name another and no build of
+// its own; compose.build.yaml builds them from the checkout as the Makefile's image builds do (the
+// sidecar's crates as the named context `limitdvendor`), under a name of its own, so a source build
+// is never run under the published name. The version itself is held to the release by `make image`.
+function checkImage(tree, fail, makefile, vendorDir) {
+  const image = readConst(makefile, /^IMAGE := (.+)$/m, 'IMAGE')
+  const recipe = makefile.match(/^image:\n((?:\t.*\n)+)/m)?.[1] || ''
+  for (const t of ['$(IMAGE):$(VERSION)', '$(IMAGE):latest']) if (!recipe.includes(`-t ${t}`)) fail('Makefile', `make image does not tag ${t}`)
+  const compose = parseYAML(tree.read(COMPOSE), COMPOSE)
+  const pulled = /^\$\{HDTP_IMAGE:-([^}]+):(\d+\.\d+\.\d+)\}$/
+  const versions = new Set()
+  for (const s of ['hdtp-gateway', 'limitd']) {
+    const svc = compose.services?.[s] || {}
+    const m = String(svc.image || '').match(pulled)
+    if (!m) fail(COMPOSE, `${s}'s image is ${JSON.stringify(svc.image)}, not \${HDTP_IMAGE:-<image>:<version>}`)
+    else {
+      if (m[1] !== image) fail(COMPOSE, `${s} pulls ${m[1]}; make image tags ${image}`)
+      versions.add(m[2])
+    }
+    if (svc.build !== undefined) fail(COMPOSE, `${s} has a build of its own; the build from source is compose.build.yaml's`)
+  }
+  if (versions.size > 1) fail(COMPOSE, `the node and its sidecar pull different versions: ${[...versions].join(', ')}`)
+  const build = parseYAML(tree.read(COMPOSE_BUILD), COMPOSE_BUILD)
+  const names = new Set()
+  for (const s of ['hdtp-gateway', 'limitd']) {
+    const svc = build.services?.[s] || {}
+    if (svc.build?.context !== '.' || svc.build?.additional_contexts?.limitdvendor !== `./${vendorDir}`) fail(COMPOSE_BUILD, `${s} does not build the checkout with ./${vendorDir} as the context limitdvendor, as make image does`)
+    const name = String(svc.image || '')
+    if (!name || name.split(':')[0] === image) fail(COMPOSE_BUILD, `${s}'s build is named ${JSON.stringify(svc.image)}; it needs a name of its own, not ${image}`)
+    names.add(name)
+  }
+  if (names.size > 1) fail(COMPOSE_BUILD, `the node and its sidecar are built under different names: ${[...names].join(', ')}`)
+  for (const s of Object.keys(build.services || {})) if (!compose.services?.[s]) fail(COMPOSE_BUILD, `names a service compose.yaml has not got: ${s}`)
+}
+
 // docs/deploy.md, held to the files and targets it names.
 function checkDocs(tree, fail, makefile) {
   const doc = tree.read(DOC)
@@ -480,6 +521,7 @@ function selftest() {
     [String(PINNED.test(compose.services.portal.image)), 'true'],
     [compose.services.ngrok.profiles[0] + ' ' + compose.services.bore.profiles[0], 'ngrok bore'],
     [Object.keys(compose.volumes).join(','), 'hdtp-data,hdtp-pg'],
+    [String(/^\$\{HDTP_IMAGE:-ghcr\.io\/[a-z/-]+:\d+\.\d+\.\d+\}$/.test(compose.services.limitd.image)), 'true'],
   ]
   for (const [got, want] of facts) {
     if (got !== want) {
@@ -537,6 +579,11 @@ function selftest() {
     edit(CLOUD_INIT, 'ssh -L 8080:127.0.0.1:8080 <your login>', 'ssh -L 9090:127.0.0.1:9090 <your login>', CLOUD_INIT, 'the login message tunnelling a port compose.yaml does not publish'),
     edit(RENDER, '=~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ', '== v[0-9]*.[0-9]*.[0-9]* ', RENDER, 'the release checked by a glob, which lets a quote through into the cloud-init'),
     edit('README.md', '](docs/deploy.md)', '](docs/deploying.md)', 'README.md', 'the README pointing nowhere'),
+    edit(COMPOSE, '"${HDTP_IMAGE:-ghcr.io/humandelegatedtrustprotocol/hdtp-gateway:', '"${HDTP_IMAGE:-ghcr.io/humandelegatedtrustprotocol/hdtp-gateway-agent:', COMPOSE, 'compose pulling an image make image does not tag'),
+    edit(COMPOSE, '    image: "${HDTP_IMAGE:-', '    build: .\n    image: "${HDTP_IMAGE:-', COMPOSE, 'compose.yaml building from source again'),
+    edit('Makefile', ' -t $(IMAGE):latest', '', 'Makefile', 'make image no longer tagging latest'),
+    edit(COMPOSE_BUILD, '    image: hdtp-gateway:source\n', '    image: ghcr.io/humandelegatedtrustprotocol/hdtp-gateway:0.0.0\n', COMPOSE_BUILD, 'a source build tagged with the published name'),
+    edit(COMPOSE_BUILD, 'limitdvendor: ./.build/limitd-vendor', 'limitdvendor: ./vendor', COMPOSE_BUILD, "the source build reading the sidecar's crates from elsewhere than limitd-vendor"),
   ]
   // The two embedded copies drifting from the file, one line each: a change of one character.
   plants[plants.findIndex((p) => p.what === 'placeholder: set below')] = edit(CFN, '"#cloud-config",', '"#cloud-config ",', CFN, 'the embedded cloud-init drifting from the file')
@@ -757,6 +804,6 @@ if (self) {
       console.error('deploy-check: the deploy templates have drifted:\n  ' + problems.join('\n  '))
       process.exit(1)
     }
-    console.log(`deploy-check: ${CLOUD_INIT}, ${CFN}, ${ARM}, ${GCP}, ${DO}, ${RENDER} and ${DOC} hold together`)
+    console.log(`deploy-check: ${CLOUD_INIT}, ${CFN}, ${ARM}, ${GCP}, ${DO}, ${RENDER}, ${DOC}, ${COMPOSE} and ${COMPOSE_BUILD} hold together`)
   }
 }

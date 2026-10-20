@@ -8,7 +8,9 @@ rebuild a tag and compare.
 
 ## Cutting a release
 
-1. Update `CHANGELOG.md` — the release notes are its section for this version.
+1. Update `CHANGELOG.md` — the release notes are its section for this version — and
+   `compose.yaml`'s image to the version (`ghcr.io/humandelegatedtrustprotocol/hdtp-gateway:1.2.3`
+   in both services): `make image` refuses a version `compose.yaml` does not pull.
 2. The gate green on the commit being tagged: the pre-push hook runs it (`make check`
    on both engines, `make analyze`, `make sqlc-check`, `make fuzz`, `make harness`).
 3. Tag and push, with an annotated tag whose message is one line naming the release:
@@ -49,7 +51,28 @@ rebuild a tag and compare.
    `gitdir:` file, fails with `reference not found`. The version it stamps on the main module is the
    tag on HEAD, or a pseudo-version when there is none.
 
-5. Publish, with the notes taken from `CHANGELOG.md`:
+5. Build and push the image, from the same fresh clone, after `docker login ghcr.io` with a
+   token that may write the organisation's packages:
+
+   ```
+   make image VERSION=1.2.3 PUSH=1
+   docker buildx imagetools inspect ghcr.io/humandelegatedtrustprotocol/hdtp-gateway:1.2.3
+   ```
+
+   `make image` builds the `Dockerfile` for linux/amd64 and linux/arm64 with the crates
+   `make limitd-vendor` lays out and `--build-arg VERSION=1.2.3`, which the binary's `main.version`
+   is stamped with, and tags it `1.2.3` and `latest`. It holds to `make dist`'s tree check and
+   refuses a version `compose.yaml` does not pull; `make release-check` runs it against fixtures with
+   a stubbed docker. The platform the machine is not is built under emulation: on an arm64 Mac
+   (2026-10-20, `--no-cache`, which keeps BuildKit's cache mounts of Go modules and builds) both
+   platforms took 372 s, the amd64 Go build 297.5 s and the amd64 sidecar build 137.8 s of it, the
+   two running side by side; natively, on arm64, they took 47.9 s and 15.4 s. Without `PUSH=1` the image
+   is kept in Docker's own store. The image carries the OCI labels `source` (this repository, which
+   links the package to it), `version`, `licenses` and `description`. The first push creates the
+   package private; making it public is the organisation owner's. Put the manifest digest
+   `imagetools inspect` prints in the release notes.
+
+6. Publish, with the notes taken from `CHANGELOG.md`:
 
    ```
    gh release create v1.2.3 --title v1.2.3 --notes-file <notes> \
@@ -99,6 +122,13 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=true \
 
 Run in two fresh clones at different paths, this line gave the same checksum and
 `vcs.modified=false` in both (2026-10-16, a local tag, linux/amd64).
+
+**The image:** its binary prints the release (`docker run --rm ghcr.io/humandelegatedtrustprotocol/hdtp-gateway:1.2.3 version`
+prints `hdtp-gateway 1.2.3`), and the release notes carry the manifest digest it was pushed under,
+which `docker buildx imagetools inspect` shows for the tag. The image is not reproducible byte for
+byte: of the `Dockerfile`'s three base images only the Go one is named by digest; `rust:1.92-alpine`
+and `gcr.io/distroless/static-debian12:nonroot` are named by tag, so a rebuild later may start from
+other bytes. What ties it to the tag is that it was built by `make image` from a fresh clone of it.
 
 **SBOM:** `sbom.cdx.json` (CycloneDX 1.6) is the node's: the Go modules `cmd/hdtp-gateway` links
 (`cyclonedx-gomod app`). It does not list the limits sidecar's Rust crates; their list is

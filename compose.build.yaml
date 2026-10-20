@@ -1,0 +1,25 @@
+# The node's image built from this checkout, for a change you have made or a commit no release has
+# published. Merged over compose.yaml, which pulls the published image:
+#
+#   make limitd-vendor
+#   docker compose -f compose.yaml -f compose.build.yaml up -d --build
+#
+# `make limitd-vendor` lays the limits sidecar's crates out under .build/limitd-vendor (it needs
+# cargo, and the network); the Dockerfile reads them as the named context `limitdvendor`, so the
+# build fetches no crate and holds no credential. The image is tagged hdtp-gateway:source, not the
+# published name, so a later `docker compose up` without this file pulls the published image rather
+# than running this build under its name.
+services:
+  hdtp-gateway:
+    image: hdtp-gateway:source
+    build:
+      context: .
+      additional_contexts:
+        limitdvendor: ./.build/limitd-vendor
+
+  limitd:
+    image: hdtp-gateway:source
+    build:
+      context: .
+      additional_contexts:
+        limitdvendor: ./.build/limitd-vendor
