@@ -28,7 +28,7 @@ What this guide was measured with. Older versions may work; these did.
 
 | Need | Why | Measured with |
 |---|---|---|
-| Docker with Compose v2 (`docker compose`, not `docker-compose`) | the node and its sidecar run as containers, from the published image | Docker 29.8.2, Compose v5.5.1 |
+| Docker with Compose v2 (`docker compose`, not `docker-compose`) | the node and its sidecar run as containers, from the published image | Docker 29.8.2, Compose v5.6.0, building from source; the pull is not yet measured |
 | `git` | the clone | git, no SSH key |
 | Rust's `cargo`, only to build the image yourself | vendoring the limits sidecar's Rust crates, so that the image build fetches nothing (step 1, *From your own checkout*) | cargo 1.92.0 |
 | Google Chrome or another browser with passkeys | the portal's only login is a passkey | Chrome 154 |
@@ -112,7 +112,7 @@ limitd-vendor: .build/limitd-vendor
 ```
 
 `compose.build.yaml` builds the `Dockerfile` for your machine's architecture and names the result
-`hdtp-gateway:source`, so a later `docker compose up` without it pulls the published image again.
+`hdtp-gateway:source`, so a later `docker compose up` without it pulls the published image.
 The first build downloads the Go and Rust base images and compiles both binaries; on the measuring
 machine (2026-10-20, Compose v5.6.0) those layers were already cached and the whole command took
 two seconds.

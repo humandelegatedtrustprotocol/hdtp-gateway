@@ -113,11 +113,11 @@ which of Building rules 1, 3, 4, 5, 7 did not apply.
   the divergence list in code (the cloud's `contact.*`, `booking.*`, `integration.attention`, `identity.*`
   not emitted; `ask.*` node-only). A second test holds the envelope keys and the signature grammar to the
   cloud's `sign.ts` constants read from the sibling. `webhooks/README.md`'s "Not held here" sentence goes.
-- README how-to "Wake your agent with a webhook": the portal steps, the headers, a verifier in JS and Go
+- README how-to "Wake your agent with a webhook": the portal steps, the headers, a verifier in Go (the JS verifier was dropped on the owner's order "webhooks has to be in go as well", 2026-10-20)
   taken from `verify_test.go`, a link to `hdtp-gateway-agent`. Grep every umbrella repository for prose
   saying the node pushes nothing (`batondeck` docs included) and fix what the grep finds in the same PR or
   file it.
-- Harness: one hermetic scenario in `harness/scenario/`: a contact messages the node, an `httptest`
+- Harness: one hermetic scenario in `harness/scenario/` (it landed in `harness/multiprocess/`, #251): a contact messages the node, an `httptest`
   receiver registered through the portal's route gets a signed `message.received` and verifies it.
 - #218: measure the hourly delete at 1M rows with and without the index, add
   `CREATE INDEX webhook_deliveries_created ON webhook_deliveries(created_at)` to
@@ -349,3 +349,39 @@ What follows from them, applied by the session:
 - Rust sidecar: 15.4 s native arm64, 137.8 s emulated amd64. Go build: 47.9 s arm64, 297.5 s amd64. The Go stage runs its compiler under QEMU because it has no `--platform=$BUILDPLATFORM`. The Go numbers may be partly warm, because `--no-cache` keeps the cache mounts.
 - Observed: both variants load (amd64 174.6 MB, arm64 161.1 MB). On each, `hdtp-gateway version` prints the version and the sidecar runs. Emulation is workable, so no cross-compile probe is needed. The Go-stage speed-up is filed as an issue, not part of this item.
 - Ruling by the orchestrator, 2026-10-20: the N-IMAGE PR leaves deploy/cloud-init.yaml (and its AWS and Azure copies) and docs/deploy.md's first-boot and upgrade steps as they are. The templates' default tag (v0.1.5) has a compose.yaml that builds from source, and deploy-check refuses a default tag that doesn't exist yet. So the VM's switch to pulling, the bump of every template default to v0.3.0, and a deploy-check guard (the default tag's compose.yaml names the Makefile's image) move to a post-tag step of N-RELEASE: one PR, after N-R2. Once N-IMAGE merges, compose.yaml pins `:0.3.0`, so on main `docker compose up` cannot pull until N-R4 pushes the image. deploy/envoy/compose.yaml still builds from source; that is filed as an issue.
+- N-PORTAL-RESTART probe (2026-10-20, Docker 29.8.2, Compose 5.6.0). On main's shape, the node owns the network namespace and the forwarder joins it, so stopping the node strands the forwarder (#256 reproduced). The orchestrator's ruling is shape B: a holder service, a `sleep` with `init` and `cap_drop: [ALL]`, owns the namespace, the published port and the `hdtp-gateway` alias, and the node and the portal both join it. In the probe, every node and portal path came back in 0.01–0.12 s. Only a by-hand restart of the holder itself strands both. cloud-init's override (the edge address) has to move with the new shape, so it ships in the post-tag N-RELEASE PR together with the default-tag bump. In this PR, deploy-check must validate the VM override against the compose.yaml of the templates' default tag. A Docker daemon restart was not observed; moby's restore loop was read instead.
+- N-PORTAL-RESTART is PR #263 (head a1a0e23). The post-tag N-RELEASE PR must also: move cloud-init's `edge` address to `node-network`, and write upgrade prose in docs/deploy.md, because a VM upgraded in place keeps its old override, which Compose refuses ("mutually exclusive network_mode and networks"). After the release, hdtp-docs needs `make refresh`, since step-by-step.md is generated from the quickstart.
+- N-IMAGE merged as #266. These go into the N-R1 release-prep commit, from #266's review:
+  - RELEASING.md:71-72: make the visibility step its own step after `gh release`, and drop "creates the package private" until N-R4 observes it;
+  - docs/quickstart.md:115: "again" is loose;
+  - docs/quickstart.md:31: the Docker/Compose versions, re-measured on the pull path at N-R6.
+
+## Status, 2026-10-20 08:30
+
+Merged:
+
+| Item | PR | Merge |
+|---|---|---|
+| N1 owner asks | node #236 | 144945d |
+| N-SHAPES | node #242 | b560ce0 |
+| placed-once guidance | node #247 | 5b5a03b |
+| N-W4 webhooks | node #251 | 1ba4456 |
+| N-SETTINGS | node #250 | 3ae2559 |
+| N-PORTAL-RESTART | node #263 | 6c77582 |
+| this plan | node #259 | 9713bd5 |
+| N-IMAGE | node #266 | 398202c |
+| A1 reply/ask/notify/none | agent #36 | 9dc76bb |
+| A5 Studio observability | agent #41 | 721f4b7 |
+| retry feedback | agent #49 | 5090339 |
+| A-SHAPES | agent #51 | 0a69927 |
+| A-IMAGE | agent #46 | 98a1848 |
+| A-README / A-R1 | agent #55 | cae056a |
+| owner tools fixture | batondeck #351 | ac4446e |
+
+An independent verification on 2026-10-20 checked the merges together. Node main 6c77582 passed `make check`, `make analyze` and `make sqlc-check`, and agent main cae056a passed `make check` (199 tests). The twelve owner tools the agent calls (its fixture, captured at 5b5a03b) match node main: the owner MCP has not changed since, apart from its README and one comment.
+
+Left:
+- N-R1 to N-R7: release prep, with the three #266 review nits; the tag; dist and sbom; the image push; the pull path observed; the gh release; the owner makes the packages public (Z5).
+- The post-tag PR: cloud-init, CFN and ARM pull and move to node-network; the default tag becomes v0.3.0; deploy.md gets upgrade prose.
+- A-R2 to A-R4: the agent's 0.1.0 tag, image and release.
+- After the release: hdtp-docs `make refresh`; hdtp-gateway-site index.html:298-299; the umbrella pointers, since umbrella main's gitlinks still name hdtp-gateway 2170fda and batondeck 7a96313, and hdtp-gateway-agent is not yet a gitlink.
