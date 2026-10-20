@@ -25,11 +25,42 @@ services:
       additional_contexts:
         limitdvendor: ./.build/limitd-vendor
     restart: unless-stopped
+    # The node's network is node-network's (below), so a stop of the node leaves it in place.
+    network_mode: "service:node-network"
+    # restart: Compose restarts the node whenever Compose restarts node-network: a container that
+    # joined a network keeps it, and node-network's restart makes a new one.
     depends_on:
       init-data:
         condition: service_completed_successfully
+      node-network:
+        condition: service_started
+        restart: true
     volumes:
       - hdtp-data:/data
+
+  # The node's network, held by a container that runs nothing but a sleep, so that it outlives any
+  # stop of the node or the forwarder (#256). The node and the forwarder join it, and 127.0.0.1 is
+  # one loopback for both. When the node owned the network, `docker compose stop hdtp-gateway` took
+  # the forwarder down with it, the forwarder's one restart failed ("cannot join network namespace
+  # of a non running container"), Docker did not try again, and `docker compose start hdtp-gateway`
+  # started only the node: the portal answered nothing until `docker compose up`. Restarting this
+  # container by hand (`docker restart`, or a stop and start of it alone) leaves the node and the
+  # forwarder in the old network, where the published port no longer reaches the portal;
+  # `docker compose restart node-network` restarts both after it.
+  node-network:
+    image: alpine:3.20
+    restart: unless-stopped
+    command: ["sleep", "infinity"]
+    # docker-init as PID 1, so a stop ends the sleep at once: on Docker 29.8.2 a stop of this
+    # container took 0.10 s with it and 3.1 s without.
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    # The node's name on the compose network: ngrok, bore and a cloudflared route dial
+    # hdtp-gateway:8443, which is the node's public listener in this network.
+    networks:
+      default:
+        aliases: [hdtp-gateway]
     ports:
       # ONLY host loopback. The portal is plain HTTP here, which SPEC §8.3 allows on a loopback
       # bind only (any other bind needs TLS), and the forwarder below must not undo that:
@@ -77,24 +108,19 @@ services:
   # node's loopback. It forwards the published host-loopback port to it. The node's
   # guard is untouched: it still refuses to bind anywhere but loopback, and the
   # portal is still reachable only from this machine.
+  #
+  # That namespace is node-network's (above), not the node's own, so a stop or restart
+  # of the node or of this forwarder leaves the other where it was (#256).
   portal:
     # Pinned by digest, the tag kept for the reader: `alpine/socat:latest` as resolved on 2026-10-08
     # (the multi-platform index; its images were built 2026-10-03).
     image: alpine/socat:latest@sha256:82ad20f6f6e29b91ff33b6662d24063522b1378f08fd8569cd3ab412cac13f50
     restart: unless-stopped
-    network_mode: "service:hdtp-gateway"
-    # The node's process namespace too, so the forwarder dies with the node and its restart policy
-    # brings it back inside the node's NEW network. A restart the runtime makes (a crash,
-    # `docker restart`) does not go through Compose, and the forwarder kept the old network, where
-    # nothing listens, until it was restarted by hand (#204). With no capabilities, the forwarder's
-    # root cannot signal or trace the node's processes, which run as another user.
-    pid: "service:hdtp-gateway"
+    network_mode: "service:node-network"
     cap_drop: [ALL]
-    # restart: Compose restarts the forwarder whenever Compose restarts the node: it shares the
-    # node's network, and after `docker compose restart hdtp-gateway` it answered nothing until it
-    # was restarted too (#169).
+    # restart: as for the node, Compose restarts the forwarder whenever it restarts node-network.
     depends_on:
-      hdtp-gateway:
+      node-network:
         condition: service_started
         restart: true
     command: ["TCP-LISTEN:8081,fork,reuseaddr", "TCP:127.0.0.1:8080"]
