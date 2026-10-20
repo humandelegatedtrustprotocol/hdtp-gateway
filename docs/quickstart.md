@@ -271,7 +271,10 @@ the `bore` profile. `doctor` says
 `ok   tunnel       direct (mode direct, seal required, client_cert preferred)` and the probe
 validates the chain at `https://bore.pub:<port>`. On the measuring machine the host's resolver
 answered no address for `bore.pub`, so that run gave the node and the `bore` service
-`dns: ["1.1.1.1"]`; a browser on that machine could not open the address either.
+`dns: ["1.1.1.1"]`; a browser on that machine could not open the address either. The node's DNS
+settings are now `node-network`'s, because the node joins that container's network: Docker refuses
+`dns` on the node itself ("conflicting options: dns and the network mode"), and `dns` on
+`node-network` reaches the node (observed on 2026-10-20).
 
 The pictures and the measured commands use `https://alex.example.com`. Nothing dials it: the
 second party in the pictures reached the node by its published port and validated the certificate
