@@ -28,9 +28,9 @@ What this guide was measured with. Older versions may work; these did.
 
 | Need | Why | Measured with |
 |---|---|---|
-| Docker with Compose v2 (`docker compose`, not `docker-compose`) | the node and its sidecar run as containers; the image is built from the source you cloned | Docker 29.8.2, Compose v5.5.1 |
-| Rust's `cargo` | the first command vendors the limits sidecar's Rust crates so that the image build fetches nothing | cargo 1.92.0 |
-| `git` | the clone, and `cargo` fetches one crate from a public Git repository over https | git, no SSH key |
+| Docker with Compose v2 (`docker compose`, not `docker-compose`) | the node and its sidecar run as containers, from the published image | Docker 29.8.2, Compose v5.5.1 |
+| `git` | the clone | git, no SSH key |
+| Rust's `cargo`, only to build the image yourself | vendoring the limits sidecar's Rust crates, so that the image build fetches nothing (step 1, *From your own checkout*) | cargo 1.92.0 |
 | Google Chrome or another browser with passkeys | the portal's only login is a passkey | Chrome 154 |
 | The `hdtp` wallet CLI | it holds your root and signs the node's certificate; it is not part of this repository | hdtp 0.7.3, the release binary |
 
@@ -58,31 +58,23 @@ hdtp-identity's README says. The Linux binaries and a build from source
 (`cargo install --git https://github.com/humandelegatedtrustprotocol/hdtp-identity hdtp`) were not
 measured for this guide.
 
-## 1. Clone, vendor the sidecar's crates, start the node
+## 1. Clone, start the node
 
 ```
 git clone https://github.com/humandelegatedtrustprotocol/hdtp-gateway.git
 cd hdtp-gateway
-make limitd-vendor
 docker compose up -d
 ```
 
-`make limitd-vendor` lays the limits sidecar's crates out under `.build/limitd-vendor/`, which the
-image build reads instead of the network. With an empty cargo home it fetched the `hdtp-limits`
-crate from the public hdtp-identity repository over https and the rest from crates.io, in three
-seconds, and ended with:
-
-```
-limitd-vendor: .build/limitd-vendor
-```
-
-`docker compose up -d` builds two images from the `Dockerfile` (the node in Go, the sidecar in
-Rust, both on distroless) and starts five services: a one-shot `init-data` that hands the data
-volume to the node's user, `hdtp-gateway`, `limitd`, `node-network`, which holds the network the
-node and the forwarder share and publishes the forwarder's port, and `portal`, a forwarder that
-puts the node's loopback portal on **your machine's loopback only**, `127.0.0.1:8080`. The first
-build downloads the Go and Rust base images and compiles both binaries; on the measuring machine
-on 2026-10-20 those layers were already cached and the whole command took 3.3 seconds, ending:
+`docker compose up -d` pulls the published image, `ghcr.io/humandelegatedtrustprotocol/hdtp-gateway`
+at the version `compose.yaml` names (`HDTP_IMAGE` names another), built for linux/amd64 and
+linux/arm64: the node in Go and its limits sidecar in Rust, both on distroless (SPEC §12.3). It
+starts five services: a one-shot `init-data` that hands the data volume to the node's user,
+`hdtp-gateway`, `limitd` (the same image, as the sidecar), `node-network`, which holds the network
+the node and the forwarder share and publishes the forwarder's port, and `portal`, a forwarder that
+puts the node's loopback portal on **your machine's loopback only**, `127.0.0.1:8080`. The pull
+itself has not been timed for this guide; the lines below are from a build of the same services
+from source (*From your own checkout*, below), and end:
 
 ```
  Container npr-clean-node-network-1 Started
@@ -101,6 +93,29 @@ on 2026-10-20 those layers were already cached and the whole command took 3.3 se
 off 8080, which these lines do not show; yours will be `hdtp-gateway`, the directory's name.) The
 clone step itself was not measured against GitHub: the repository was not yet public when the guide was written (it has been
 since 2026-10-09), so the measuring clone was made from a local copy of the same commit.
+
+**From your own checkout.** To run a change of your own, or a commit no release has published, build
+the image from the clone instead:
+
+```
+make limitd-vendor
+docker compose -f compose.yaml -f compose.build.yaml up -d --build
+```
+
+`make limitd-vendor` lays the limits sidecar's crates out under `.build/limitd-vendor/`, which the
+image build reads instead of the network. With an empty cargo home it fetched the `hdtp-limits`
+crate from the public hdtp-identity repository over https and the rest from crates.io, in three
+seconds, and ended with:
+
+```
+limitd-vendor: .build/limitd-vendor
+```
+
+`compose.build.yaml` builds the `Dockerfile` for your machine's architecture and names the result
+`hdtp-gateway:source`, so a later `docker compose up` without it pulls the published image again.
+The first build downloads the Go and Rust base images and compiles both binaries; on the measuring
+machine (2026-10-20, Compose v5.6.0) those layers were already cached and the whole command took
+two seconds.
 
 **Without Docker.** From v0.2.0 each release carries two binaries per platform (Linux and macOS,
 amd64 and arm64; the Linux ones static), the node `hdtp-gateway_<version>_<os>_<arch>` and its limits sidecar

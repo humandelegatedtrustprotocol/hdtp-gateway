@@ -3,7 +3,7 @@
 # (Dockerfile.full) or mount your own.
 # The limits sidecar (cmd/hdtp-limitd, SPEC §5.7), a static binary beside the node's. Its crates are
 # `make limitd-vendor`'s, received as the named context `limitdvendor` (the Makefile's
-# --build-context, compose.yaml's additional_contexts), so this build fetches nothing and holds no
+# --build-context, compose.build.yaml's additional_contexts), so this build fetches nothing and holds no
 # credential. Alpine's Rust links against musl, so the
 # binary is static and runs on distroless's static base.
 FROM rust:1.92-alpine AS limitd
@@ -28,6 +28,13 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 RUN mkdir /data-skel
 
 FROM gcr.io/distroless/static-debian12:nonroot
+# The published image's labels (`make image`, RELEASING.md). `source` is what links the package on
+# ghcr.io to this repository; VERSION is the build argument main.version is stamped with.
+ARG VERSION=0.1.0-dev
+LABEL org.opencontainers.image.source="https://github.com/humandelegatedtrustprotocol/hdtp-gateway" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.description="hdtp-gateway, the reference HDTP node, and its limits sidecar"
 # /usr/local/bin is on distroless's PATH, so the documented
 # `docker compose exec hdtp-gateway hdtp-gateway <cmd>` resolves. Copied to
 # BOTH paths: the entrypoint and every doc that says /hdtp-gateway keep working.

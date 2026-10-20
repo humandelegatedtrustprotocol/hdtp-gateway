@@ -7,7 +7,7 @@ SELF := $(abspath $(lastword $(MAKEFILE_LIST)))
 RELEASE_CHECK := $(dir $(SELF))scripts/release-check.sh
 LIMITD_DIST := $(dir $(SELF))scripts/limitd-dist.sh
 
-.PHONY: release-check names notices notices-check deploy-check frp-check limitd limitd-check limitd-vendor harness-hdtp-cli scale identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
+.PHONY: release-check names notices notices-check deploy-check image frp-check limitd limitd-check limitd-vendor harness-hdtp-cli scale identity-bump sqlc sqlc-check distclean hooks all analyze vulncheck staticcheck gosec deadcode fuzz web dist sbom build check fmt vet dependents test test-js clean harness harness-preflight harness-live harness-image harness-image-caldav harness-shaper screenshots harness-pr harness-nightly harness-kernel
 
 # all is the full local pre-flight, in the one order that is correct.
 #
@@ -18,7 +18,7 @@ LIMITD_DIST := $(dir $(SELF))scripts/limitd-dist.sh
 # What it does NOT do, so a green run is not mistaken for more than it is: the
 # scenario harness (separate module, needs Docker — `make harness`, or
 # `harness-pr` / `harness-nightly` for the live tiers), the container images
-# (`harness-image`), and the release artifacts (`dist`, `sbom`), which are built
+# (`harness-image`), and the release artifacts (`dist`, `sbom`, `image`), which are built
 # only from a clean checkout of a tag (RELEASING.md).
 all: web check analyze build
 	@echo
@@ -145,7 +145,7 @@ dist:
 
 # release-check runs dist against fixture repositories: refused on a dirty or untagged tree,
 # passing on a clean tagged one, and the binary check refusing a modified or unstamped build;
-# and sbom refused on a dirty tree, before it fetches anything.
+# sbom refused on a dirty tree, before it fetches anything; and image against a stubbed docker.
 release-check:
 	scripts/release-check-test.sh
 
@@ -174,6 +174,24 @@ sbom:
 		app -json -licenses=false -main cmd/hdtp-gateway -output dist/sbom.cdx.json .
 	scripts/frp-patch.sh --sbom dist/sbom.cdx.json
 	@echo "wrote dist/sbom.cdx.json"
+
+# image builds the published container image (SPEC §12.3): the Dockerfile for linux/amd64 and
+# linux/arm64, the sidecar's crates from limitd-vendor, --build-arg VERSION stamping main.version,
+# tagged $(IMAGE):$(VERSION) and $(IMAGE):latest. It holds to dist's tree check (clean, and HEAD is
+# tag v$(VERSION)), and refuses a VERSION compose.yaml does not pull by default, so the tag's
+# compose.yaml names the image built from that tag (scripts/deploy-check.mjs holds its name to
+# IMAGE). Without PUSH=1 the image is kept in Docker's own store (--load, which for two platforms
+# needs the containerd image store, Docker Desktop's default); with PUSH=1 it is pushed to the
+# registry IMAGE names, after `docker login ghcr.io`, and kept nowhere else.
+IMAGE := ghcr.io/humandelegatedtrustprotocol/hdtp-gateway
+IMAGE_PLATFORMS := linux/amd64,linux/arm64
+image:
+	@$(RELEASE_CHECK) tree $(VERSION)
+	@grep -qF '$${HDTP_IMAGE:-$(IMAGE):$(VERSION)}' compose.yaml || { echo "image: compose.yaml does not pull $(IMAGE):$(VERSION) by default" >&2; exit 1; }
+	@$(MAKE) -s -f $(SELF) limitd-vendor
+	docker buildx build --platform $(IMAGE_PLATFORMS) --build-context limitdvendor=$(LIMITD_VENDOR) \
+		--build-arg VERSION=$(VERSION) -t $(IMAGE):$(VERSION) -t $(IMAGE):latest \
+		$(if $(filter 1,$(PUSH)),--push,--load) .
 
 # check covers the PRODUCT only. The harness is a separate module (harness/go.mod),
 # so `go vet ./...` and `go test ./...` here do not see it — which is the point:
