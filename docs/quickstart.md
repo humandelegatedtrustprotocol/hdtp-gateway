@@ -115,7 +115,7 @@ limitd-vendor: .build/limitd-vendor
 `hdtp-gateway:source`, so a later `docker compose up` without it pulls the published image again.
 The first build downloads the Go and Rust base images and compiles both binaries; on the measuring
 machine (2026-10-20, Compose v5.6.0) those layers were already cached and the whole command took
-four seconds.
+two seconds.
 
 **Without Docker.** From v0.2.0 each release carries two binaries per platform (Linux and macOS,
 amd64 and arm64; the Linux ones static), the node `hdtp-gateway_<version>_<os>_<arch>` and its limits sidecar
