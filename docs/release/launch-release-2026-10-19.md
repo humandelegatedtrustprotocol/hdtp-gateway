@@ -336,3 +336,16 @@ What follows from them, applied by the session:
 - #31 and #43 are closed. #43 was closed by removing the retention, not by adding a limiter: a refused POST keeps nothing, only a count over a fixed set of 6 codes.
 - The item's "Studio's host check accepts agent:4111" was dropped by the orchestrator's ruling (a), not the owner's. Nothing calls it, the image bundles no Studio UI, and the webhook already answers on agent:4111.
 - The review found an older defect, filed as node #249: compose.yaml says the portal is "reachable only from this machine", but any container on the compose network reaches hdtp-gateway:8081.
+
+## N-PORTAL-RESTART, node #256 (owner 2026-10-20: "Fix before v0.3.0")
+
+- Measured on 2026-10-20 (#256's comment): after `docker compose stop hdtp-gateway`, the portal forwarder fails once with "cannot join network namespace of a non running container" and stays exited. It is still exited after `start`, so the portal never answers until `docker compose up -d`, which answers in 1.6 s. 2170fda's compose fails the same way, so #228 didn't cause it. It's a path #204's fix doesn't cover.
+- Item: the probe first (rule 4). Then the narrowest compose change that recovers after stop/start, after `docker restart`, after a crash and after a Docker daemon restart, each observed. A hermetic guard holds the shape. The quickstart's restart prose is measured.
+- Coupling: both this item and N-IMAGE touch compose.yaml. Whichever merges second merges main in and re-runs the compose guards. N-RELEASE waits for both.
+
+### N-IMAGE probe result (2026-10-20)
+
+- `docker buildx build --platform linux/amd64,linux/arm64` of main 5b5a03b's Dockerfile, with the vendored crates as the named context `limitdvendor`, finished in 372 s wall clock. The host is an arm64 Mac (12 CPUs, Docker 29.8.2 with the containerd store, buildx 0.37.2), and video rehearsals ran at the same time.
+- Rust sidecar: 15.4 s native arm64, 137.8 s emulated amd64. Go build: 47.9 s arm64, 297.5 s amd64. The Go stage runs its compiler under QEMU because it has no `--platform=$BUILDPLATFORM`. The Go numbers may be partly warm, because `--no-cache` keeps the cache mounts.
+- Observed: both variants load (amd64 174.6 MB, arm64 161.1 MB). On each, `hdtp-gateway version` prints the version and the sidecar runs. Emulation is workable, so no cross-compile probe is needed. The Go-stage speed-up is filed as an issue, not part of this item.
+- Ruling by the orchestrator, 2026-10-20: the N-IMAGE PR leaves deploy/cloud-init.yaml (and its AWS and Azure copies) and docs/deploy.md's first-boot and upgrade steps as they are. The templates' default tag (v0.1.5) has a compose.yaml that builds from source, and deploy-check refuses a default tag that doesn't exist yet. So the VM's switch to pulling, the bump of every template default to v0.3.0, and a deploy-check guard (the default tag's compose.yaml names the Makefile's image) move to a post-tag step of N-RELEASE: one PR, after N-R2. compose.yaml pins `:0.3.0`, so on main `docker compose up` cannot pull until N-R4 pushes the image. deploy/envoy/compose.yaml still builds from source; that is filed as an issue.
