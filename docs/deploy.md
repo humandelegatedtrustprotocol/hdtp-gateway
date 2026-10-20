@@ -7,10 +7,10 @@ make the node yours. Those steps are the quickstart's and are not repeated here.
 
 | Provider | Path | Public host | Status | Last run |
 |---|---|---|---|---|
-| AWS | `deploy/aws/hdtp-gateway.cfn.json`, a CloudFormation template | a name in your Route 53 zone | Template validated offline by `make deploy-check` on 2026-10-09; not yet run on AWS by the maintainers | |
-| Azure | `deploy/azure/azuredeploy.json`, a Deploy to Azure button | `<label>.<region>.cloudapp.azure.com` | Template validated offline by `make deploy-check` on 2026-10-09; not yet run on Azure by the maintainers | |
-| Google Cloud | `deploy/gcp/deploy.sh`, an Open in Cloud Shell button | a name you point at the VM | Script validated offline by `make deploy-check` on 2026-10-09; not yet run on Google Cloud by the maintainers | |
-| DigitalOcean | `deploy/digitalocean/deploy.sh`, a Droplet | a name you point at the Droplet | Script validated offline by `make deploy-check` on 2026-10-09; not yet run on DigitalOcean by the maintainers | |
+| AWS | `deploy/aws/hdtp-gateway.cfn.json`, a CloudFormation template | a name in your Route 53 zone | Template validated offline by `make deploy-check` on 2026-10-20; not yet run on AWS by the maintainers | |
+| Azure | `deploy/azure/azuredeploy.json`, a Deploy to Azure button | `<label>.<region>.cloudapp.azure.com` | Template validated offline by `make deploy-check` on 2026-10-20; not yet run on Azure by the maintainers | |
+| Google Cloud | `deploy/gcp/deploy.sh`, an Open in Cloud Shell button | a name you point at the VM | Script validated offline by `make deploy-check` on 2026-10-20; not yet run on Google Cloud by the maintainers | |
+| DigitalOcean | `deploy/digitalocean/deploy.sh`, a Droplet | a name you point at the Droplet | Script validated offline by `make deploy-check` on 2026-10-20; not yet run on DigitalOcean by the maintainers | |
 | Fly.io | no template: [why](#flyio-render-and-digitaloceans-app-platform) | | no template | |
 | Render | no template: [why](#flyio-render-and-digitaloceans-app-platform) | | no template | |
 | Cloudflare | the Tunnel, on any machine: [below](#cloudflare) | a name on your zone | Two nodes over two real tunnels, last run 2026-09-18 ([the demo](demos/cloudflare-two-users.md)) | 2026-09-18 |

@@ -629,7 +629,7 @@ function selftest() {
     edit(DOC, '| Azure |', '| Azure Stack |', DOC, 'a provider without a status row'),
     edit(DOC, "cd /opt/hdtp && docker compose up -d'", "cd /opt/hdtp && docker compose up -d --build'", DOC, 'an upgrade that does not start as the first boot does'),
     edit(DOC, '\n  node-network:\n    networks:\n', '\n    networks:\n', DOC, 'an upgrade writing the override from before the node ran in node-network\'s network'),
-    edit(DOC, 'Template validated offline by `make deploy-check` on 2026-10-09; not yet run on AWS by the maintainers', 'Template validated offline by `make deploy-check` on 2026-10-09', DOC, 'a status that no longer says not yet run while no run is dated'),
+    edit(DOC, 'Template validated offline by `make deploy-check` on 2026-10-20; not yet run on AWS by the maintainers', 'Template validated offline by `make deploy-check` on 2026-10-20', DOC, 'a status that no longer says not yet run while no run is dated'),
     edit(DOC, 'sign in at `http://localhost:8080`', 'sign in at `http://localhost:8081`', DOC, "the document naming a portal port compose.yaml does not publish"),
     edit(CLOUD_INIT, 'ssh -L 8080:127.0.0.1:8080 <your login>', 'ssh -L 9090:127.0.0.1:9090 <your login>', CLOUD_INIT, 'the login message tunnelling a port compose.yaml does not publish'),
     edit(RENDER, '=~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ', '== v[0-9]*.[0-9]*.[0-9]* ', RENDER, 'the release checked by a glob, which lets a quote through into the cloud-init'),
