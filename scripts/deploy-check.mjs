@@ -11,15 +11,16 @@
 //   - deploy/cloud-init.yaml: a cloud-config; its two placeholders and nothing else written as a
 //     dollar-brace; the compose override it writes names only services compose.yaml has plus
 //     caddy, gives a network only to a service that has no network_mode there (Compose refuses
-//     both), sets the node only environment names internal/core/config.go reads, pins the Caddy
-//     image by digest as compose.yaml pins its images, and puts Caddy at the one address the node
-//     is told to trust (HDTP_PROXY_ADDRESS); its Caddyfile dials the node's address and port, sets
-//     the header internal/public/listener.go reads the caller's address from and drops the one it
-//     reads a chain from; its runcmd fetches the release tag, vendors the sidecar's crates as the
-//     Makefile's limitd-vendor does, in the Rust image the Dockerfile builds the sidecar with, and
+//     both), gives the edge address to the service whose network the node runs in, sets the node
+//     only environment names internal/core/config.go reads, pins the Caddy image by digest as
+//     compose.yaml pins its images, and puts Caddy at the one address the node is told to trust
+//     (HDTP_PROXY_ADDRESS); its Caddyfile dials the node's address and port, sets the header
+//     internal/public/listener.go reads the caller's address from and drops the one it reads a
+//     chain from; its runcmd fetches the release tag and starts the project without building, and
 //     holds Docker to the major docs/quickstart.md measured. The compose.yaml it is held to is the
 //     one a VM runs: the file at the release tag the templates default to (`git show <tag>:compose.yaml`),
-//     not this tree's, which the next release will carry;
+//     not this tree's, which the next release will carry; that file pulls the image the Makefile's
+//     IMAGE names at the tag's version and builds nothing, and the .env written names no other;
 //   - deploy/aws/hdtp-gateway.cfn.json and deploy/azure/azuredeploy.json: the keys their formats
 //     require (the minimal schemas below, each from the provider's public reference, cited), the
 //     embedded cloud-init equal to the file byte for byte, every placeholder substituted from a
@@ -32,7 +33,8 @@
 //     builds both from the checkout with the vendored crates, under a name that is not IMAGE;
 //   - every release tag the templates default to is one this repository has, and the same one
 //     the Azure sample parameters, the two scripts' usage and docs/deploy.md name;
-//   - docs/deploy.md: one status row per provider, each saying "not yet run" or dated; every
+//   - docs/deploy.md: its upgrade runs the first boot's tag fetch and start and writes the first
+//     boot's override, byte for byte; one status row per provider, each saying "not yet run" or dated; every
 //     `make` target it cites exists; every repository path and every button URL names a file that
 //     exists; README.md points at it.
 //
@@ -102,9 +104,7 @@ export function check(tree) {
   const certHeader = readConst(listener, /ProxyCertHeader\s+=\s+"([^"]+)"/, 'ProxyCertHeader')
   const addressHeader = readConst(listener, /ProxyAddressHeader\s+=\s+"([^"]+)"/, 'ProxyAddressHeader')
   const makefile = tree.read('Makefile')
-  const limitdDir = readConst(makefile, /^LIMITD := (.+)$/m, 'LIMITD')
   const vendorDir = readConst(makefile, /^LIMITD_VENDOR := (.+)$/m, 'LIMITD_VENDOR')
-  const rustTag = readConst(tree.read('Dockerfile'), /^FROM (rust:[^\s]+) AS limitd$/m, "the Dockerfile's limitd stage image")
   const dockerMajor = readConst(tree.read('docs/quickstart.md'), /Docker (\d+)\.\d+\.\d+/, 'the Docker version the quickstart measured')
   // The compose.yaml a VM runs: the one at the tag the templates default to (the AWS template's
   // default is the source, as below), which the override and the login message must fit.
@@ -160,13 +160,18 @@ export function check(tree) {
       }
       const node = override.services?.['hdtp-gateway']
       const caddy = override.services?.caddy
+      // The node's address is the address of the network it runs in: its own, or, with a
+      // network_mode of service:<name> in the release's compose.yaml, that service's.
+      const nodeMode = String(compose.services?.['hdtp-gateway']?.network_mode || '')
+      const holder = nodeMode.startsWith('service:') ? nodeMode.slice('service:'.length) : 'hdtp-gateway'
       if (!node || !caddy) fail(CLOUD_INIT, 'the override must configure hdtp-gateway and run caddy')
       else {
         for (const k of Object.keys(node.environment || {})) if (!envNames.has(k)) fail(CLOUD_INIT, `the override sets ${k}, which internal/core/config.go does not read`)
         if (node.environment?.HDTP_PUBLIC_URL !== '$HDTP_PUBLIC_URL') fail(CLOUD_INIT, 'the override must pass HDTP_PUBLIC_URL from .env to the node')
-        const nodeIP = node.networks?.edge?.ipv4_address
+        const nodeIP = override.services?.[holder]?.networks?.edge?.ipv4_address
         const caddyIP = caddy.networks?.edge?.ipv4_address
         const proxy = node.environment?.HDTP_PROXY_ADDRESS
+        if (!nodeIP) fail(CLOUD_INIT, `the node runs in ${holder}'s network (${vmCompose}), and the override gives ${holder} no fixed address on the edge network`)
         if (!nodeIP || !caddyIP) fail(CLOUD_INIT, 'the node and caddy need fixed addresses on the edge network: HDTP_PROXY_ADDRESS is one address')
         if (proxy !== caddyIP) fail(CLOUD_INIT, `HDTP_PROXY_ADDRESS is ${proxy}; caddy is at ${caddyIP}, and the node reads the caller's address from that one source`)
         const subnet = override.networks?.edge?.ipam?.config?.[0]?.subnet
@@ -195,30 +200,33 @@ export function check(tree) {
     const pin = files['/etc/apt/preferences.d/docker']?.content || ''
     if (!pin.includes(`Pin: version 5:${dockerMajor}.*`)) fail(CLOUD_INIT, `the apt pin does not hold docker-ce to major ${dockerMajor}, the one docs/quickstart.md measured`)
 
-    // runcmd: the fetch, the vendor step as the Makefile does it, the build and the start.
+    // runcmd: the fetch and the start, which pulls; no build and no vendor step, since the release's
+    // compose.yaml pulls the published image (below).
     const cmds = (ci.runcmd || []).map(String)
     const has = (s) => cmds.some((c) => c.includes(s))
     if (!has(`git remote add origin ${REPO}.git`) || !has('git fetch -q --depth 1 origin tag ${Release}') || !has('git checkout -q ${Release}')) fail(CLOUD_INIT, `runcmd must fetch the release tag from ${REPO}`)
-    const vendor = `cargo vendor --locked --manifest-path ${limitdDir}/Cargo.toml ${vendorDir}/crates > ${vendorDir}/config.toml`
-    if (!has(vendor)) fail(CLOUD_INIT, `runcmd must vendor the sidecar's crates as make limitd-vendor does: ${vendor}`)
-    if (!has(`docker run --rm -e CARGO_NET_GIT_FETCH_WITH_CLI=true -v /opt/hdtp:/src -w /src ${rustTag} `)) fail(CLOUD_INIT, `the vendor step must run in ${rustTag}, the Dockerfile's sidecar stage image, with the Makefile's git setting`)
-    if (!has('docker compose build && docker compose up -d')) fail(CLOUD_INIT, 'runcmd must build and start the compose project')
+    if (!has("runuser -l hdtp -c 'cd /opt/hdtp && docker compose up -d'")) fail(CLOUD_INIT, 'runcmd must start the compose project as hdtp in /opt/hdtp')
+    for (const s of ['docker compose build', '--build', 'cargo vendor']) if (has(s)) fail(CLOUD_INIT, `runcmd runs ${s}; the VM pulls the published image and compiles nothing`)
     if (!has('apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin')) fail(CLOUD_INIT, 'runcmd must install Docker\'s packages as docs.docker.com names them')
     if (!has('https://download.docker.com/linux/ubuntu/gpg')) fail(CLOUD_INIT, "runcmd must fetch Docker's apt key from download.docker.com")
     if (!has('usermod -aG docker hdtp') || !has('useradd --system')) fail(CLOUD_INIT, 'runcmd must create the service user hdtp in the docker group')
 
     // docs/deploy.md's upgrade runs what the first boot ran after installing Docker: the same tag
-    // fetch, the same vendor step, the ownership of what it wrote, the build and the start, each
-    // as runcmd spells it (an upgrade without the vendor step builds a new tag's sidecar from the
-    // old tag's crates, or from none).
+    // fetch and the same start, each as runcmd spells it, after writing the override this file
+    // writes. A VM keeps the override of the commit it was deployed from, and an override from
+    // before the node ran in node-network's network is one Compose refuses with the release's
+    // compose.yaml, so the document carries this file's override, byte for byte.
     const doc = tree.read(DOC)
     const fetch = cmds.map((c) => c.match(/git fetch -q --depth 1 origin tag \$\{Release\} && git checkout -q \$\{Release\}/)?.[0]).find(Boolean)
-    const vendorStep = cmds.find((c) => c.startsWith('docker run --rm -e CARGO_NET_GIT_FETCH_WITH_CLI=true '))
-    const upgrade = [['the tag fetch', fetch], ['the vendor step', vendorStep], ['the ownership of the vendored crates', 'chown -R hdtp:hdtp /opt/hdtp/.build'], ['the build and the start', 'docker compose build && docker compose up -d']]
+    const upgrade = [['the tag fetch', fetch], ['the start', "cd /opt/hdtp && docker compose up -d'"]]
     for (const [what, cmd] of upgrade) {
       if (!cmd || !has(cmd)) fail(CLOUD_INIT, `runcmd has no ${what} for docs/deploy.md's upgrade to repeat`)
       else if (!doc.includes(cmd)) fail(DOC, `the upgrade does not run ${what} as the first boot does: ${cmd}`)
     }
+    const overrideText = files['/opt/hdtp/compose.override.yaml']?.content || ''
+    const heredoc = doc.match(/sudo tee \/opt\/hdtp\/compose\.override\.yaml >\/dev\/null <<'EOF'\n([\s\S]*?\n)EOF\n/)?.[1]
+    if (heredoc === undefined) fail(DOC, "the upgrade does not rewrite /opt/hdtp/compose.override.yaml (sudo tee /opt/hdtp/compose.override.yaml >/dev/null <<'EOF')")
+    else if (heredoc !== overrideText) fail(DOC, `the upgrade's override differs from the one ${CLOUD_INIT} writes`)
 
     // The login message: where the setup link is, and how to reach the portal.
     const motd = files['/etc/update-motd.d/99-hdtp-gateway']?.content || ''
@@ -275,6 +283,14 @@ export function check(tree) {
     }
   })
   guard(COMPOSE, () => checkImage(tree, fail, makefile, vendorDir))
+  // The first boot pulls: the compose.yaml a VM runs (the default tag's) pulls the image `make image`
+  // pushed for that tag, and builds nothing, and the .env the first boot writes names no other image.
+  guard(CLOUD_INIT, () => {
+    const image = readConst(makefile, /^IMAGE := (.+)$/m, 'IMAGE')
+    checkPull(readVMCompose(), image, (what) => fail(CLOUD_INIT, `${vmCompose}: ${what}`), String(vmRelease).replace(/^v/, ''))
+    const env = ci?.write_files?.find((f) => f.path === '/opt/hdtp/.env')?.content || ''
+    if (/^HDTP_IMAGE=/m.test(env)) fail(CLOUD_INIT, `.env sets HDTP_IMAGE, so the VM would not run the image ${vmCompose} names`)
+  })
   guard(DOC, () => checkDocs(tree, fail, makefile))
   return problems
 }
@@ -422,19 +438,7 @@ function checkImage(tree, fail, makefile, vendorDir) {
   const recipe = makefile.match(/^image:\n((?:\t.*\n)+)/m)?.[1] || ''
   for (const t of ['$(IMAGE):$(VERSION)', '$(IMAGE):latest']) if (!recipe.includes(`-t ${t}`)) fail('Makefile', `make image does not tag ${t}`)
   const compose = parseYAML(tree.read(COMPOSE), COMPOSE)
-  const pulled = /^\$\{HDTP_IMAGE:-([^}]+):(\d+\.\d+\.\d+)\}$/
-  const versions = new Set()
-  for (const s of ['hdtp-gateway', 'limitd']) {
-    const svc = compose.services?.[s] || {}
-    const m = String(svc.image || '').match(pulled)
-    if (!m) fail(COMPOSE, `${s}'s image is ${JSON.stringify(svc.image)}, not \${HDTP_IMAGE:-<image>:<version>}`)
-    else {
-      if (m[1] !== image) fail(COMPOSE, `${s} pulls ${m[1]}; make image tags ${image}`)
-      versions.add(m[2])
-    }
-    if (svc.build !== undefined) fail(COMPOSE, `${s} has a build of its own; the build from source is compose.build.yaml's`)
-  }
-  if (versions.size > 1) fail(COMPOSE, `the node and its sidecar pull different versions: ${[...versions].join(', ')}`)
+  checkPull(compose, image, (what) => fail(COMPOSE, what))
   const build = parseYAML(tree.read(COMPOSE_BUILD), COMPOSE_BUILD)
   const names = new Set()
   for (const s of ['hdtp-gateway', 'limitd']) {
@@ -446,6 +450,27 @@ function checkImage(tree, fail, makefile, vendorDir) {
   }
   if (names.size > 1) fail(COMPOSE_BUILD, `the node and its sidecar are built under different names: ${[...names].join(', ')}`)
   for (const s of Object.keys(build.services || {})) if (!compose.services?.[s]) fail(COMPOSE_BUILD, `names a service compose.yaml has not got: ${s}`)
+}
+
+// A compose file that pulls the published image: the node and its sidecar run
+// ${HDTP_IMAGE:-<image>:<version>}, one version for both, and neither has a build. With version
+// given, that version must be the one pulled: the compose.yaml of a release tag pulls that
+// release's image, which is what `make image VERSION=` pushed for it.
+function checkPull(compose, image, fail, version) {
+  const pulled = /^\$\{HDTP_IMAGE:-([^}]+):(\d+\.\d+\.\d+)\}$/
+  const versions = new Set()
+  for (const s of ['hdtp-gateway', 'limitd']) {
+    const svc = compose.services?.[s] || {}
+    const m = String(svc.image || '').match(pulled)
+    if (!m) fail(`${s}'s image is ${JSON.stringify(svc.image)}, not \${HDTP_IMAGE:-<image>:<version>}`)
+    else {
+      if (m[1] !== image) fail(`${s} pulls ${m[1]}; make image tags ${image}`)
+      if (version !== undefined && m[2] !== version) fail(`${s} pulls version ${m[2]}; the release is ${version}`)
+      versions.add(m[2])
+    }
+    if (svc.build !== undefined) fail(`${s} has a build of its own; the build from source is compose.build.yaml's`)
+  }
+  if (versions.size > 1) fail(`the node and its sidecar pull different versions: ${[...versions].join(', ')}`)
 }
 
 // docs/deploy.md, held to the files and targets it names.
@@ -577,7 +602,6 @@ function selftest() {
     edit(CLOUD_INIT, 'header_up X-HDTP-Client-Address {remote_host}', 'header_up X-Forwarded-For {remote_host}', CLOUD_INIT, "the caller's address in a header the node does not read"),
     edit(CLOUD_INIT, 'header_up -X-Forwarded-Client-Cert', 'header_up -X-Client-Cert', CLOUD_INIT, "a caller's forged chain header reaching the node"),
     edit(CLOUD_INIT, 'reverse_proxy https://172.30.41.20:8443', 'reverse_proxy https://172.30.41.20:8080', CLOUD_INIT, "Caddy dialling the portal's port instead of the node's"),
-    edit(CLOUD_INIT, 'rust:1.92-alpine', 'rust:1.80-alpine', CLOUD_INIT, 'the vendor step in another Rust image than the Dockerfile\'s'),
     edit(CLOUD_INIT, 'Pin: version 5:29.*', 'Pin: version 5:28.*', CLOUD_INIT, 'Docker held to a major the quickstart did not measure'),
     edit(CLOUD_INIT, 'docker compose logs hdtp-gateway | grep', 'docker ps | grep', CLOUD_INIT, 'a login message that does not say where the setup link is'),
     edit(CLOUD_INIT, '            - "443:443"\n            - "443:443/udp"\n', '            - "443:443/udp"\n', CLOUD_INIT, 'Caddy not published on 443'),
@@ -603,8 +627,9 @@ function selftest() {
     edit(DOC, '`make deploy-check`', '`make deploy-validate`', DOC, 'a make target the Makefile has not got'),
     edit(DOC, 'deploy/aws/hdtp-gateway.cfn.json', 'deploy/aws/hdtp-gateway.cfn.yaml', DOC, 'a file that does not exist'),
     edit(DOC, '| Azure |', '| Azure Stack |', DOC, 'a provider without a status row'),
-    edit(DOC, 'sudo docker run --rm -e CARGO_NET_GIT_FETCH_WITH_CLI=true', 'sudo true', DOC, 'an upgrade without the vendor step the first boot runs'),
-    edit(DOC, 'Template validated offline by `make deploy-check` on 2026-10-09; not yet run on AWS by the maintainers', 'Template validated offline by `make deploy-check` on 2026-10-09', DOC, 'a status that no longer says not yet run while no run is dated'),
+    edit(DOC, "cd /opt/hdtp && docker compose up -d'", "cd /opt/hdtp && docker compose up -d --build'", DOC, 'an upgrade that does not start as the first boot does'),
+    edit(DOC, '\n  node-network:\n    networks:\n', '\n    networks:\n', DOC, 'an upgrade writing the override from before the node ran in node-network\'s network'),
+    edit(DOC, 'Template validated offline by `make deploy-check` on 2026-10-20; not yet run on AWS by the maintainers', 'Template validated offline by `make deploy-check` on 2026-10-20', DOC, 'a status that no longer says not yet run while no run is dated'),
     edit(DOC, 'sign in at `http://localhost:8080`', 'sign in at `http://localhost:8081`', DOC, "the document naming a portal port compose.yaml does not publish"),
     edit(CLOUD_INIT, 'ssh -L 8080:127.0.0.1:8080 <your login>', 'ssh -L 9090:127.0.0.1:9090 <your login>', CLOUD_INIT, 'the login message tunnelling a port compose.yaml does not publish'),
     edit(RENDER, '=~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ', '== v[0-9]*.[0-9]*.[0-9]* ', RENDER, 'the release checked by a glob, which lets a quote through into the cloud-init'),
@@ -617,7 +642,14 @@ function selftest() {
     // The release's compose.yaml, which a VM runs, not this tree's.
     edit(`${release}:${COMPOSE}`, '"127.0.0.1:8080:8081"', '"127.0.0.1:9090:8081"', CLOUD_INIT, "the release's compose.yaml publishing the portal on a port the login message does not tunnel"),
     edit(`${release}:${COMPOSE}`, '\n  hdtp-gateway:\n', '\n  node:\n', CLOUD_INIT, "the override configuring a service the release's compose.yaml has not got"),
-    edit(`${release}:${COMPOSE}`, '\n  hdtp-gateway:\n', '\n  hdtp-gateway:\n    network_mode: "service:node-network"\n', CLOUD_INIT, "the override giving a network to a service the release's compose.yaml gives a network_mode"),
+    edit(CLOUD_INIT, '            HDTP_PROXY_ADDRESS: 172.30.41.10\n\n        node-network:\n', '            HDTP_PROXY_ADDRESS: 172.30.41.10\n', CLOUD_INIT, "the override giving a network to hdtp-gateway, which the release's compose.yaml gives a network_mode"),
+    edit(`${release}:${COMPOSE}`, '    network_mode: "service:node-network"\n    # restart: Compose restarts the node', '    network_mode: "service:portal"\n    # restart: Compose restarts the node', CLOUD_INIT, "the node in another service's network than the one the override gives the edge address"),
+    // The first boot pulls: the release's compose.yaml pulls the image make image pushed for it.
+    edit(`${release}:${COMPOSE}`, '    image: "${HDTP_IMAGE:-', '    build: .\n    image: "${HDTP_IMAGE:-', CLOUD_INIT, "the release's compose.yaml building from source"),
+    edit(`${release}:${COMPOSE}`, '"${HDTP_IMAGE:-ghcr.io/humandelegatedtrustprotocol/hdtp-gateway:', '"${HDTP_IMAGE:-ghcr.io/humandelegatedtrustprotocol/hdtp-gateway-agent:', CLOUD_INIT, "the release's compose.yaml pulling an image make image does not tag"),
+    edit(`${release}:${COMPOSE}`, `hdtp-gateway:${release.replace(/^v/, '')}}"`, 'hdtp-gateway:0.0.1}"', CLOUD_INIT, "the release's compose.yaml pulling another release's image"),
+    edit(CLOUD_INIT, '      HDTP_HOSTNAME=${Hostname}\n', '      HDTP_HOSTNAME=${Hostname}\n      HDTP_IMAGE=hdtp-gateway:source\n', CLOUD_INIT, ".env naming another image than the release's compose.yaml"),
+    edit(CLOUD_INIT, "cd /opt/hdtp && docker compose up -d'\n", "cd /opt/hdtp && docker compose up -d'\n  - runuser -l hdtp -c 'cd /opt/hdtp && docker compose build'\n", CLOUD_INIT, 'a first boot that builds the node again'),
   ]
   // The two embedded copies drifting from the file, one line each: a change of one character.
   plants[plants.findIndex((p) => p.what === 'placeholder: set below')] = edit(CFN, '"#cloud-config",', '"#cloud-config ",', CFN, 'the embedded cloud-init drifting from the file')
@@ -647,7 +679,9 @@ function selftest() {
     } catch (e) {
       problems = [`${plant.kind}: ${e.message}`]
     }
-    const hit = problems.find((p) => p.startsWith(`${plant.kind}: `))
+    // A plant whose text the file no longer has planted nothing: its own error is not a refusal.
+    const stale = problems.find((p) => p.includes(`plant "${plant.what}": `))
+    const hit = stale ? undefined : problems.find((p) => p.startsWith(`${plant.kind}: `))
     if (!planted || !hit) {
       failed++
       console.error(`selftest: NOT REFUSED — ${plant.file}: ${plant.what}` + (problems.length ? `\n    other problems: ${problems.join('; ')}` : ''))

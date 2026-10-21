@@ -2,7 +2,7 @@
 
 This is the walkthrough the **Open in Cloud Shell** button opens beside a clone of the repository.
 It runs `deploy/gcp/deploy.sh`: one Arm VM from the Ubuntu 24.04 arm64 image family, a firewall
-rule for 80 and 443, and `deploy/cloud-init.yaml` as the VM's first boot, which builds the node
+rule for 80 and 443, and `deploy/cloud-init.yaml` as the VM's first boot, which pulls the node
 and puts Caddy in front for TLS on your hostname. `docs/deploy.md` says what you get and what it
 does not do; the signing steps that make the node yours are the quickstart's.
 

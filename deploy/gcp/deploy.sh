@@ -2,14 +2,14 @@
 # hdtp-gateway on one Arm VM in Google Cloud, from a shell with gcloud (Cloud Shell, or your own):
 # a firewall rule for 80 and 443, a Compute Engine instance from the Ubuntu 24.04 arm64 image
 # family with deploy/cloud-init.yaml as its user-data, and the instance's address printed with
-# what to do next: point the hostname at it (docs/deploy.md). The first boot then builds the node
+# what to do next: point the hostname at it (docs/deploy.md). The first boot then pulls the node
 # and brings Caddy up for TLS on that hostname.
 #
 #   HDTP_HOSTNAME=hdtp.example.com deploy/gcp/deploy.sh
 #
 # Environment, with its defaults:
 #   HDTP_HOSTNAME   required: the name you will point at the VM, the node's public URL
-#   HDTP_RELEASE    v0.1.5              the release tag to build
+#   HDTP_RELEASE    v0.3.0              the release tag to run
 #   HDTP_ZONE       us-central1-a       a zone that offers T2A (Arm) machine types
 #   HDTP_MACHINE    t2a-standard-2      an Arm machine type (2 vCPUs, 8 GB)
 #   HDTP_NAME       hdtp-gateway        the instance's name
@@ -17,7 +17,7 @@
 set -euo pipefail
 
 hostname="${HDTP_HOSTNAME:-}"
-release="${HDTP_RELEASE:-v0.1.5}"
+release="${HDTP_RELEASE:-v0.3.0}"
 zone="${HDTP_ZONE:-us-central1-a}"
 machine="${HDTP_MACHINE:-t2a-standard-2}"
 name="${HDTP_NAME:-hdtp-gateway}"
@@ -48,11 +48,11 @@ gcloud compute instances create "$name" \
 ip="$(gcloud compute instances describe "$name" --zone="$zone" --format='get(networkInterfaces[0].accessConfigs[0].natIP)')"
 cat <<EOF
 
-hdtp-gateway is building on $name ($zone), at $ip.
+hdtp-gateway is starting on $name ($zone), at $ip.
 
 1. Point the hostname at it: an A record, $hostname -> $ip, wherever that name's DNS lives.
    Caddy asks for the certificate on its first start and keeps retrying until the name resolves.
-2. Wait for the first boot to finish (minutes: the node and its sidecar are compiled on the VM):
+2. Wait for the first boot to finish (it installs Docker, then pulls the node and its sidecar):
        gcloud compute ssh $name --zone=$zone -- cloud-init status --wait
 3. Log in with the portal's loopback port tunnelled, and follow the message of the day:
        gcloud compute ssh $name --zone=$zone -- -L 8080:127.0.0.1:8080
